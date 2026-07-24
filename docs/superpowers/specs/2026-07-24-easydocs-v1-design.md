@@ -283,10 +283,10 @@ API GA (M3) ships before copies/push (M4) — the product is fully usable via th
 
 ---
 
-## 14. Open decisions
+## 14. Decisions & remaining open items
 
-1. **License.** Repo is MIT today. Recommendation: **AGPL-3.0 for the server** (a competitor can't run a closed hosted fork without contributing back), **MIT for API clients/examples**. Decide before first public commit; add a **DCO** from commit #1.
-2. **Coalescing default** — start with dedupe + on-close; tune only if Collabora produces version spam in practice.
+1. **License — DECIDED.** **AGPL-3.0 for the server**, **MIT for API clients/examples/SDKs**. **DCO** (Developer Certificate of Origin, `Signed-off-by` line) from commit #1 — contributors retain copyright; the project stays AGPL. No CLA. Repo is MIT today; the split (server → AGPL, `/packages/*` clients → MIT) is applied during M0 repo setup, and `LICENSE`/`DCO`/`CONTRIBUTING.md` are finalized by M5. **Monetization:** donations (GitHub Sponsors / Buy Me a Coffee / Open Collective) + optionally an official paid hosted instance later — both fully compatible with AGPL. Dual-license/commercial-license sales are intentionally *not* pursued (would have required a CLA).
+2. **Coalescing default** *(open)* — start with dedupe + on-close; tune only if Collabora produces version spam in practice.
 
 ---
 
