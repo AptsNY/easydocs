@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-24-easydocs-v1-design.md` (§2 scope, §4 data model, §5.1 numbering, §10 API, §11 auth, §12.1 E1–E2, §13 M0).
 
-**Reference the spec for the full v1 data model.** M0 creates only the tables it needs (`organizations`, `users`, `org_members`, `folders`, `documents`, `document_members`, `blobs`, `versions`, `branches`); the rest arrive in later migrations. Domain enums/columns not exercised in M0 (e.g. `versions.source` values beyond `upload`) are still declared per spec so later milestones don't re-migrate.
+**M0 creates the FULL v1 schema in the initial migration** (deliberate decision — see below). All v1 tables from spec §4 are declared as EF entities and migrated now: `organizations`, `users`, `org_members`, `folders`, `documents`, `document_members`, `invitations`, `branches`, `blobs`, `versions` (incl. publish columns), `approval_requests`, `push_requests`, `edit_sessions`, `share_links`, `version_diffs`, `audit_events`, `api_tokens`. Only the tables M0 exercises (`organizations`/`users`/`org_members`/`folders`/`documents`/`document_members`/`branches`/`blobs`/`versions`) get behavior in M0; the rest sit ready for their milestone.
+
+> **Why full schema now (not per-milestone migrations):** the goal is a stable substrate that autonomous/overnight agents extend milestone-by-milestone without re-migrating the core or fighting schema drift. Declaring all v1 tables in one initial migration is cheap (it's data definition, not behavior) and eliminates a whole class of merge/ordering conflicts between later agents. This is a `ponytail:` deliberate call — the *ceiling* is that a v1.1 schema change still needs its own migration; that's fine. **Behavioral seams** (`IEditProvider`, `IDiffService`, `IPdfRenderer`, merge) are intentionally NOT stubbed here — each is defined in the milestone plan that first implements it, so no interface exists without a caller. M0 defines only `IBlobStore`, which M0 uses.
 
 ---
 
@@ -177,7 +179,7 @@ public class Document
     public DateTimeOffset? DeletedAt { get; set; }
 }
 ```
-Create `Organization` (incl. `Slug`), `User` (`Email` CITEXT-unique, `DisplayName`, `PasswordHash?`), `OrgMember`, `Folder` (`ParentId?`, `DeletedAt?`), `DocumentMember`, `Branch` (`Ordinal`, `RootVersionId?`, `Kind`, `MergedIntoVersionId?`), `Blob` (`Sha256` PK, `SizeBytes`, `Mime`, `StorageKey`), `DocumentVersion` (`BranchId`, `SeqInBranch`, `ParentVersionId?`, `Major/Minor/Revision`, `Name?`, `Source`, `BlobSha256`, publish columns nullable, `CreatedBy`, `CreatedAt`).
+Create `Organization` (incl. `Slug`), `User` (`Email` CITEXT-unique, `DisplayName`, `PasswordHash?`), `OrgMember`, `Folder` (`ParentId?`, `DeletedAt?`), `DocumentMember`, `Branch` (`Ordinal`, `RootVersionId?`, `Kind`, `MergedIntoVersionId?`), `Blob` (`Sha256` PK, `SizeBytes`, `Mime`, `StorageKey`), `DocumentVersion` (`BranchId`, `SeqInBranch`, `ParentVersionId?`, `Major/Minor/Revision`, `Name?`, `Source`, `BlobSha256`, publish columns nullable, `CreatedBy`, `CreatedAt`). **Plus the remaining v1 tables — declared now, behavior added in later milestones (see intro note):** `Invitation`, `ApprovalRequest`, `PushRequest`, `EditSession` (no `mode` column — WOPI-only), `ShareLink`, `VersionDiff`, `AuditEvent`, `ApiToken` — model each per spec §4 / §6.3. These are pure entity + migration declarations; no endpoints or services for them in M0.
 
 - [ ] **Step 3: Write `EasyDocsDbContext`** with `DbSet<>`s and Fluent config for unique constraints (`users.email`, `organizations.slug`, `branches (document_id, ordinal)`, `versions (branch_id, seq_in_branch)`), the `citext` extension, and `gen_random_uuid()` defaults. Enable `HasPostgresExtension("citext")` and `HasPostgresExtension("pgcrypto")` in `OnModelCreating`.
 
