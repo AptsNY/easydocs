@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EasyDocs.Api/EasyDocs.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EasyDocs.Api.Tests/EasyDocs.Api.Tests.csproj" />
+  </Folder>
+</Solution>
