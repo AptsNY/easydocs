@@ -6,7 +6,7 @@
 
 **Architecture:** One ASP.NET Core application (REST API now; it will also host the React SPA and WOPI host in later milestones). EF Core + PostgreSQL with migrations applied on startup. Blobs stored content-addressed on a filesystem volume. Auth is Argon2id password hashing + a JWT carried in an `httpOnly` cookie (web) or `Authorization: Bearer` (API). Integration tests use Testcontainers to spin up a throwaway Postgres in Docker.
 
-**Tech Stack:** .NET 8 (LTS) · ASP.NET Core Minimal APIs · EF Core 8 + Npgsql · PostgreSQL 16 · Konscious.Security.Cryptography.Argon2 · Microsoft.AspNetCore.Authentication.JwtBearer · xUnit + Testcontainers.PostgreSql + `WebApplicationFactory` · Vite/React (minimal scaffold) · Docker Compose.
+**Tech Stack:** .NET 10 (LTS, `net10.0`) · ASP.NET Core Minimal APIs · EF Core 10 + Npgsql · PostgreSQL 16 · Konscious.Security.Cryptography.Argon2 · Microsoft.AspNetCore.Authentication.JwtBearer · xUnit + Testcontainers.PostgreSql + `WebApplicationFactory` · Vite/React (minimal scaffold) · Docker Compose. (SDK 10.0.302 is installed via Homebrew.)
 
 **Spec:** `docs/superpowers/specs/2026-07-24-easydocs-v1-design.md` (§2 scope, §4 data model, §5.1 numbering, §10 API, §11 auth, §12.1 E1–E2, §13 M0).
 
@@ -18,7 +18,7 @@
 
 ## Prerequisites (do once, before Task 1)
 
-- [ ] **Install the .NET 8 SDK.** macOS: `brew install dotnet@8` (or the official installer from dotnet.microsoft.com). Verify: `dotnet --version` prints `8.0.x`.
+- [x] **.NET 10 SDK installed** (10.0.302 via `brew install dotnet`). Verify: `dotnet --version` prints `10.0.x`. `dotnet` resolves on the default PATH (`/opt/homebrew/bin/dotnet`).
 - [ ] Confirm Docker is running: `docker ps` succeeds (Testcontainers and compose both need it).
 - [ ] Node ≥ 20 present (`node --version`) — used by the Vite scaffold in Task 11.
 
@@ -95,22 +95,20 @@ git checkout main && git checkout -b m0-skeleton
 ```bash
 cd /Users/robertozuniga/Desktop/easydocs
 dotnet new sln -n easydocs
-dotnet new webapi -n EasyDocs.Api -o src/EasyDocs.Api --use-minimal-apis
+dotnet new web -n EasyDocs.Api -o src/EasyDocs.Api          # minimal empty ASP.NET Core (no template cruft)
 dotnet new xunit -n EasyDocs.Api.Tests -o tests/EasyDocs.Api.Tests
 dotnet sln add src/EasyDocs.Api/EasyDocs.Api.csproj tests/EasyDocs.Api.Tests/EasyDocs.Api.Tests.csproj
 dotnet add tests/EasyDocs.Api.Tests reference src/EasyDocs.Api
 dotnet new gitignore
-# delete the webapi template's sample so the strict build stays clean:
-rm -f src/EasyDocs.Api/WeatherForecast.cs
-# (also remove any WeatherForecast endpoint/controller the template added in Program.cs)
 ```
+(`dotnet new web` gives a bare `Program.cs` with a single hello endpoint — no `WeatherForecast` sample to delete. Replace the hello endpoint with `/health` in Task 2.)
 
 - [ ] **Step 3: Add `Directory.Build.props`** (shared compiler settings)
 
 ```xml
 <Project>
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -526,7 +524,7 @@ public class BlobStoreTests
 - Create: `Dockerfile`, `deploy/compose/docker-compose.yml`, `deploy/compose/.env.example`, `.dockerignore`
 - Modify: `appsettings.json` (read connection string + `BLOB_ROOT` + JWT secret from env)
 
-- [ ] **Step 1: Write the `Dockerfile`** — **dotnet-only stages for now** (there is no `web/` until Task 11, so no node stage yet): stage 1 `mcr.microsoft.com/dotnet/sdk:8.0` runs `dotnet publish src/EasyDocs.Api -c Release -o /app/publish` (this produces an empty/placeholder `wwwroot` — fine, the SPA lands in Task 11); stage 2 `mcr.microsoft.com/dotnet/aspnet:8.0` runtime, `apt-get install -y libreoffice --no-install-recommends` (bundled now so later PDF work has it), `COPY --from=build /app/publish .`, `EXPOSE 8080`, `ENTRYPOINT ["dotnet","EasyDocs.Api.dll"]`. Task 11 prepends the node build stage and copies its output into `wwwroot`.
+- [ ] **Step 1: Write the `Dockerfile`** — **dotnet-only stages for now** (there is no `web/` until Task 11, so no node stage yet): stage 1 `mcr.microsoft.com/dotnet/sdk:10.0` runs `dotnet publish src/EasyDocs.Api -c Release -o /app/publish` (this produces an empty/placeholder `wwwroot` — fine, the SPA lands in Task 11); stage 2 `mcr.microsoft.com/dotnet/aspnet:10.0` runtime, `apt-get install -y libreoffice --no-install-recommends` (bundled now so later PDF work has it), `COPY --from=build /app/publish .`, `EXPOSE 8080`, `ENTRYPOINT ["dotnet","EasyDocs.Api.dll"]`. Task 11 prepends the node build stage and copies its output into `wwwroot`.
 
 - [ ] **Step 2: Write `docker-compose.yml`** — services `postgres` (`postgres:16`, healthcheck, named volume) and `easydocs` (build `.`, `depends_on` postgres healthy, env from `.env`, port `8080:8080`, a `blobs` volume mounted at `BLOB_ROOT`). Collabora is intentionally **not** here yet — it arrives in M1.
 
@@ -584,7 +582,7 @@ Expected: `/health` returns 200 (migrations ran on startup against the compose P
 - Create: `.github/workflows/ci.yml`, `CONTRIBUTING.md`
 - Modify: `LICENSE` (AGPL-3.0 for the server)
 
-- [ ] **Step 1: Write `ci.yml`** — on push/PR: checkout, setup-dotnet 8, setup-node 20, `dotnet build`, `dotnet test` (Testcontainers uses the runner's Docker), `npm --prefix web ci && npm --prefix web run build`. Add a DCO check step (e.g. the `Signed-off-by` presence check).
+- [ ] **Step 1: Write `ci.yml`** — on push/PR: checkout, setup-dotnet `10.0.x`, setup-node 20, `dotnet build`, `dotnet test` (Testcontainers uses the runner's Docker), `npm --prefix web ci && npm --prefix web run build`. Add a DCO check step (e.g. the `Signed-off-by` presence check).
 
 - [ ] **Step 2: Replace `LICENSE`** with the full **AGPL-3.0** text (server license per spec §14). Add a short note that future `packages/*` API clients are MIT.
 
