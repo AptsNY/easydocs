@@ -3,6 +3,7 @@ using System.Text;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Folders;
+using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<IBlobStore>(sp =>
+    new FileSystemBlobStore(sp.GetRequiredService<IConfiguration>()["BLOB_ROOT"]
+        ?? throw new InvalidOperationException("BLOB_ROOT not configured")));
 
 // "sub"/"org" claims come through verbatim (no legacy mapping to ClaimTypes.NameIdentifier).
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
