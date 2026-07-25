@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Restore .NET
+        run: dotnet restore
+
+      - name: Build .NET
+        run: dotnet build --no-restore -c Release
+
+      - name: Build frontend
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
+      # ubuntu-latest runners ship Docker, so Testcontainers can start Postgres.
+      - name: Test
+        run: dotnet test --no-build -c Release
+
+  dco-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify every PR commit is signed off (DCO)
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for c in $(git rev-list "$base..$head"); do
+            if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::Commit $c is missing a Signed-off-by line (use git commit -s)"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "DCO check failed. Sign off every commit with 'git commit -s'."
+            exit 1
+          fi
+          echo "All PR commits are signed off."
