@@ -51,37 +51,37 @@ public static class DocumentEndpoints
 
     private static async Task<IResult> Get(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
-        var doc = await FindAsync(db, ctx, id);
-        return doc is null
-            ? Problem.Of(404, "Not found", "Document not found.")
-            : Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId, orgId = doc.OrgId });
+        var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
+        if (failure is not null) return failure;
+        return Results.Ok(new { id = doc!.Id, name = doc.Name, folderId = doc.FolderId, orgId = doc.OrgId });
     }
 
     private static async Task<IResult> Update(Guid id, UpdateRequest req, HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
-        var doc = await FindAsync(db, ctx, id);
-        if (doc is null) return Problem.Of(404, "Not found", "Document not found.");
+        var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
+        if (failure is not null) return failure;
 
         if (req.Name is not null)
         {
             var name = req.Name.Trim();
             if (name.Length == 0) return Problem.Of(400, "Invalid request", "name cannot be empty.");
-            doc.Name = name;
+            doc!.Name = name;
         }
         if (req.FolderId is { } fid)
         {
             if (!await FolderExistsAsync(db, orgId, fid))
                 return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
-            doc.FolderId = fid;
+            doc!.FolderId = fid;
         }
         await db.SaveChangesAsync();
-        return Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
+        return Results.Ok(new { id = doc!.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
     private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
-        if (await FindAsync(db, ctx, id) is null) return Problem.Of(404, "Not found", "Document not found.");
+        var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
+        if (failure is not null) return failure;
         var items = await db.Versions
             .Where(v => v.DocumentId == id)
             .OrderBy(v => v.CreatedAt)
@@ -93,7 +93,8 @@ public static class DocumentEndpoints
     private static async Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
     {
         var userId = CurrentUser.UserId(ctx.User);
-        if (await FindAsync(db, ctx, id) is null) return Problem.Of(404, "Not found", "Document not found.");
+        var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
+        if (failure is not null) return failure;
 
         var file = ctx.Request.Form.Files["file"] ?? ctx.Request.Form.Files.FirstOrDefault();
         if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
@@ -133,14 +134,27 @@ public static class DocumentEndpoints
             new { versionId = version.Id, major = version.Major, minor = version.Minor, revision = version.Revision });
     }
 
-    // TODO(Task 9): replace with DocumentAuthorization.ResolveRole. For M0, require the caller be a member of the doc in their org.
-    private static Task<Document?> FindAsync(EasyDocsDbContext db, HttpContext ctx, Guid id)
+    // Single authorization chokepoint (spec §10/§11). Resolves the caller's document role with no org-role
+    // fallback, then maps failures to IResult: cross-org/missing -> 404, same-org non-member -> 403,
+    // and (when requireEdit) Viewer -> 403. On success returns the loaded doc and a null failure.
+    private static async Task<(Document? Doc, IResult? Failure)> AuthorizeAsync(
+        EasyDocsDbContext db, HttpContext ctx, Guid id, bool requireEdit)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
-        return db.Documents.FirstOrDefaultAsync(d =>
-            d.Id == id && d.OrgId == orgId && d.DeletedAt == null &&
-            db.DocumentMembers.Any(m => m.DocumentId == d.Id && m.UserId == userId));
+        var (result, role) = await DocumentAuthorization.ResolveAsync(db, orgId, userId, id);
+        switch (result)
+        {
+            case AccessResult.NotFound:
+                return (null, Problem.Of(404, "Not found", "Document not found."));
+            case AccessResult.Forbidden:
+                return (null, Problem.Of(403, "Forbidden", "You do not have access to this document."));
+        }
+        if (requireEdit && !DocumentAuthorization.CanEdit(role!.Value))
+            return (null, Problem.Of(403, "Forbidden", "Editor role required."));
+
+        var doc = await db.Documents.FirstAsync(d => d.Id == id);
+        return (doc, null);
     }
 
     private static Task<bool> FolderExistsAsync(EasyDocsDbContext db, Guid orgId, Guid id) =>
