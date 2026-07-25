@@ -9,9 +9,14 @@ namespace EasyDocs.Api.Auth;
 public static partial class AuthEndpoints
 {
     public record RegisterRequest(string Email, string DisplayName, string Password, string OrgName);
+    public record LoginRequest(string Email, string Password);
 
-    public static void MapAuthEndpoints(this WebApplication app) =>
+    public static void MapAuthEndpoints(this WebApplication app)
+    {
         app.MapPost("/api/v1/auth/register", Register);
+        app.MapPost("/api/v1/auth/login", Login);
+        app.MapGet("/api/v1/me", Me).RequireAuthorization();
+    }
 
     private static async Task<IResult> Register(
         RegisterRequest req, HttpContext ctx, EasyDocsDbContext db,
@@ -68,6 +73,38 @@ public static partial class AuthEndpoints
 
         return Results.Created($"/api/v1/users/{user.Id}",
             new { id = user.Id, email = user.Email, displayName = user.DisplayName, orgId = org.Id });
+    }
+
+    private static async Task<IResult> Login(
+        LoginRequest req, HttpContext ctx, EasyDocsDbContext db, IPasswordHasher hasher, JwtService jwt)
+    {
+        var email = req.Email?.Trim() ?? "";
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+        // Uniform 401 whether the email is unknown, SSO-only (null hash), or the password is wrong.
+        if (user?.PasswordHash is null || !hasher.Verify(req.Password ?? "", user.PasswordHash))
+            return Problem.Of(401, "Invalid credentials", "Email or password is incorrect.");
+
+        var member = await db.OrgMembers.FirstAsync(m => m.UserId == user.Id);
+
+        ctx.Response.Cookies.Append("ed_session", jwt.Issue(user.Id, member.OrgId), new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Lax,
+            Path = "/",
+        });
+
+        return Results.Ok(new { id = user.Id, email = user.Email, displayName = user.DisplayName, orgId = member.OrgId });
+    }
+
+    private static async Task<IResult> Me(HttpContext ctx, EasyDocsDbContext db)
+    {
+        var userId = CurrentUser.UserId(ctx.User);
+        var orgId = CurrentUser.OrgId(ctx.User);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        return user is null
+            ? Problem.Of(401, "Invalid credentials", "User no longer exists.")
+            : Results.Ok(new { id = user.Id, email = user.Email, displayName = user.DisplayName, orgId });
     }
 
     private static string Slugify(string name)
