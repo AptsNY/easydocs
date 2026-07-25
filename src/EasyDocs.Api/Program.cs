@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Documents;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -67,6 +68,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFolderEndpoints();
+app.MapDocumentEndpoints();
 
 app.Run();
 
