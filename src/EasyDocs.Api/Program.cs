@@ -70,6 +70,15 @@ app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 
+// Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
+// must 404 (not fall through to index.html), so terminate them before the fallback.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.Map("/api/{**rest}", () => Results.NotFound());
+app.Map("/wopi/{**rest}", () => Results.NotFound());
+app.Map("/s/{**rest}", () => Results.NotFound());
+app.MapFallbackToFile("index.html");
+
 app.Run();
 
 // HS256 requires a >= 256-bit (32-byte) key; reject a missing or short secret with a clear message.

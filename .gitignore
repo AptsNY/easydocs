@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Vite SPA build output (Docker builds it; not tracked)
+web/dist/
+web/node_modules/
+
 # User-specific files
 *.rsuser
 *.suo
