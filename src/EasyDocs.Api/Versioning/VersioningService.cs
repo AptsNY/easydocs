@@ -1,5 +1,6 @@
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
+using EasyDocs.Api.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Versioning;
@@ -16,7 +17,7 @@ public sealed record CommitResult(Guid VersionId, int Major, int Minor, int Revi
 /// CommitSaveAsync. This task delivers the fast-forward (main-branch head) path + sha dedupe.
 /// Branch-on-stale-base is Task 6.
 /// </summary>
-public sealed class VersioningService(EasyDocsDbContext db)
+public sealed class VersioningService(EasyDocsDbContext db, EventBus bus)
 {
     private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -102,7 +103,9 @@ public sealed class VersioningService(EasyDocsDbContext db)
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        // TODO(Task 7/8): emit SSE version.created + enqueue diff.
+        bus.Publish(input.DocumentId, "version.created",
+            new { versionId = version.Id, major, minor, revision = rev, branchId = targetBranch.Id });
+        // TODO(Task 8): enqueue diff.
         return new CommitResult(version.Id, major, minor, rev, targetBranch.Id, Deduped: false);
     }
 }

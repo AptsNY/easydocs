@@ -4,6 +4,7 @@ using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Documents;
 using EasyDocs.Api.Editing;
+using EasyDocs.Api.Events;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
+builder.Services.AddSingleton<EventBus>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
@@ -79,6 +81,7 @@ app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 app.MapEditingEndpoints();
+app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
