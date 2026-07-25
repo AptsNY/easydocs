@@ -44,6 +44,121 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
     private record DocDto(Guid Id);
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record VersionDto(Guid Id, int Major, int Minor, int Revision, string Source);
+    private record MintDto(Guid SessionId, string AccessToken);
+
+    // Upload a base version, returning (docId, headVersionId).
+    private static async Task<(Guid docId, Guid headVid)> DocWithHeadAsync(HttpClient c, byte[] bytes)
+    {
+        var docId = await CreateDocAsync(c);
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(bytes));
+        up.EnsureSuccessStatusCode();
+        return (docId, (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId);
+    }
+
+    private static async Task<(Guid sid, string token)> MintSessionAsync(HttpClient c, Guid vid)
+    {
+        var mint = (await (await c.PostAsync($"/api/v1/versions/{vid}/sessions", null))
+            .Content.ReadFromJsonAsync<MintDto>())!;
+        return (mint.SessionId, mint.AccessToken);
+    }
+
+    // Drive a session save through WOPI (LOCK is idempotent, so re-locking the same value is fine).
+    // Returns the created/deduped version id from X-WOPI-ItemVersion.
+    private async Task<Guid> WopiSaveAsync(Guid sid, string token, byte[] bytes)
+    {
+        var wopi = _f.CreateClient();
+        var lockReq = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{sid}?access_token={token}");
+        lockReq.Headers.Add("X-WOPI-Override", "LOCK");
+        lockReq.Headers.Add("X-WOPI-Lock", "L1");
+        (await wopi.SendAsync(lockReq)).EnsureSuccessStatusCode();
+
+        var putReq = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{sid}/contents?access_token={token}")
+        {
+            Content = new ByteArrayContent(bytes),
+        };
+        putReq.Headers.Add("X-WOPI-Lock", "L1");
+        var put = await wopi.SendAsync(putReq);
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        return Guid.Parse(put.Headers.GetValues("X-WOPI-ItemVersion").Single());
+    }
+
+    [Fact]
+    public async Task Two_sessions_from_same_head_produce_two_branches()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 5, 0 }); // H = 0.0.1
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+
+        var vA = await WopiSaveAsync(sidA, tokA, new byte[] { 5, 1 }); // base==head -> fast-forward main (0.0.2)
+        var vB = await WopiSaveAsync(sidB, tokB, new byte[] { 5, 2 }); // base stale -> new concurrent branch (0.0.3)
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var branches = await db.Branches.Where(b => b.DocumentId == docId).OrderBy(b => b.Ordinal).ToListAsync();
+        Assert.Equal(2, branches.Count);
+        var main = branches[0];
+        var concurrent = branches[1];
+        Assert.Equal(0, main.Ordinal);
+        Assert.Equal(1, concurrent.Ordinal);
+        Assert.Equal(BranchKind.Concurrent, concurrent.Kind);
+        Assert.Equal(headVid, concurrent.RootVersionId);
+
+        var verA = await db.Versions.FirstAsync(v => v.Id == vA);
+        var verB = await db.Versions.FirstAsync(v => v.Id == vB);
+        Assert.Equal(main.Id, verA.BranchId);
+        Assert.Equal(concurrent.Id, verB.BranchId);
+        Assert.Equal(headVid, verB.ParentVersionId);
+        Assert.True(await db.Blobs.AnyAsync(bl => bl.Sha256 == verA.BlobSha256));
+        Assert.True(await db.Blobs.AnyAsync(bl => bl.Sha256 == verB.BlobSha256));
+
+        var doc = await db.Documents.FirstAsync(d => d.Id == docId);
+        Assert.Equal(3, doc.VersionCounterRev);
+    }
+
+    [Fact]
+    public async Task Session_pins_to_its_branch_after_first_stale_commit()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 6, 0 });
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+
+        await WopiSaveAsync(sidA, tokA, new byte[] { 6, 1 }); // fast-forward main
+        var vB1 = await WopiSaveAsync(sidB, tokB, new byte[] { 6, 2 }); // -> new concurrent branch
+        var vB2 = await WopiSaveAsync(sidB, tokB, new byte[] { 6, 3 }); // fast-forward on ITS branch
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(2, await db.Branches.CountAsync(b => b.DocumentId == docId)); // no third branch
+
+        var b1 = await db.Versions.FirstAsync(v => v.Id == vB1);
+        var b2 = await db.Versions.FirstAsync(v => v.Id == vB2);
+        Assert.Equal(b1.BranchId, b2.BranchId);
+        Assert.Equal(1, b1.SeqInBranch);
+        Assert.Equal(2, b2.SeqInBranch);
+        Assert.Equal(b1.Id, b2.ParentVersionId);
+    }
+
+    [Fact]
+    public async Task Wopi_reput_same_bytes_on_branch_is_deduped()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 7, 0 });
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+
+        await WopiSaveAsync(sidA, tokA, new byte[] { 7, 1 }); // fast-forward main
+        var vB = await WopiSaveAsync(sidB, tokB, new byte[] { 7, 2 }); // -> concurrent branch
+        var vBAgain = await WopiSaveAsync(sidB, tokB, new byte[] { 7, 2 }); // identical -> deduped
+
+        Assert.Equal(vB, vBAgain);
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var branchB = (await db.Versions.FirstAsync(v => v.Id == vB)).BranchId;
+        Assert.Equal(1, await db.Versions.CountAsync(v => v.BranchId == branchB));
+    }
 
     [Fact]
     public async Task Second_save_of_same_sha_creates_no_new_version()
