@@ -1,7 +1,11 @@
+using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
+builder.Services.AddSingleton<JwtService>();
 
 // Resolve the connection string at DbContext-resolution time (not registration time) so test
 // hosts that inject config via WebApplicationFactory override it before Migrate() runs.
@@ -16,6 +20,7 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>().Database.Migrate();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapAuthEndpoints();
 
 app.Run();
 
