@@ -3,14 +3,13 @@ using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Storage;
+using EasyDocs.Api.Versioning;
 using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Documents;
 
 public static class DocumentEndpoints
 {
-    private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
     public record CreateRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
 
@@ -22,6 +21,7 @@ public static class DocumentEndpoints
         g.MapPatch("/{id:guid}", Update);
         g.MapGet("/{id:guid}/versions", ListVersions);
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
+        g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
@@ -90,7 +90,15 @@ public static class DocumentEndpoints
         return Results.Ok(items);
     }
 
-    private static async Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
+    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
+        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Upload);
+
+    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
+        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Import);
+
+    // The single HTTP write path: store the blob, then route through VersioningService.CommitSaveAsync
+    // (spec §5.2). Upload and import differ only by VersionSource.
+    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, VersionSource source)
     {
         var userId = CurrentUser.UserId(ctx.User);
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
@@ -103,35 +111,11 @@ public static class DocumentEndpoints
         await using (var upload = file.OpenReadStream())
             stored = await blobs.PutAsync(upload, ctx.RequestAborted);
 
-        // Blobs are content-addressed and immutable — insert only if this sha is new.
-        if (!await db.Blobs.AnyAsync(bl => bl.Sha256 == stored.Sha256))
-        {
-            db.Add(new Blob { Sha256 = stored.Sha256, SizeBytes = stored.SizeBytes, Mime = DocxMime, StorageKey = stored.Sha256, CreatedAt = DateTimeOffset.UtcNow });
-            await db.SaveChangesAsync();
-        }
+        var result = await versioning.CommitSaveAsync(
+            new CommitInput(id, stored.Sha256, stored.SizeBytes, source, userId), ctx.RequestAborted);
 
-        // Per-document row lock so the authoritative counter increment (spec §5.1) is race-safe.
-        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ctx.RequestAborted);
-
-        var doc = await db.Documents.FirstAsync(d => d.Id == id, ctx.RequestAborted);
-        doc.VersionCounterRev += 1;
-
-        var main = await db.Branches.FirstAsync(b => b.DocumentId == id && b.Ordinal == 0, ctx.RequestAborted);
-        var maxSeq = await db.Versions.Where(v => v.BranchId == main.Id).Select(v => (int?)v.SeqInBranch).MaxAsync(ctx.RequestAborted) ?? 0;
-
-        var version = new DocumentVersion
-        {
-            Id = Guid.NewGuid(), DocumentId = id, BranchId = main.Id, SeqInBranch = maxSeq + 1,
-            Major = doc.VersionCounterMajor, Minor = doc.VersionCounterMinor, Revision = doc.VersionCounterRev,
-            Source = VersionSource.Upload, BlobSha256 = stored.Sha256, CreatedBy = userId, CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.Add(version);
-        await db.SaveChangesAsync(ctx.RequestAborted);
-        await tx.CommitAsync(ctx.RequestAborted);
-
-        return Results.Created($"/api/v1/documents/{id}/versions/{version.Id}",
-            new { versionId = version.Id, major = version.Major, minor = version.Minor, revision = version.Revision });
+        return Results.Created($"/api/v1/documents/{id}/versions/{result.VersionId}",
+            new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision });
     }
 
     // Single authorization chokepoint (spec §10/§11). Resolves the caller's document role with no org-role

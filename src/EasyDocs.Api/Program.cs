@@ -12,6 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
+builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<IBlobStore>(sp =>
     new FileSystemBlobStore(sp.GetRequiredService<IConfiguration>()["BLOB_ROOT"]
