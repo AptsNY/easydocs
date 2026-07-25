@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.git/
+docs/
+**/node_modules/
+web/dist/
+**/TestResults/
+deploy/compose/.env
