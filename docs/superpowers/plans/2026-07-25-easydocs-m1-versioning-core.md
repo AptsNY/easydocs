@@ -48,16 +48,13 @@ src/EasyDocs.Api/
     EditingEndpoints.cs         # POST /versions/{vid}/sessions, DELETE /sessions/{sid}
     WopiEndpoints.cs            # /wopi/files/{fileId}(/contents) + LOCK/UNLOCK/REFRESH/GET_LOCK
   Diffing/
-    IDiffService.cs             # NumericSummary + RedlineHtml, both WmlComparer-guarded
-    WmlComparerDiffService.cs   # impl; wraps every WmlComparer call, degrades gracefully
+    WmlComparerDiffService.cs   # concrete (one impl, no interface); wraps every WmlComparer call, degrades gracefully
     DiffSummaryWorker.cs        # BackgroundService: eager numeric summary on commit (Channel<T>)
   Merging/
-    IMergeService.cs
-    WmlComparerMergeService.cs  # 3-way merge, common ancestor = branch RootVersionId
+    WmlComparerMergeService.cs  # concrete; 3-way merge, common ancestor = branch RootVersionId
     MergeEndpoints.cs           # POST /documents/{id}/merges {left,right}
   Events/
-    IEventBus.cs                # in-process SSE fan-out, keyed by documentId
-    EventBus.cs
+    EventBus.cs                 # concrete in-process SSE fan-out, keyed by documentId
     EventEndpoints.cs           # GET /api/v1/documents/{id}/events (SSE)
   Documents/
     DocumentEndpoints.cs        # MODIFIED: Upload delegates to VersioningService; add :import, download, version-counter PUT, compare
