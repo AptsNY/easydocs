@@ -79,6 +79,7 @@ app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 app.MapEditingEndpoints();
+app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
 // must 404 (not fall through to index.html), so terminate them before the fallback.
