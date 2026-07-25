@@ -4,7 +4,7 @@
 
 **Goal:** Turn versioned drafts into a document *lifecycle*: publish a selected version as Minor/Major (R3/R4) which renumbers it, renders a PDF, and lists it on the "Major Versions" view; request approvals (single decision + comment) on published versions; name, revert, download (docx + pdf, filename R8), and share a version by public link; and push all of it live to open consoles over SSE. Exit gate: acceptance criteria **E6 (Publish)**, **E7 (Approvals)**, **E8 (Actions menu)**, **E10 (Share/download)**, **E11 (Revert)** green.
 
-**Architecture:** Still one ASP.NET Core process. New pieces are all in-process: a `PublishService` (numbering R3/R4 via the same authoritative `documents.version_counter_*` + row lock as M1's `VersioningService`), an `IPdfRenderer` that shells out to **LibreOffice headless as an out-of-process child with a hard timeout + retry** (LibreOffice is already bundled in the M0 runtime image), driven by the existing in-process `BackgroundService`; approval, share-link, name, revert, and download endpoints; and reuse of M1's `IEventBus`/`/events` SSE with new event types. No queue, no new tables (M0 migrated the full v1 schema).
+**Architecture:** Still one ASP.NET Core process. New pieces are all in-process: a `PublishService` (numbering R3/R4 via the same authoritative `documents.version_counter_*` + row lock as M1's `VersioningService`), a concrete `LibreOfficePdfRenderer` that shells out to **LibreOffice headless as an out-of-process child with a hard timeout + retry** (LibreOffice is already bundled in the M0 runtime image), driven by the existing in-process `BackgroundService`; approval, share-link, name, and revert endpoints (download already exists from M1); and reuse of M1's concrete `EventBus`/`/events` SSE with new event types. No queue, no new tables (M0 migrated the full v1 schema).
 
 **Tech Stack (added on top of M0/M1):** LibreOffice headless (`soffice --headless --convert-to pdf`, bundled) · `System.Diagnostics.Process` with a `CancellationTokenSource` timeout · nothing else new.
 
@@ -33,17 +33,17 @@ src/EasyDocs.Api/
   Publishing/
     PublishService.cs             # R3/R4 renumber the SELECTED version under the doc row lock
     PublishEndpoints.cs           # POST /versions/{vid}/publish ; GET /documents/{id}/publications
-    IPdfRenderer.cs  LibreOfficePdfRenderer.cs   # out-of-process soffice, timeout + retry, guarded
+    LibreOfficePdfRenderer.cs     # concrete (one impl, no interface); out-of-process soffice, timeout+retry, guarded
     PdfRenderBackgroundService.cs # channel-fed; renders on publish, links PdfBlobSha256
   Approvals/
     ApprovalEndpoints.cs          # request / respond / cancel (published versions only)
   Sharing/
     ShareEndpoints.cs             # POST share-links ; GET /s/{token} (public) ; DELETE
   Versions/
-    VersionActionsEndpoints.cs    # PATCH name ; POST revert ; GET download?format=docx|pdf (R8)
+    VersionActionsEndpoints.cs    # PATCH name ; POST revert   (download endpoint already built in M1 Task 10 — reuse, don't rebuild)
 tests/EasyDocs.Api.Tests/
   PublishTests.cs  PdfRenderTests.cs  ApprovalTests.cs  ShareLinkTests.cs
-  RevertTests.cs  DownloadTests.cs
+  RevertTests.cs   # download tests live in M1's DownloadTests.cs — extend, don't create a second file
 ```
 
 ---
@@ -58,10 +58,10 @@ tests/EasyDocs.Api.Tests/
 
 ## Task 2: PDF renderer — out-of-process LibreOffice (part of E6)
 
-**Files:** `Publishing/IPdfRenderer.cs`, `LibreOfficePdfRenderer.cs`, `PdfRenderBackgroundService.cs`; test `PdfRenderTests.cs`.
+**Files:** `Publishing/LibreOfficePdfRenderer.cs` *(concrete — one impl, no interface)*, `PdfRenderBackgroundService.cs`; test `PdfRenderTests.cs`.
 
 - [ ] Failing test: after publish, within a bounded wait the published version gets a non-null `PdfBlobSha256`; the blob is a valid PDF (`%PDF` header); a deliberately malformed docx does NOT crash the service (renderer returns failure, logged, version stays published without PDF — never a 500).
-- [ ] Implement `IPdfRenderer.RenderAsync(docxStream, ct)`: write to a temp file, run `soffice --headless --convert-to pdf --outdir <tmp> <file>` via `System.Diagnostics.Process` with a **hard timeout** (kill the process tree on timeout) and **one retry**; read the PDF, `IBlobStore.PutAsync`, return sha. Guard every path — `ponytail:` out-of-process renderer so a hung/crashing soffice never takes down request threads.
+- [ ] Implement `LibreOfficePdfRenderer.RenderAsync(docxStream, ct)` (concrete, injected directly): write to a temp file, run `soffice --headless --convert-to pdf --outdir <tmp> <file>` via `System.Diagnostics.Process` with a **hard timeout** (kill the process tree on timeout) and **one retry**; read the PDF, `IBlobStore.PutAsync`, return sha. Guard every path — `ponytail:` out-of-process renderer so a hung/crashing soffice never takes down request threads.
 - [ ] `PdfRenderBackgroundService` (mirror M1's summary `BackgroundService` + `Channel<T>`): consume publish events, render, set `PdfBlobSha256`, emit nothing new (publish already SSE'd). Register `AddHostedService`. Commit `-s`.
 
 ## Task 3: Approvals (E7)
@@ -85,12 +85,14 @@ tests/EasyDocs.Api.Tests/
 - [ ] Failing tests: `POST /api/v1/versions/{vid}/share-links {expires_at?}` returns a token ONCE (store only `TokenHash`); `GET /s/{token}` (PUBLIC, no auth) serves version metadata + a download link, increments `ViewCount`, and writes an **audit event** (share-link read is one of the two audited reads, spec §11); `DELETE /api/v1/share-links/{id}` revokes (sets `RevokedAt`); a revoked/expired token → 404; the link is scoped to exactly one version.
 - [ ] Implement with a 128-bit random token, hashed at rest; the public route is anonymous and rate-limitable later. Commit `-s`.
 
-## Task 6: Download (docx + pdf, R8) (E10, part of E8)
+## Task 6: Confirm PDF download now works (E10) — no new handler
 
-**Files:** `Versions/VersionActionsEndpoints.cs` (download handler); test `DownloadTests.cs`.
+> The `GET /versions/{vid}/download?format=docx|pdf` handler, its R8 filename, and the `409-on-unpublished-pdf` branch are **already built in M1 Task 10**. Before M2, that endpoint always 409s on `format=pdf` because no version has a PDF yet. M2 only needs to confirm the PDF path now succeeds once a version is published + rendered. **Do NOT create a second `DownloadTests.cs` or re-implement the handler** (the review flagged this duplication).
 
-- [ ] Failing tests: `GET /api/v1/versions/{vid}/download?format=docx` streams the version's blob with filename `{org_slug}__{Doc_Name}-v{X}.{Y}.{Z}.docx` (R8); `?format=pdf` on a **published** version streams `PdfBlobSha256`; `?format=pdf` on an **unpublished** version → **409** (no PDF exists, spec §7). Viewer+ may download.
-- [ ] Implement via `IBlobStore.OpenReadAsync`; set `Content-Disposition` with the R8 filename (slugify doc name safely). Commit `-s`.
+**Files:** extend M1's `tests/EasyDocs.Api.Tests/DownloadTests.cs` (no new endpoint code).
+
+- [ ] Failing test: after Task 1 publishes a version and Task 2 renders its PDF, `GET /api/v1/versions/{vid}/download?format=pdf` streams the `PdfBlobSha256` blob (`%PDF` header). M1's existing tests already cover `format=docx` (R8 filename) and the unpublished-→409 case.
+- [ ] Only if the download handler genuinely needs to move next to name/revert in `VersionActionsEndpoints.cs`, do it once here — otherwise leave it where M1 Task 10 placed it (no cosmetic moves). Commit `-s`.
 
 ## Task 7: Actions-menu wiring check (E8) + full suite + PR
 
@@ -109,6 +111,6 @@ tests/EasyDocs.Api.Tests/
 - [ ] **E11 Revert:** new head equals target content; history untouched.
 - [ ] PDF renderer out-of-process with timeout+retry; every render/diff guarded (no 500).
 
-**Assumed interfaces introduced here (referenced later):** `PublishService.PublishAsync` (M4 push-merge may publish), `IPdfRenderer` (M3 conformance suite exercises it), the public `/s/{token}` route + audit-on-read (M3 API docs list it).
+**Assumed building blocks introduced here (referenced later):** `PublishService.PublishAsync` (M4 push-merge may publish), `LibreOfficePdfRenderer` (M3 conformance suite exercises it), the public `/s/{token}` route + audit-on-read (M3 API docs list it). Concrete classes, injected directly — no interfaces until a second impl exists.
 
 **Next:** write/execute the **M3** plan (public API GA: OpenAPI, tokens, `/docs`, conformance suite).

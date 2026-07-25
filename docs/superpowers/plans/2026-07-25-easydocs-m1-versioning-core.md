@@ -177,7 +177,7 @@ public class NumberingTests
     // two distinct uploads -> seq_in_branch 1 then 2 on main; parent chain intact
 }
 ```
-  > **Dedupe scope note:** M0's `Upload` deduped the **blob** (content-addressed) but always inserted a new *version* row. Spec §5.2 step 2 dedupe is per **session** (`session.last_committed_sha`) — Collabora re-PUTs unchanged files. For the sessionless HTTP upload/import path, the dedupe key is "incoming sha == current branch head sha": if equal, no-op (no new version). The session path (Tasks 5/6) uses `EditSession.LastCommittedSha`.
+  > **Dedupe scope note:** M0's `Upload` deduped the **blob** (content-addressed) but always inserted a new *version* row. Spec §5.2 step 2 dedupe is per **session** (`session.last_committed_sha`) — Collabora re-PUTs unchanged files. For the sessionless HTTP upload/import path, the dedupe key is "incoming sha == current branch head sha": if equal, no-op (no new version). The session path (Tasks 5/6) uses `EditSession.LastCommittedSha`. *(M0's `DocumentUploadTests` has no second-identical-upload assertion, so this dedupe adds behavior without breaking an M0 test; if you find a test expecting a duplicate upload to yield a new version, update it to match E3 "unchanged re-save creates none".)*
 
 - [ ] **Step 2: Run — verify fail.** `dotnet test --filter CommitSaveTests` → FAIL.
 
@@ -326,8 +326,8 @@ else:                                      target = new concurrent branch   (STA
 > Spec §10.2. M1 needs `version.created` delivered to open consoles for E3/E4 observability. M1 introduces the SSE plumbing (`IEventBus`, `GET /api/v1/documents/{id}/events`) and the first events; **M2 extends** it with the remaining event types and the short-lived `?token=` capability param. Cookie auth already works — M0's `Program.cs` `OnMessageReceived` falls back to the `ed_session` cookie.
 
 **Files:**
-- Create: `src/EasyDocs.Api/Events/IEventBus.cs`, `EventBus.cs`, `EventEndpoints.cs`
-- Modify: `Program.cs` (register `IEventBus` singleton; `app.MapEventEndpoints()`), `VersioningService.cs` (publish after commit)
+- Create: `src/EasyDocs.Api/Events/EventBus.cs`, `EventEndpoints.cs`  *(concrete class — one implementation, no interface. `ponytail:` add an `IEventBus` only when a second impl or a genuine mock appears; the spec cut `EDITOR_PROVIDER` for exactly this reason and registers `VersioningService` as a bare concrete class.)*
+- Modify: `Program.cs` (register `EventBus` singleton; `app.MapEventEndpoints()`), `VersioningService.cs` (publish after commit)
 - Test: `tests/EasyDocs.Api.Tests/SseTests.cs`
 
 - [ ] **Step 1: Write the failing tests**
@@ -342,7 +342,7 @@ else:                                      target = new concurrent branch   (STA
 - [ ] **Step 2: Run — verify fail.** `dotnet test --filter SseTests` → FAIL.
 
 - [ ] **Step 3: Implement.**
-  - `IEventBus`: `void Publish(Guid documentId, string type, object payload)` + `IAsyncEnumerable<(string Type,string Json)> Subscribe(Guid documentId, CancellationToken ct)`. Impl: `ConcurrentDictionary<Guid, List<Channel<...>>>` fan-out; subscribers get a bounded/dropping `Channel`; publish serializes payload once and writes to each. `ponytail: in-process fan-out, no Redis pub/sub — single instance (spec §3).`
+  - `EventBus` (concrete class, injected directly): `void Publish(Guid documentId, string type, object payload)` + `IAsyncEnumerable<(string Type,string Json)> Subscribe(Guid documentId, CancellationToken ct)`. Impl: `ConcurrentDictionary<Guid, List<Channel<...>>>` fan-out; subscribers get a bounded/dropping `Channel`; publish serializes payload once and writes to each. `ponytail: in-process fan-out, no Redis pub/sub — single instance (spec §3).`
   - `EventEndpoints`: `GET /api/v1/documents/{id}/events` (`.RequireAuthorization()`; `ResolveAsync` → 403/404 before streaming); `Content-Type: text/event-stream`; loop `await foreach` over `Subscribe(id, ctx.RequestAborted)`, write `event: {type}\ndata: {json}\n\n`, flush; periodic `: keep-alive` comment.
   - `VersioningService.CommitSaveAsync` (after commit, non-deduped): `_bus.Publish(docId, "version.created", new { versionId, major, minor, revision, branchId })`.
 
@@ -357,8 +357,8 @@ else:                                      target = new concurrent branch   (STA
 > Spec §7. Numeric summary `{insertions, deletions, moves, format_changes}` computed **eagerly** per `(parent→child)` on commit by an in-process `BackgroundService`; redline `.docx` + HTML render computed **on-demand** on first compare and cached by `(from_sha,to_sha)` in `version_diffs`. Every `WmlComparer` call is wrapped — failure degrades to "comparison unavailable", never 500.
 
 **Files:**
-- Create: `src/EasyDocs.Api/Diffing/IDiffService.cs`, `WmlComparerDiffService.cs`, `DiffSummaryWorker.cs`
-- Modify: `Program.cs` (register `IDiffService`, `AddHostedService<DiffSummaryWorker>()`, a singleton `Channel<DiffJob>`), `VersioningService.cs` (enqueue), `DocumentEndpoints.cs` (`GET /compare`)
+- Create: `src/EasyDocs.Api/Diffing/WmlComparerDiffService.cs`, `DiffSummaryWorker.cs`  *(concrete `WmlComparerDiffService` — one impl, no interface; the failure test uses a real malformed `.docx`, not a mock, so nothing needs swapping)*
+- Modify: `Program.cs` (register `WmlComparerDiffService`, `AddHostedService<DiffSummaryWorker>()`, a singleton `Channel<DiffJob>`), `VersioningService.cs` (enqueue), `DocumentEndpoints.cs` (`GET /compare`)
 - Test: `tests/EasyDocs.Api.Tests/DiffTests.cs` (real `.docx` fixtures)
 
 - [ ] **Step 1: Write the failing tests**
@@ -379,11 +379,11 @@ else:                                      target = new concurrent branch   (STA
 - [ ] **Step 2: Run — verify fail.** `dotnet test --filter DiffTests` → FAIL.
 
 - [ ] **Step 3: Implement.**
-  - `IDiffService`: `Task<DiffSummary> SummaryAsync(fromSha,toSha,ct)`, `Task<DiffRender> RedlineHtmlAsync(fromSha,toSha,ct)`; `DiffRender` carries HTML + `Available`.
+  - `WmlComparerDiffService` (concrete, injected directly): `Task<DiffSummary> SummaryAsync(fromSha,toSha,ct)`, `Task<DiffRender> RedlineHtmlAsync(fromSha,toSha,ct)`; `DiffRender` carries HTML + `Available`.
   - `WmlComparerDiffService`: open both blobs via `IBlobStore`; run `WmlComparer.Compare(from,to,settings)` **inside try/catch** — on any exception log + return `Available=false` ("comparison unavailable — download both versions"). Summary = count `w:ins`/`w:del`/moves/format-changes from the result. Redline = compared `WmlDocument` saved as docx (store via `IBlobStore`, record `RedlineBlobSha256`) + HTML render (PowerTools `WmlToHtmlConverter`, store `HtmlBlobSha256`). Upsert the `VersionDiff` row.
-  - `DiffSummaryWorker : BackgroundService`: read `DiffJob(fromSha,toSha,documentId)` off the singleton `Channel<DiffJob>.Reader`; `SummaryAsync`; upsert `VersionDiff` numeric columns; `IEventBus.Publish(documentId,"diff.ready",…)`. `ponytail: Channel<T> is the queue — in-memory, recomputable on restart (spec §3/§7); no durable broker.`
+  - `DiffSummaryWorker : BackgroundService`: read `DiffJob(fromSha,toSha,documentId)` off the singleton `Channel<DiffJob>.Reader`; `SummaryAsync`; upsert `VersionDiff` numeric columns; `EventBus.Publish(documentId,"diff.ready",…)`. `ponytail: Channel<T> is the queue — in-memory, recomputable on restart (spec §3/§7); no durable broker.` *(Optional micro-win: since the eager `Compare(parent,child)` already produced a comparison, persist its `RedlineBlobSha256` on the `VersionDiff` row so the on-demand path only renders HTML for that pair — arbitrary compare pairs still compute on demand.)*
   - `VersioningService`: after non-deduped commit `channel.Writer.TryWrite(new DiffJob(parentSha,newSha,docId))` (skip if no parent).
-  - `DocumentEndpoints`: `GET /api/v1/documents/{id}/compare?from=&to=&format=summary|html|docx` — resolve the two versions' shas, authorize, dispatch to `IDiffService`; `summary` returns cached numbers (compute inline if the worker hasn't yet), `html` returns cached/on-demand redline, `docx` streams `RedlineBlobSha256`.
+  - `DocumentEndpoints`: `GET /api/v1/documents/{id}/compare?from=&to=&format=summary|html|docx` — resolve the two versions' shas, authorize, dispatch to `WmlComparerDiffService`; `summary` returns cached numbers (compute inline if the worker hasn't yet), `html` returns cached/on-demand redline, `docx` streams `RedlineBlobSha256`.
 
 - [ ] **Step 4: Run — verify pass.** `dotnet test --filter DiffTests` → PASS. Closes the "list shows author/time/**summary**" part of **E3**.
 
@@ -396,8 +396,8 @@ else:                                      target = new concurrent branch   (STA
 > Spec §5.3. `POST /documents/{id}/merges {left,right}`: common ancestor = the concurrent branch's `RootVersionId`; run `WmlComparer` on `base→left` and `base→right`; consolidate into one `.docx` where each side's edits are Word **tracked-changes** revisions attributed to their authors; commit `source=Merge` with two parents; close the merged concurrent branch (`Branch.MergedIntoVersionId`). Overlapping edits are NOT auto-resolved — both revisions are present (the editor's accept/reject UI is the resolver). Guard every `WmlComparer` call.
 
 **Files:**
-- Create: `src/EasyDocs.Api/Merging/IMergeService.cs`, `WmlComparerMergeService.cs`, `MergeEndpoints.cs`
-- Modify: `Program.cs` (register `IMergeService`; `app.MapMergeEndpoints()`)
+- Create: `src/EasyDocs.Api/Merging/WmlComparerMergeService.cs`, `MergeEndpoints.cs`  *(concrete — one impl, no interface)*
+- Modify: `Program.cs` (register `WmlComparerMergeService`; `app.MapMergeEndpoints()`)
 - Test: `tests/EasyDocs.Api.Tests/MergeTests.cs` (real fixtures + a second author)
 
 - [ ] **Step 1: Write the failing tests** (E4)
@@ -416,7 +416,11 @@ else:                                      target = new concurrent branch   (STA
 - [ ] **Step 2: Run — verify fail.** `dotnet test --filter MergeTests` → FAIL.
 
 - [ ] **Step 3: Implement.**
-  - `IMergeService.MergeAsync(documentId, leftVersionId, rightVersionId, actor, ct) -> MergeResult`. Resolve `base` = the concurrent branch's `RootVersionId` (M1: both sides in the same document; the copy/push **fork-point** ancestor path is M4). Run `WmlComparer.Compare(base,left)` and `WmlComparer.Compare(base,right)` (each try/catch-guarded); consolidate both revision sets onto `base` so both authors' changes appear as tracked changes, author = each side's `CreatedBy`. Save the consolidated docx via `IBlobStore`.
+  - `WmlComparerMergeService.MergeAsync(documentId, leftVersionId, rightVersionId, actor, ct) -> MergeResult` (concrete — one impl, no interface). Resolve `base` = the concurrent branch's `RootVersionId` (M1: both sides in the same document; the copy/push **fork-point** ancestor path is M4).
+    **Consolidation algorithm — design this before coding; it is the hardest step in M1.** `WmlComparer.Compare` produces a *pairwise* comparison, NOT a 3-way merge. Do **not** try to fuse two independent `Compare(base,left)` / `Compare(base,right)` result docs — their `w:ins`/`w:del` revision-ids collide and authorship gets mangled. Use **sequential application** instead:
+      1. `mergedLeft = WmlComparer.Compare(base, left, settings)` with `settings.AuthorForRevisions = leftAuthorName` → a docx carrying left's edits as tracked-change revisions attributed to left's author.
+      2. `merged = WmlComparer.Compare(mergedLeft, right, settings)` with `settings.AuthorForRevisions = rightAuthorName` → right's edits land as a second, cleanly-regenerated revision layer on top; the second `Compare` produces one internally-consistent revision set, so no id collisions.
+      Result: a single docx with **both** authors' changes as tracked changes. Overlapping edits to the same run are NOT auto-resolved — both revisions coexist and the editor's accept/reject UI is the resolver (spec §5.3). Each `WmlComparer.Compare` call is individually try/catch-guarded (Task 8 pattern). Save the consolidated docx via `IBlobStore`.
   - On success: `VersioningService.CommitSaveAsync(CommitInput{ Source=Merge, ExplicitBranchId=main.Id, BaseVersionId=leftHead, MergeParentVersionId=right })`; set `Branch(right).MergedIntoVersionId = mergeVersionId`; `IEventBus.Publish(docId,"merge.completed",…)`.
   - On comparer failure: `MergeResult{ Available=false }` → endpoint responds "merge unavailable — download both versions", branch left open, no version created. Never 500.
   - `MergeEndpoints`: `POST /api/v1/documents/{id}/merges {left,right}` (`.RequireAuthorization()`, `CanEdit` else 403).
@@ -506,6 +510,6 @@ docker compose -f deploy/compose/docker-compose.yml down
 - [ ] Every `WmlComparer`/merge call guarded — malformed input degrades to "comparison/merge unavailable", never 500.
 - [ ] Numeric summary eager (BackgroundService); redline HTML on-demand + cached in `version_diffs`; `version.created` + `diff.ready` + `merge.completed` on SSE.
 
-**Assumed interfaces introduced here (referenced by later milestones):** `VersioningService.CommitSaveAsync` / `CommitInput` / `CommitResult` (M2 publish + M4 push materialization call it), `IEventBus` + `/events` (M2 extends with more event types + `?token=`), `IDiffService` (M2 PDF worker mirrors the guard pattern), `IMergeService` (M4 adds the cross-document fork-point ancestor path).
+**Assumed building blocks introduced here (referenced by later milestones):** `VersioningService.CommitSaveAsync` / `CommitInput` / `CommitResult` (M2 publish + M4 push materialization call it), `EventBus` + `/events` (M2 extends with more event types + `?token=`), `WmlComparerDiffService` (M2 PDF worker mirrors its guard pattern), `WmlComparerMergeService` (M4 adds the cross-document fork-point ancestor path). All are **concrete classes injected directly** — no interfaces until a second implementation genuinely exists (spec §3 precedent).
 
 **Next:** write/execute the **M2** plan (publish minor/major + PDF, approvals, name/revert/download/share, SSE console).

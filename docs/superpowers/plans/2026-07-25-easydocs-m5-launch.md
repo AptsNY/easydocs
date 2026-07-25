@@ -15,11 +15,11 @@
 ## File Structure (new in M5)
 
 ```
-docs-site/                 # Docusaurus (or MkDocs) — user docs, API docs, self-host guide
-  docs/
+docs-site/                 # MkDocs Material (pip + one mkdocs.yml) — user + self-host guides
+  docs/                    #   NOT Docusaurus: lighter for a handful of pages, no React/node build
     getting-started.md  concepts.md (versions/branches/publish/copies)
     self-hosting.md (docker compose, env, TLS via Caddy/Traefik, OIDC note)
-    api/ (rendered from OpenAPI) + automation-recipes.md
+    automation-recipes.md    # API reference LINKS to /docs (M3) — not re-rendered here
 SECURITY.md                # private disclosure channel + supported versions
 GOVERNANCE.md              # roadmap, RFC process, semver-for-the-product, maintainers
 CHANGELOG.md               # generated (conventional commits)
@@ -36,7 +36,7 @@ CHANGELOG.md               # generated (conventional commits)
 
 ## Task 2: Documentation site
 
-- [ ] Scaffold `docs-site/` (Docusaurus or MkDocs Material). Author: getting-started, core concepts (X.Y.Z numbering, branches/merge, publish/approvals, copies/push), **self-hosting guide** (`docker compose up`, `.env` reference, S3 backend note, OIDC/SSO note as v1.1, backup/restore), and an **API section** rendered from `/openapi/v1.json` plus automation recipes (the reference flow from M3). No phone-home. Commit `-s`.
+- [ ] Scaffold `docs-site/` with **MkDocs Material** (`pip install mkdocs-material` + one `mkdocs.yml` — lighter than Docusaurus's React/node build for a few guide pages). Author: getting-started, core concepts (X.Y.Z numbering, branches/merge, publish/approvals, copies/push), **self-hosting guide** (`docker compose up`, `.env` reference, S3 backend note, OIDC/SSO note as v1.1, backup/restore), and automation recipes (the reference flow from M3). For the **API reference, link to the self-contained docs already served at `/docs`** (M3 Task 4) — do NOT re-render `/openapi/v1.json` in a second doc system. No phone-home. Commit `-s`.
 - [ ] Wire a docs deploy (GitHub Pages workflow) — optional if a hosting target isn't chosen; at minimum the site builds in CI.
 
 ## Task 3: Governance, community, release hygiene
