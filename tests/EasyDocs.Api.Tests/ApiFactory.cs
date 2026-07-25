@@ -22,5 +22,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["ConnectionStrings:Postgres"] = _pg.GetConnectionString(),
             ["BLOB_ROOT"] = BlobRoot,
             ["Jwt:Secret"] = "test-secret-at-least-32-bytes-long-xxxxx",
+            ["PUBLIC_BASE_URL"] = "http://localhost",
+            ["WOPI_HOST_URL"]   = "http://localhost",
+            ["COLLABORA_URL"]   = "http://localhost:9980",
+            ["COLLABORA_ACTION_URL"] = "http://localhost:9980/browser/dist/cool.html?", // test seam: skip live discovery
         }));
 }
