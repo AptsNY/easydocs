@@ -3,6 +3,7 @@ using System.Text;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Documents;
+using EasyDocs.Api.Editing;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,6 +15,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
+// Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
+// for a once-daily call. Test/dev use the COLLABORA_ACTION_URL seam and never hit the network.
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton(sp => new CollaboraDiscovery(
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
 builder.Services.AddSingleton<IBlobStore>(sp =>
     new FileSystemBlobStore(sp.GetRequiredService<IConfiguration>()["BLOB_ROOT"]
         ?? throw new InvalidOperationException("BLOB_ROOT not configured")));
@@ -70,6 +78,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
+app.MapEditingEndpoints();
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
 // must 404 (not fall through to index.html), so terminate them before the fallback.
