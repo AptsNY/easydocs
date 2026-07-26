@@ -1,6 +1,7 @@
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Versioning;
@@ -10,6 +11,8 @@ namespace EasyDocs.Api.Documents;
 
 public static class DocumentEndpoints
 {
+    private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
     public record CreateRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
 
@@ -22,6 +25,7 @@ public static class DocumentEndpoints
         g.MapGet("/{id:guid}/versions", ListVersions);
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
+        g.MapGet("/{id:guid}/compare", Compare);
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
@@ -116,6 +120,56 @@ public static class DocumentEndpoints
 
         return Results.Created($"/api/v1/documents/{id}/versions/{result.VersionId}",
             new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision });
+    }
+
+    // Compare two versions (spec §7). Viewer+ suffices. summary = numeric counts (eager cache, else
+    // computed inline); html = on-demand cached redline (200 text/html, graceful message if unavailable);
+    // docx = the compared redline docx blob. Every WmlComparer call is guarded inside the diff service.
+    private static async Task<IResult> Compare(
+        Guid id, Guid from, Guid to, string? format,
+        HttpContext ctx, EasyDocsDbContext db, WmlComparerDiffService diff, IBlobStore blobs)
+    {
+        var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
+        if (failure is not null) return failure;
+
+        var fromSha = await db.Versions.Where(v => v.Id == from && v.DocumentId == id).Select(v => v.BlobSha256).FirstOrDefaultAsync();
+        var toSha = await db.Versions.Where(v => v.Id == to && v.DocumentId == id).Select(v => v.BlobSha256).FirstOrDefaultAsync();
+        if (fromSha is null || toSha is null)
+            return Problem.Of(404, "Not found", "from/to must reference versions of this document.");
+
+        switch ((format ?? "summary").ToLowerInvariant())
+        {
+            case "html":
+            {
+                var render = await diff.RedlineHtmlAsync(fromSha, toSha, ctx.RequestAborted);
+                return Results.Content(render.Available ? render.Html! : "<p>Comparison unavailable.</p>", "text/html");
+            }
+            case "docx":
+            {
+                await diff.RedlineHtmlAsync(fromSha, toSha, ctx.RequestAborted); // ensures the redline blob exists
+                var redline = await db.VersionDiffs
+                    .Where(x => x.FromSha256 == fromSha && x.ToSha256 == toSha)
+                    .Select(x => x.RedlineBlobSha256).FirstOrDefaultAsync();
+                if (redline is null)
+                    return Problem.Of(422, "Comparison unavailable", "A redline document could not be produced.");
+                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), DocxMime);
+            }
+            default:
+            {
+                var cached = await db.VersionDiffs.FirstOrDefaultAsync(x => x.FromSha256 == fromSha && x.ToSha256 == toSha);
+                var (ins, del, mov, fmt) = cached?.Insertions is not null
+                    ? (cached.Insertions.Value, cached.Deletions ?? 0, cached.Moves ?? 0, cached.FormatChanges ?? 0)
+                    : await ComputeSummaryAsync(diff, fromSha, toSha, ctx.RequestAborted);
+                return Results.Ok(new { insertions = ins, deletions = del, moves = mov, formatChanges = fmt });
+            }
+        }
+    }
+
+    private static async Task<(int, int, int, int)> ComputeSummaryAsync(
+        WmlComparerDiffService diff, string fromSha, string toSha, CancellationToken ct)
+    {
+        var s = await diff.SummaryAsync(fromSha, toSha, ct);
+        return (s.Insertions, s.Deletions, s.Moves, s.FormatChanges);
     }
 
     // Single authorization chokepoint (spec §10/§11). Resolves the caller's document role with no org-role

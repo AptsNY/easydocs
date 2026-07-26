@@ -1,4 +1,6 @@
+using System.Threading.Channels;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Events;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +19,7 @@ public sealed record CommitResult(Guid VersionId, int Major, int Minor, int Revi
 /// CommitSaveAsync. This task delivers the fast-forward (main-branch head) path + sha dedupe.
 /// Branch-on-stale-base is Task 6.
 /// </summary>
-public sealed class VersioningService(EasyDocsDbContext db, EventBus bus)
+public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, ChannelWriter<DiffJob> diffQueue)
 {
     private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -105,7 +107,15 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus)
 
         bus.Publish(input.DocumentId, "version.created",
             new { versionId = version.Id, major, minor, revision = rev, branchId = targetBranch.Id });
-        // TODO(Task 8): enqueue diff.
+
+        // Enqueue the parent->child diff for eager numeric-summary computation (spec §7). Only when this
+        // commit has a parent — a brand-new document's first version has nothing to compare against.
+        var parentSha = targetHead?.BlobSha256;
+        if (parentSha is null && version.ParentVersionId is { } parentId)
+            parentSha = await db.Versions.Where(v => v.Id == parentId).Select(v => v.BlobSha256).FirstOrDefaultAsync(ct);
+        if (parentSha is not null)
+            diffQueue.TryWrite(new DiffJob(parentSha, version.BlobSha256, input.DocumentId));
+
         return new CommitResult(version.Id, major, minor, rev, targetBranch.Id, Deduped: false);
     }
 }

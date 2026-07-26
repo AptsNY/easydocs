@@ -1,7 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using System.Threading.Channels;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Documents;
 using EasyDocs.Api.Editing;
 using EasyDocs.Api.Events;
@@ -16,6 +18,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
 builder.Services.AddSingleton<EventBus>();
+
+// In-process diff queue (spec §7): commits enqueue parent->child jobs; DiffSummaryWorker drains them
+// and computes the numeric summary eagerly. Unbounded is fine — jobs are tiny and recomputable on restart.
+builder.Services.AddSingleton(Channel.CreateUnbounded<DiffJob>());
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Writer);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Reader);
+builder.Services.AddScoped<WmlComparerDiffService>();
+builder.Services.AddHostedService<DiffSummaryWorker>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
