@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.Channels;
+using EasyDocs.Api.Approvals;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
@@ -103,6 +104,7 @@ app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 app.MapPublishEndpoints();
+app.MapApprovalEndpoints();
 app.MapMergeEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
