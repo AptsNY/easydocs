@@ -30,6 +30,14 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Re
 builder.Services.AddScoped<WmlComparerDiffService>();
 builder.Services.AddScoped<WmlComparerMergeService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
+
+// In-process PDF render queue (spec §7): publish enqueues a version id; PdfRenderBackgroundService drains
+// it and shells out to LibreOffice. Unbounded — jobs are tiny and re-triggerable by re-publishing.
+builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>());
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Writer);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);
+builder.Services.AddScoped<LibreOfficePdfRenderer>();
+builder.Services.AddHostedService<PdfRenderBackgroundService>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine

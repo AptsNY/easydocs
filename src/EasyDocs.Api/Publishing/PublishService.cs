@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Versioning;
@@ -12,7 +13,7 @@ public sealed record PublishResult(Guid VersionId, int Major, int Minor, int Rev
 /// authoritative counter, advance the counter so future drafts continue from it (R6), stamp publish
 /// metadata. All under the same per-document FOR UPDATE lock as the write path (spec §5.1).
 /// </summary>
-public sealed class PublishService(EasyDocsDbContext db, EventBus bus)
+public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWriter<Guid> pdfJobs)
 {
     public async Task<PublishResult> PublishAsync(
         Guid documentId, Guid versionId, string kind, string? name, Guid actorUserId, CancellationToken ct)
@@ -44,7 +45,8 @@ public sealed class PublishService(EasyDocsDbContext db, EventBus bus)
 
         bus.Publish(documentId, "version.published", new { versionId, major, minor, revision = rev, kind });
 
-        // TODO(M2-T2): enqueue PDF render for this published version (write PdfBlobSha256 when done).
+        // Enqueue an out-of-process PDF render; PdfRenderBackgroundService links PdfBlobSha256 when done.
+        pdfJobs.TryWrite(versionId);
 
         return new PublishResult(versionId, major, minor, rev, kind);
     }
