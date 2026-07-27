@@ -132,7 +132,9 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 
 ### 5.3 Merge (ships in M1 for concurrent branches)
 
-`POST /documents/{id}/merges {left, right}`: resolve common ancestor (concurrent branch `root_version_id`; for incoming pushes, the stored fork point — §8), run `WmlComparer` on `base→left` and `base→right`, consolidate into one `.docx` where each side's edits are Word tracked-changes revisions attributed to their authors. Committed as `source=merge` with two parent pointers. Overlapping edits are **not** auto-resolved — both revisions are present and the editor's accept-reject UI is the conflict resolver. Auto-branching *requires* merge, so the **base merge engine ships in M1**; only the copy/push-specific ancestor path is M4.
+`POST /documents/{id}/merges {left, right}`: **merge-into-main model** (revised — see note). The base is the **current main-branch head** (which already carries the first author's accepted edits); a single `WmlComparer.Compare(mainHead, incomingBranchHead)` renders the incoming concurrent branch's changes as Word tracked-changes revisions **attributed to the incoming author**, ready to accept/reject on top of current main. Committed as `source=merge` with two parent pointers (parent = main head, merge-parent = incoming). The merged concurrent branch closes (`merged_into_version_id`). Overlapping edits are **not** auto-resolved — the editor's accept-reject UI is the resolver. Every `WmlComparer` call is guarded; failure → `409` "merge unavailable", never a partial commit. Auto-branching *requires* merge, so the **base merge engine ships in M1**; the copy/push cross-document ancestor path is M4.
+
+> **[D] Merge-model decision (M1).** The original "run `WmlComparer` on `base→left` and `base→right` and consolidate both authors' revisions over the common ancestor" was found **not implementable** with the OSS comparer (Clippit/OpenXmlPowerTools): `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly one `AuthorForRevisions` per call, so dual-author tracked changes over a shared ancestor cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). We therefore adopt **merge-into-main**: the first author's edits are the accepted base, the incoming branch comes in as a clean single-author redline. Nothing is lost (both branch versions persist in history). The "both-authors-over-common-ancestor" redline (a manual XML fuse of two `Compare(base, side)` revision sets) is a possible **future enhancement**, not v1.
 
 ---
 
@@ -246,7 +248,7 @@ The source E-criteria assume dropped features; the v1 suite tests the built surf
 - **E1 Folders** — nest ≥ 3 levels; move doc preserves history/members; delete prompts promote-vs-trash.
 - **E2 Ingest** — **local upload only**; first version exactly `0.0.1`.
 - **E3 Edit/version** — **Collabora save** produces a new version; unchanged re-save creates none; list shows author/time/summary.
-- **E4 Branch/merge** — two sessions from one head → two branches, zero lost edits; merge output opens with both authors' tracked changes attributed; merged branch closes. *(Ships M1.)*
+- **E4 Branch/merge** — two sessions from one head → two branches, zero lost edits; merge (merge-into-main, §5.3) output opens with the **incoming branch's** changes as tracked changes attributed to their author on top of current main; both branch versions persist in history; merged branch closes. *(Ships M1.)*
 - **E5 Numbering** — R1–R6 exactly, incl. `0.0.7→0.1.0`, `0.0.7→1.0.0`, manual `0.0.0`; downloads named per R8.
 - **E6 Publish** — published version renumbers + PDF + Major Versions entry; applies to the *selected* version.
 - **E7 Approvals** — only on published versions; one approval row per approver with due date; **single decision + comment (no thread)**; decisions immutable; cancel closes the request.

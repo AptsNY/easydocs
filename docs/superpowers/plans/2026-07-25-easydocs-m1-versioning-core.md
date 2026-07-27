@@ -51,7 +51,7 @@ src/EasyDocs.Api/
     WmlComparerDiffService.cs   # concrete (one impl, no interface); wraps every WmlComparer call, degrades gracefully
     DiffSummaryWorker.cs        # BackgroundService: eager numeric summary on commit (Channel<T>)
   Merging/
-    WmlComparerMergeService.cs  # concrete; 3-way merge, common ancestor = branch RootVersionId
+    WmlComparerMergeService.cs  # concrete; merge-into-main: incoming branch as single-author tracked changes
     MergeEndpoints.cs           # POST /documents/{id}/merges {left,right}
   Events/
     EventBus.cs                 # concrete in-process SSE fan-out, keyed by documentId
@@ -388,24 +388,31 @@ else:                                      target = new concurrent branch   (STA
 
 ---
 
-## Task 9: Merge — 3-way concurrent-branch merge (`WmlComparer`)
+## Task 9: Merge — merge-into-main (`WmlComparer`, single-author incoming redline)
 
-> Spec §5.3. `POST /documents/{id}/merges {left,right}`: common ancestor = the concurrent branch's `RootVersionId`; run `WmlComparer` on `base→left` and `base→right`; consolidate into one `.docx` where each side's edits are Word **tracked-changes** revisions attributed to their authors; commit `source=Merge` with two parents; close the merged concurrent branch (`Branch.MergedIntoVersionId`). Overlapping edits are NOT auto-resolved — both revisions are present (the editor's accept/reject UI is the resolver). Guard every `WmlComparer` call.
+> Spec §5.3 (revised — see the **[D] Merge-model decision** note there). **Merge-into-main:** base = the current **main-branch head** (which already carries the first author's accepted edits); a single guarded `WmlComparer.Compare(mainHead, incoming)` renders the incoming concurrent branch's changes as tracked-changes revisions **attributed to the incoming author**, on top of current main. Commit `source=Merge` with two parents (parent = main head, merge-parent = incoming); close the incoming concurrent branch (`Branch.MergedIntoVersionId`). Nothing is lost — both branch versions persist in history. Overlapping edits are NOT auto-resolved (accept/reject in the editor). Guard the `WmlComparer` call.
+>
+> **Why not "both authors over the common ancestor":** empirically verified against Clippit — `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly ONE `AuthorForRevisions` per call, so dual-author tracked changes cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). Merge-into-main is the clean, correct model; a manual XML fuse of two `Compare(base,side)` revision sets is a possible future enhancement.
 
 **Files:**
 - Create: `src/EasyDocs.Api/Merging/WmlComparerMergeService.cs`, `MergeEndpoints.cs`  *(concrete — one impl, no interface)*
 - Modify: `Program.cs` (register `WmlComparerMergeService`; `app.MapMergeEndpoints()`)
-- Test: `tests/EasyDocs.Api.Tests/MergeTests.cs` (real fixtures + a second author)
+- Test: `tests/EasyDocs.Api.Tests/MergeTests.cs` (real fixtures; a main-head author + a concurrent-branch author)
 
 - [ ] **Step 1: Write the failing tests** (E4)
 ```csharp
-[Fact] public async Task Merge_of_two_concurrent_branches_has_both_authors_tracked_changes() {
-    // base H; author A -> main fast-forward (left); author B -> concurrent branch (right)
-    // POST /merges { left: A's version, right: B's version } -> 201 source=Merge, two parent pointers
-    // merged docx contains tracked-change revisions attributed to A and B; right branch closed (MergedIntoVersionId set)
+[Fact] public async Task Merge_shows_incoming_branch_changes_as_tracked_changes_by_its_author() {
+    // main head = author A's version; concurrent branch head = author B's version
+    // POST /merges { left: A's (main) version, right: B's (branch) version } -> 201 source=Merge, two parents
+    //   (ParentVersionId = main head, MergeParentVersionId = incoming)
+    // merged docx: B's distinctive edits present as tracked-change revisions attributed to B's DisplayName
+    //   (A's edits are the clean base, NOT tracked); incoming branch closed (MergedIntoVersionId set)
+}
+[Fact] public async Task Nothing_is_lost() {
+    // after merge, both the main-head version row and the incoming-branch version row still exist in history
 }
 [Fact] public async Task Merge_degrades_when_comparer_fails() {
-    // force a comparer failure -> "merge unavailable — download both" (not 500); branch left open; no version created
+    // force a comparer failure -> 409 "merge unavailable" (not 500); branch left open; no version created
 }
 [Fact] public async Task Merge_requires_editor_role() { /* Viewer -> 403 */ }
 ```
@@ -413,18 +420,15 @@ else:                                      target = new concurrent branch   (STA
 - [ ] **Step 2: Run — verify fail.** `dotnet test --filter MergeTests` → FAIL.
 
 - [ ] **Step 3: Implement.**
-  - `WmlComparerMergeService.MergeAsync(documentId, leftVersionId, rightVersionId, actor, ct) -> MergeResult` (concrete — one impl, no interface). Resolve `base` = the concurrent branch's `RootVersionId` (M1: both sides in the same document; the copy/push **fork-point** ancestor path is M4).
-    **Consolidation algorithm — design this before coding; it is the hardest step in M1.** `WmlComparer.Compare` produces a *pairwise* comparison, NOT a 3-way merge. Do **not** try to fuse two independent `Compare(base,left)` / `Compare(base,right)` result docs — their `w:ins`/`w:del` revision-ids collide and authorship gets mangled. Use **sequential application** instead:
-      1. `mergedLeft = WmlComparer.Compare(base, left, settings)` with `settings.AuthorForRevisions = leftAuthorName` → a docx carrying left's edits as tracked-change revisions attributed to left's author.
-      2. `merged = WmlComparer.Compare(mergedLeft, right, settings)` with `settings.AuthorForRevisions = rightAuthorName` → right's edits land as a second, cleanly-regenerated revision layer on top; the second `Compare` produces one internally-consistent revision set, so no id collisions.
-      Result: a single docx with **both** authors' changes as tracked changes. Overlapping edits to the same run are NOT auto-resolved — both revisions coexist and the editor's accept/reject UI is the resolver (spec §5.3). Each `WmlComparer.Compare` call is individually try/catch-guarded (Task 8 pattern). Save the consolidated docx via `IBlobStore`.
-  - On success: `VersioningService.CommitSaveAsync(CommitInput{ Source=Merge, ExplicitBranchId=main.Id, BaseVersionId=leftHead, MergeParentVersionId=right })`; set `Branch(right).MergedIntoVersionId = mergeVersionId`; `IEventBus.Publish(docId,"merge.completed",…)`.
-  - On comparer failure: `MergeResult{ Available=false }` → endpoint responds "merge unavailable — download both versions", branch left open, no version created. Never 500.
+  - `WmlComparerMergeService.MergeAsync(documentId, leftVersionId, rightVersionId, actor, ct) -> MergeResult` (concrete — one impl, no interface). Identify the **incoming** = whichever of {left,right} sits on a `Kind==Concurrent` branch; the **main head** = current head of the `Ordinal==0` branch at merge time. `incomingAuthorName` = incoming version's `CreatedBy` → `User.DisplayName`.
+    **Algorithm (one guarded call):** `merged = WmlComparer.Compare(mainHeadDoc, incomingDoc, settings)` with `settings.AuthorForRevisions = incomingAuthorName` → the incoming branch's changes as clean single-author tracked changes over current main. Save the merged docx via `IBlobStore`.
+  - On success: `VersioningService.CommitSaveAsync(CommitInput{ Source=Merge, ExplicitBranchId=main.Id, BaseVersionId=mainHead.Id, MergeParentVersionId=incoming.Id })`; set `Branch(incoming).MergedIntoVersionId = mergeVersionId`; `EventBus.Publish(docId,"merge.completed",…)`.
+  - On comparer failure: `MergeResult{ Available=false }` → endpoint `409` "merge unavailable — download both versions", branch left open, no version created. Never 500.
   - `MergeEndpoints`: `POST /api/v1/documents/{id}/merges {left,right}` (`.RequireAuthorization()`, `CanEdit` else 403).
 
 - [ ] **Step 4: Run — verify pass.** `dotnet test --filter MergeTests` → PASS. Closes **E4**.
 
-- [ ] **Step 5: Commit** — `git commit -s -am "feat(m1): concurrent-branch 3-way merge via WmlComparer (tracked changes, guarded)"`
+- [ ] **Step 5: Commit** — `git commit -s -am "feat(m1): merge-into-main (incoming branch as single-author tracked changes)"`
 
 ---
 
@@ -501,7 +505,7 @@ docker compose -f deploy/compose/docker-compose.yml down
 ## M1 Done — Exit Checklist
 
 - [ ] **E3 (Edit/version):** minting a session + WOPI `PutFile` produces a new version; an unchanged re-PUT (same sha) creates none; the version list shows author/time + a numeric change summary. (`WopiHostTests`, `CommitSaveTests`, `DiffTests`.)
-- [ ] **E4 (Branch/merge):** two sessions from one head → two branches, zero lost edits; `POST /merges` output opens with both authors' tracked changes attributed; merged branch closed. (`CommitSaveTests`, `MergeTests`.)
+- [ ] **E4 (Branch/merge):** two sessions from one head → two branches, zero lost edits; `POST /merges` (merge-into-main) output opens with the incoming branch's changes as tracked changes attributed to their author on top of main; both branch versions persist; merged branch closed. (`CommitSaveTests`, `MergeTests`.)
 - [ ] **E5 (Numbering):** R1–R6 exact incl. `0.0.7→0.1.0`, `0.0.7→1.0.0`, manual `0.0.0`; downloads named per R8. (`NumberingTests`, `DownloadTests`; publish-driven R3/R4 re-validated E2E in M2.)
 - [ ] Collabora joins the compose stack; discovery reachable; `WOPI_HOST_URL` vs `PUBLIC_BASE_URL` threaded correctly.
 - [ ] Every `WmlComparer`/merge call guarded — malformed input degrades to "comparison/merge unavailable", never 500.
