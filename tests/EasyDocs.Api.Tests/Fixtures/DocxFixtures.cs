@@ -12,6 +12,10 @@ public static class DocxFixtures
     // "Bravo" -> "Bravo EDITED" and a new "Delta" paragraph => a compare yields non-zero insertions.
     public static byte[] Edited() => Build("Alpha", "Bravo EDITED", "Charlie", "Delta");
 
+    // A DIFFERENT edit of Base (touches Charlie + adds Echo, disjoint from Edited's Bravo/Delta) so a
+    // merge of the two produces tracked changes from both sides (Task 9 two-author test).
+    public static byte[] EditedDifferently() => Build("Alpha", "Bravo", "Charlie CHANGED", "Echo");
+
     // Not a zip => WmlComparer must degrade, never throw.
     public static byte[] Malformed() => new byte[] { 1, 2, 3 };
 

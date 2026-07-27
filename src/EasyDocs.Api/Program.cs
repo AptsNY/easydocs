@@ -8,6 +8,7 @@ using EasyDocs.Api.Documents;
 using EasyDocs.Api.Editing;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Folders;
+using EasyDocs.Api.Merging;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,7 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<DiffJob>());
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Writer);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Reader);
 builder.Services.AddScoped<WmlComparerDiffService>();
+builder.Services.AddScoped<WmlComparerMergeService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
@@ -90,6 +92,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
+app.MapMergeEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
