@@ -11,6 +11,7 @@ using EasyDocs.Api.Events;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Merging;
 using EasyDocs.Api.Publishing;
+using EasyDocs.Api.Sharing;
 using EasyDocs.Api.Versioning;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -111,6 +112,7 @@ app.MapMergeEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
+app.MapShareEndpoints(); // public /s/{token} viewer — must precede the /s/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
 // must 404 (not fall through to index.html), so terminate them before the fallback.

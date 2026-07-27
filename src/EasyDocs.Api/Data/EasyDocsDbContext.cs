@@ -138,6 +138,7 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
 
         b.Entity<ShareLink>(e =>
         {
+            e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasOne<DocumentVersion>().WithMany().HasForeignKey(x => x.VersionId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(R);
         });
