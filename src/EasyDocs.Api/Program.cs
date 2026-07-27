@@ -9,6 +9,7 @@ using EasyDocs.Api.Editing;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Merging;
+using EasyDocs.Api.Publishing;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
+builder.Services.AddScoped<EasyDocs.Api.Publishing.PublishService>();
 builder.Services.AddSingleton<EventBus>();
 
 // In-process diff queue (spec §7): commits enqueue parent->child jobs; DiffSummaryWorker drains them
@@ -92,6 +94,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
+app.MapPublishEndpoints();
 app.MapMergeEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
