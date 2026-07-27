@@ -42,6 +42,7 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reade
 builder.Services.AddScoped<LibreOfficePdfRenderer>();
 builder.Services.AddHostedService<PdfRenderBackgroundService>();
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<ApiTokenService>(); // stateless: mint/hash `ed_` PATs
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
 // for a once-daily call. Test/dev use the COLLABORA_ACTION_URL seam and never hit the network.
@@ -103,6 +104,7 @@ app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
+app.MapTokenEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 app.MapPublishEndpoints();
