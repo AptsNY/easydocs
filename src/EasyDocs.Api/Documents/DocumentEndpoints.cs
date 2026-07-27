@@ -15,6 +15,7 @@ public static class DocumentEndpoints
 
     public record CreateRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
+    public record VersionCounterRequest(int Major, int Minor, int Rev);
 
     public static void MapDocumentEndpoints(this WebApplication app)
     {
@@ -26,6 +27,56 @@ public static class DocumentEndpoints
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
         g.MapGet("/{id:guid}/compare", Compare);
+        g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
+
+        var v = app.MapGroup("/api/v1/versions").RequireAuthorization();
+        v.MapGet("/{vid:guid}/download", Download);
+    }
+
+    // R8 download (spec §5.3): name the file "{orgSlug}__{Sanitized_Name}-v{M}.{m}.{r}.{ext}".
+    // Viewer+ suffices; pdf requires a published PDF blob (else 409).
+    private static async Task<IResult> Download(Guid vid, string? format, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
+    {
+        var version = await db.Versions.FirstOrDefaultAsync(x => x.Id == vid);
+        if (version is null) return Problem.Of(404, "Not found", "Version not found.");
+
+        var (doc, failure) = await AuthorizeAsync(db, ctx, version.DocumentId, requireEdit: false);
+        if (failure is not null) return failure;
+
+        var slug = await db.Organizations.Where(o => o.Id == doc!.OrgId).Select(o => o.Slug).FirstAsync();
+        var counter = (version.Major, version.Minor, version.Revision);
+
+        if (string.Equals(format, "pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            if (version.PdfBlobSha256 is null)
+                return Problem.Of(409, "No PDF", "This version has no PDF (publish it first).");
+            var name = Numbering.DownloadFileName(slug, doc!.Name, counter, "pdf");
+            return Results.Stream(await blobs.OpenReadAsync(version.PdfBlobSha256, ctx.RequestAborted), "application/pdf", name);
+        }
+
+        var docxName = Numbering.DownloadFileName(slug, doc!.Name, counter, "docx");
+        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), DocxMime, docxName);
+    }
+
+    // R5 manual override: set the authoritative counter under the same per-document FOR UPDATE lock as
+    // the write path (spec §5.1), so a subsequent CommitSaveAsync NextDraft continues from it (R6).
+    private static async Task<IResult> SetVersionCounter(Guid id, VersionCounterRequest req, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
+        if (failure is not null) return failure;
+
+        try { Numbering.Manual(req.Major, req.Minor, req.Rev); }
+        catch (ArgumentOutOfRangeException) { return Problem.Of(400, "Invalid request", "Counter values must be non-negative."); }
+
+        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ctx.RequestAborted);
+        doc!.VersionCounterMajor = req.Major;
+        doc.VersionCounterMinor = req.Minor;
+        doc.VersionCounterRev = req.Rev;
+        await db.SaveChangesAsync(ctx.RequestAborted);
+        await tx.CommitAsync(ctx.RequestAborted);
+
+        return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
