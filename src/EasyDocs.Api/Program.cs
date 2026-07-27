@@ -14,6 +14,7 @@ using EasyDocs.Api.Publishing;
 using EasyDocs.Api.Sharing;
 using EasyDocs.Api.Versioning;
 using EasyDocs.Api.Storage;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -59,7 +60,16 @@ JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 
 // Read Jwt:Secret at DI-resolution time, not here: test hosts (WebApplicationFactory) only merge their
 // injected config during Build(), after these top-level statements run. RequireJwtKeyBytes validates it.
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+// "Composite" is the default scheme: it forwards `Authorization: Bearer ed_...` to the ApiToken PAT
+// handler and everything else (JWT bearer / ed_session cookie) to the JWT scheme, so a single
+// .RequireAuthorization() accepts either credential without regressing the existing web-app auth.
+builder.Services.AddAuthentication("Composite")
+    .AddJwtBearer() // stays JwtBearerDefaults.AuthenticationScheme; options configured below
+    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(ApiTokenAuthHandler.SchemeName, null)
+    .AddPolicyScheme("Composite", "Composite", o => o.ForwardDefaultSelector = ctx =>
+        ctx.Request.Headers.Authorization.ToString().StartsWith("Bearer ed_", StringComparison.Ordinal)
+            ? ApiTokenAuthHandler.SchemeName
+            : JwtBearerDefaults.AuthenticationScheme);
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<IConfiguration>((o, cfg) =>
     {
