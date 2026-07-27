@@ -1,8 +1,10 @@
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Storage;
+using EasyDocs.Api.Versioning;
 using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Documents;
@@ -13,6 +15,7 @@ public static class DocumentEndpoints
 
     public record CreateRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
+    public record VersionCounterRequest(int Major, int Minor, int Rev);
 
     public static void MapDocumentEndpoints(this WebApplication app)
     {
@@ -22,6 +25,58 @@ public static class DocumentEndpoints
         g.MapPatch("/{id:guid}", Update);
         g.MapGet("/{id:guid}/versions", ListVersions);
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
+        g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
+        g.MapGet("/{id:guid}/compare", Compare);
+        g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
+
+        var v = app.MapGroup("/api/v1/versions").RequireAuthorization();
+        v.MapGet("/{vid:guid}/download", Download);
+    }
+
+    // R8 download (spec §5.3): name the file "{orgSlug}__{Sanitized_Name}-v{M}.{m}.{r}.{ext}".
+    // Viewer+ suffices; pdf requires a published PDF blob (else 409).
+    private static async Task<IResult> Download(Guid vid, string? format, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
+    {
+        var version = await db.Versions.FirstOrDefaultAsync(x => x.Id == vid);
+        if (version is null) return Problem.Of(404, "Not found", "Version not found.");
+
+        var (doc, failure) = await AuthorizeAsync(db, ctx, version.DocumentId, requireEdit: false);
+        if (failure is not null) return failure;
+
+        var slug = await db.Organizations.Where(o => o.Id == doc!.OrgId).Select(o => o.Slug).FirstAsync();
+        var counter = (version.Major, version.Minor, version.Revision);
+
+        if (string.Equals(format, "pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            if (version.PdfBlobSha256 is null)
+                return Problem.Of(409, "No PDF", "This version has no PDF (publish it first).");
+            var name = Numbering.DownloadFileName(slug, doc!.Name, counter, "pdf");
+            return Results.Stream(await blobs.OpenReadAsync(version.PdfBlobSha256, ctx.RequestAborted), "application/pdf", name);
+        }
+
+        var docxName = Numbering.DownloadFileName(slug, doc!.Name, counter, "docx");
+        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), DocxMime, docxName);
+    }
+
+    // R5 manual override: set the authoritative counter under the same per-document FOR UPDATE lock as
+    // the write path (spec §5.1), so a subsequent CommitSaveAsync NextDraft continues from it (R6).
+    private static async Task<IResult> SetVersionCounter(Guid id, VersionCounterRequest req, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
+        if (failure is not null) return failure;
+
+        try { Numbering.Manual(req.Major, req.Minor, req.Rev); }
+        catch (ArgumentOutOfRangeException) { return Problem.Of(400, "Invalid request", "Counter values must be non-negative."); }
+
+        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ctx.RequestAborted);
+        doc!.VersionCounterMajor = req.Major;
+        doc.VersionCounterMinor = req.Minor;
+        doc.VersionCounterRev = req.Rev;
+        await db.SaveChangesAsync(ctx.RequestAborted);
+        await tx.CommitAsync(ctx.RequestAborted);
+
+        return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
@@ -90,7 +145,15 @@ public static class DocumentEndpoints
         return Results.Ok(items);
     }
 
-    private static async Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
+    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
+        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Upload);
+
+    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
+        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Import);
+
+    // The single HTTP write path: store the blob, then route through VersioningService.CommitSaveAsync
+    // (spec §5.2). Upload and import differ only by VersionSource.
+    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, VersionSource source)
     {
         var userId = CurrentUser.UserId(ctx.User);
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
@@ -103,35 +166,61 @@ public static class DocumentEndpoints
         await using (var upload = file.OpenReadStream())
             stored = await blobs.PutAsync(upload, ctx.RequestAborted);
 
-        // Blobs are content-addressed and immutable — insert only if this sha is new.
-        if (!await db.Blobs.AnyAsync(bl => bl.Sha256 == stored.Sha256))
+        var result = await versioning.CommitSaveAsync(
+            new CommitInput(id, stored.Sha256, stored.SizeBytes, source, userId), ctx.RequestAborted);
+
+        return Results.Created($"/api/v1/documents/{id}/versions/{result.VersionId}",
+            new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision });
+    }
+
+    // Compare two versions (spec §7). Viewer+ suffices. summary = numeric counts (eager cache, else
+    // computed inline); html = on-demand cached redline (200 text/html, graceful message if unavailable);
+    // docx = the compared redline docx blob. Every WmlComparer call is guarded inside the diff service.
+    private static async Task<IResult> Compare(
+        Guid id, Guid from, Guid to, string? format,
+        HttpContext ctx, EasyDocsDbContext db, WmlComparerDiffService diff, IBlobStore blobs)
+    {
+        var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
+        if (failure is not null) return failure;
+
+        var fromSha = await db.Versions.Where(v => v.Id == from && v.DocumentId == id).Select(v => v.BlobSha256).FirstOrDefaultAsync();
+        var toSha = await db.Versions.Where(v => v.Id == to && v.DocumentId == id).Select(v => v.BlobSha256).FirstOrDefaultAsync();
+        if (fromSha is null || toSha is null)
+            return Problem.Of(404, "Not found", "from/to must reference versions of this document.");
+
+        switch ((format ?? "summary").ToLowerInvariant())
         {
-            db.Add(new Blob { Sha256 = stored.Sha256, SizeBytes = stored.SizeBytes, Mime = DocxMime, StorageKey = stored.Sha256, CreatedAt = DateTimeOffset.UtcNow });
-            await db.SaveChangesAsync();
+            case "html":
+            {
+                var render = await diff.RedlineHtmlAsync(fromSha, toSha, ctx.RequestAborted);
+                return Results.Content(render.Available ? render.Html! : "<p>Comparison unavailable.</p>", "text/html");
+            }
+            case "docx":
+            {
+                await diff.RedlineHtmlAsync(fromSha, toSha, ctx.RequestAborted); // ensures the redline blob exists
+                var redline = await db.VersionDiffs
+                    .Where(x => x.FromSha256 == fromSha && x.ToSha256 == toSha)
+                    .Select(x => x.RedlineBlobSha256).FirstOrDefaultAsync();
+                if (redline is null)
+                    return Problem.Of(422, "Comparison unavailable", "A redline document could not be produced.");
+                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), DocxMime);
+            }
+            default:
+            {
+                var cached = await db.VersionDiffs.FirstOrDefaultAsync(x => x.FromSha256 == fromSha && x.ToSha256 == toSha);
+                var (ins, del, mov, fmt) = cached?.Insertions is not null
+                    ? (cached.Insertions.Value, cached.Deletions ?? 0, cached.Moves ?? 0, cached.FormatChanges ?? 0)
+                    : await ComputeSummaryAsync(diff, fromSha, toSha, ctx.RequestAborted);
+                return Results.Ok(new { insertions = ins, deletions = del, moves = mov, formatChanges = fmt });
+            }
         }
+    }
 
-        // Per-document row lock so the authoritative counter increment (spec §5.1) is race-safe.
-        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ctx.RequestAborted);
-
-        var doc = await db.Documents.FirstAsync(d => d.Id == id, ctx.RequestAborted);
-        doc.VersionCounterRev += 1;
-
-        var main = await db.Branches.FirstAsync(b => b.DocumentId == id && b.Ordinal == 0, ctx.RequestAborted);
-        var maxSeq = await db.Versions.Where(v => v.BranchId == main.Id).Select(v => (int?)v.SeqInBranch).MaxAsync(ctx.RequestAborted) ?? 0;
-
-        var version = new DocumentVersion
-        {
-            Id = Guid.NewGuid(), DocumentId = id, BranchId = main.Id, SeqInBranch = maxSeq + 1,
-            Major = doc.VersionCounterMajor, Minor = doc.VersionCounterMinor, Revision = doc.VersionCounterRev,
-            Source = VersionSource.Upload, BlobSha256 = stored.Sha256, CreatedBy = userId, CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.Add(version);
-        await db.SaveChangesAsync(ctx.RequestAborted);
-        await tx.CommitAsync(ctx.RequestAborted);
-
-        return Results.Created($"/api/v1/documents/{id}/versions/{version.Id}",
-            new { versionId = version.Id, major = version.Major, minor = version.Minor, revision = version.Revision });
+    private static async Task<(int, int, int, int)> ComputeSummaryAsync(
+        WmlComparerDiffService diff, string fromSha, string toSha, CancellationToken ct)
+    {
+        var s = await diff.SummaryAsync(fromSha, toSha, ct);
+        return (s.Insertions, s.Deletions, s.Moves, s.FormatChanges);
     }
 
     // Single authorization chokepoint (spec §10/§11). Resolves the caller's document role with no org-role
