@@ -104,10 +104,11 @@ public class MergeTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Merge_of_two_concurrent_branches_has_both_authors_tracked_changes()
+    public async Task Merge_shows_incoming_branch_changes_as_tracked_changes_by_its_author()
     {
         var (a, _, orgId) = await RegisterAsync("Alice");
-        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedDifferently());
+        // Main head = Edited (Alice). Incoming concurrent branch = Edited + "Echo" (Bob).
+        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedPlusEcho());
 
         var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
         Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
@@ -117,7 +118,7 @@ public class MergeTests : IClassFixture<ApiFactory>
         var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
         var blobs = scope.ServiceProvider.GetRequiredService<IBlobStore>();
 
-        // Two-parent merge commit on main.
+        // Two-parent merge commit on main: parent = main head (left/Alice), merge-parent = incoming (right/Bob).
         var mv = await db.Versions.FirstAsync(v => v.Id == mergeVersionId);
         Assert.Equal(VersionSource.Merge, mv.Source);
         Assert.Equal(left, mv.ParentVersionId);
@@ -125,31 +126,42 @@ public class MergeTests : IClassFixture<ApiFactory>
         var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == docId && b.Ordinal == 0);
         Assert.Equal(mainBranch.Id, mv.BranchId);
 
-        // The concurrent (right) branch is closed.
+        // The incoming concurrent branch is closed.
         var rightBranchId = (await db.Versions.FirstAsync(v => v.Id == right)).BranchId;
         var rightBranch = await db.Branches.FirstAsync(b => b.Id == rightBranchId);
         Assert.Equal(mergeVersionId, rightBranch.MergedIntoVersionId);
         Assert.Equal(BranchKind.Concurrent, rightBranch.Kind);
 
-        // The merged docx is ONE tracked-changes doc that carries BOTH sides' edits as revisions.
-        // NOTE on author attribution: Clippit 3.8.0's WmlComparer *accepts* any pre-existing revisions
-        // in its source before diffing, so a chained Compare (base->left, then that->right) collapses all
-        // revisions to the LAST call's author (verified empirically). Literal dual-author w:author is not
-        // achievable via the mandated sequential-application algorithm in this library. We therefore assert
-        // the meaningful, reliable E4 property: both sides' *distinctive* edits survive as tracked changes,
-        // and the revisions are author-stamped (one merge author). See report for the semantic caveat.
+        // Single-author incoming redline: Bob's distinctive edit ("Echo") is a tracked change attributed
+        // to Bob; Alice's edits (already the accepted main content) are the clean base, NOT tracked.
         var bytes = await ReadBlobAsync(blobs, mv.BlobSha256);
         var (revText, authors) = Revisions(bytes);
-        Assert.Contains("Delta", revText); // left-only edit present as a tracked change
-        Assert.Contains("Echo", revText);  // right-only edit present as a tracked change
-        Assert.Contains(authors, a => !string.IsNullOrEmpty(a));
+        Assert.Contains("Echo", revText);       // incoming edit present as a tracked change
+        Assert.DoesNotContain("Delta", revText); // main-only edit is clean base, not tracked
+        Assert.Contains("Bob", authors);         // attributed to the incoming author
+        Assert.DoesNotContain("Alice", authors);
+    }
+
+    [Fact]
+    public async Task Nothing_is_lost()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedPlusEcho());
+
+        (await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right })).EnsureSuccessStatusCode();
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        // Both the main head and the incoming-branch version still exist in history after the merge.
+        Assert.True(await db.Versions.AnyAsync(v => v.Id == left));
+        Assert.True(await db.Versions.AnyAsync(v => v.Id == right));
     }
 
     [Fact]
     public async Task Merge_degrades_when_comparer_fails()
     {
         var (a, _, orgId) = await RegisterAsync("Alice");
-        // Right branch head has a malformed (non-docx) blob -> the second Compare throws -> degrade.
+        // Incoming branch head has a malformed (non-docx) blob -> the Compare throws -> degrade.
         var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.Malformed());
 
         var before = await CountVersionsAsync(docId);
@@ -168,7 +180,7 @@ public class MergeTests : IClassFixture<ApiFactory>
     public async Task Merge_requires_editor_role()
     {
         var (a, _, orgId) = await RegisterAsync("Alice");
-        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedDifferently());
+        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedPlusEcho());
 
         var viewerId = await AddMemberAsync(orgId, docId, "Vera", DocRole.Viewer);
         var viewer = ClientFor(viewerId, orgId);

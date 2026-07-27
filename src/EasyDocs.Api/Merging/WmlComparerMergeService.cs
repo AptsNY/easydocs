@@ -9,11 +9,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Merging;
 
-// Concrete (no interface): concurrent-branch 3-way merge (spec §5.3, E4). WmlComparer.Compare is pairwise,
-// so we get a 3-way merge by SEQUENTIAL APPLICATION: Compare(base, left) stamps left's author, then
-// Compare(that, right) regenerates one clean revision layer stamped with right's author — both authors'
-// edits end up as tracked changes in a single internally-consistent docx. The whole compare is guarded:
-// any failure (malformed blob, no ancestor) degrades to Available=false and NEVER throws / partial-commits.
+// Concrete (no interface): merge-into-main (spec §5.3, E4). The main-branch head is the accepted content,
+// so it becomes the BASE (not tracked changes). A single guarded WmlComparer.Compare(mainHead, incoming)
+// renders the incoming concurrent branch's edits as a clean single-author redline (stamped with the
+// incoming author's DisplayName) on top of current main — ready to accept/reject. The compare is guarded:
+// any failure (malformed blob, no incoming branch) degrades to Available=false, NEVER throws / partial-commits.
 public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext db, VersioningService versioning, EventBus bus)
 {
     public record MergeResult(bool Available, Guid? MergeVersionId);
@@ -27,43 +27,41 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         var leftBranch = await db.Branches.FirstAsync(b => b.Id == left.BranchId, ct);
         var rightBranch = await db.Branches.FirstAsync(b => b.Id == right.BranchId, ct);
 
-        // The merge's common ancestor is the concurrent branch's fork point. Prefer the right side when both
-        // are concurrent (M1's typical case: left on main, right on a concurrent branch).
-        var concurrent = rightBranch.Kind == BranchKind.Concurrent ? rightBranch
-            : leftBranch.Kind == BranchKind.Concurrent ? leftBranch : null;
-        if (concurrent?.RootVersionId is not { } baseVersionId) return new MergeResult(false, null);
+        // The incoming side is the one on a concurrent branch; its edits become the tracked redline.
+        var (incoming, incomingBranch) = rightBranch.Kind == BranchKind.Concurrent ? (right, rightBranch)
+            : leftBranch.Kind == BranchKind.Concurrent ? (left, leftBranch)
+            : (null, null!);
+        if (incoming is null) return new MergeResult(false, null);
 
-        var baseVersion = await db.Versions.FirstOrDefaultAsync(v => v.Id == baseVersionId, ct);
-        if (baseVersion is null) return new MergeResult(false, null);
+        // base = the TARGET (main) branch's current head at merge time — the accepted content.
+        var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == documentId && b.Ordinal == 0, ct);
+        var mainHead = await db.Versions.Where(v => v.BranchId == mainBranch.Id)
+            .OrderByDescending(v => v.SeqInBranch).FirstOrDefaultAsync(ct);
+        if (mainHead is null) return new MergeResult(false, null);
 
-        var leftAuthor = await AuthorNameAsync(left.CreatedBy, ct);
-        var rightAuthor = await AuthorNameAsync(right.CreatedBy, ct);
+        var incomingAuthor = await AuthorNameAsync(incoming.CreatedBy, ct);
 
         byte[] mergedBytes;
         try
         {
-            var baseDoc = new WmlDocument("base.docx", await ReadBytesAsync(baseVersion.BlobSha256, ct));
-            var leftDoc = new WmlDocument("left.docx", await ReadBytesAsync(left.BlobSha256, ct));
-            var rightDoc = new WmlDocument("right.docx", await ReadBytesAsync(right.BlobSha256, ct));
-
-            var mergedLeft = WmlComparer.Compare(baseDoc, leftDoc, SettingsFor(leftAuthor));
-            var merged = WmlComparer.Compare(mergedLeft, rightDoc, SettingsFor(rightAuthor));
+            var mainDoc = new WmlDocument("main.docx", await ReadBytesAsync(mainHead.BlobSha256, ct));
+            var incomingDoc = new WmlDocument("incoming.docx", await ReadBytesAsync(incoming.BlobSha256, ct));
+            var merged = WmlComparer.Compare(mainDoc, incomingDoc, SettingsFor(incomingAuthor));
             mergedBytes = merged.DocumentByteArray;
         }
         catch
         {
-            // Uncomparable (malformed docx, unresolved revisions, …): degrade — nothing committed, branches untouched.
+            // Uncomparable (malformed docx, …): degrade — nothing committed, branches untouched.
             return new MergeResult(false, null);
         }
 
-        var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == documentId && b.Ordinal == 0, ct);
         var stored = await blobs.PutAsync(new MemoryStream(mergedBytes), ct);
         var commit = await versioning.CommitSaveAsync(
             new CommitInput(documentId, stored.Sha256, stored.SizeBytes, VersionSource.Merge, actorUserId,
-                ExplicitBranchId: mainBranch.Id, BaseVersionId: leftVersionId, MergeParentVersionId: rightVersionId),
+                ExplicitBranchId: mainBranch.Id, BaseVersionId: mainHead.Id, MergeParentVersionId: incoming.Id),
             ct);
 
-        concurrent.MergedIntoVersionId = commit.VersionId; // close the merged concurrent branch
+        incomingBranch.MergedIntoVersionId = commit.VersionId; // close the merged concurrent branch
         await db.SaveChangesAsync(ct);
 
         bus.Publish(documentId, "merge.completed", new { mergeVersionId = commit.VersionId });

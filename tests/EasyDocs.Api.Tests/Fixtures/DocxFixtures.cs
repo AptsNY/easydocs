@@ -12,9 +12,10 @@ public static class DocxFixtures
     // "Bravo" -> "Bravo EDITED" and a new "Delta" paragraph => a compare yields non-zero insertions.
     public static byte[] Edited() => Build("Alpha", "Bravo EDITED", "Charlie", "Delta");
 
-    // A DIFFERENT edit of Base (touches Charlie + adds Echo, disjoint from Edited's Bravo/Delta) so a
-    // merge of the two produces tracked changes from both sides (Task 9 two-author test).
-    public static byte[] EditedDifferently() => Build("Alpha", "Bravo", "Charlie CHANGED", "Echo");
+    // The incoming concurrent-branch head: main's content (== Edited) PLUS one distinctive edit ("Echo").
+    // A merge-into-main redline of this over the Edited main head is purely "Echo" as a tracked change,
+    // leaving the first author's edits as clean (untracked) base (Task 9 merge-into-main test).
+    public static byte[] EditedPlusEcho() => Build("Alpha", "Bravo EDITED", "Charlie", "Delta", "Echo");
 
     // Not a zip => WmlComparer must degrade, never throw.
     public static byte[] Malformed() => new byte[] { 1, 2, 3 };
