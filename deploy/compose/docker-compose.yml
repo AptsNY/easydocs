@@ -20,16 +20,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      collabora:
+        condition: service_started
     env_file: .env
     environment:
       ConnectionStrings__Postgres: ${ConnectionStrings__Postgres}
       BLOB_ROOT: /data/blobs
       Jwt__Secret: ${Jwt__Secret}
+      # Compose-network URLs: no app↔Collabora TLS here — the edge proxy terminates TLS (spec §11).
+      WOPI_HOST_URL: ${WOPI_HOST_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      COLLABORA_URL: ${COLLABORA_URL}
       ASPNETCORE_HTTP_PORTS: "8080"
     ports:
       - "8080:8080"
     volumes:
       - blobs:/data/blobs
+
+  collabora:
+    image: collabora/code
+    environment:
+      aliasgroup1: ${PUBLIC_BASE_URL}          # allowlist the app host (spec §6.1)
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+    ports: [ "9980:9980" ]
+    cap_add: [ MKNOD ]
 
 volumes:
   pgdata:
