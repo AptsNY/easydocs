@@ -19,6 +19,7 @@ public class PublishTests : IClassFixture<ApiFactory>
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record PublishDto(Guid VersionId, int Major, int Minor, int Revision, string Kind);
     private record PublicationDto(Guid VersionId, int Major, int Minor, int Revision, string? Name, Guid PublishedBy, DateTimeOffset PublishedAt, string Kind);
+    private record PublicationPage(List<PublicationDto> Items, string? NextCursor);
 
     private async Task<(HttpClient client, Guid userId)> AuthedClientAsync()
     {
@@ -137,7 +138,7 @@ public class PublishTests : IClassFixture<ApiFactory>
         (await c.PostAsJsonAsync($"/api/v1/versions/{v1.VersionId}/publish", new { kind = "minor", name = "First" })).EnsureSuccessStatusCode();
         (await c.PostAsJsonAsync($"/api/v1/versions/{v2.VersionId}/publish", new { kind = "major", name = "Second" })).EnsureSuccessStatusCode();
 
-        var list = await c.GetFromJsonAsync<List<PublicationDto>>($"/api/v1/documents/{docId}/publications");
+        var list = (await c.GetFromJsonAsync<PublicationPage>($"/api/v1/documents/{docId}/publications"))!.Items;
         Assert.Equal(2, list!.Count);
         // Newest first: v2 (major) published last.
         Assert.Equal(v2.VersionId, list[0].VersionId);

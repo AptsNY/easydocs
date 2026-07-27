@@ -40,6 +40,7 @@ public class DocumentUploadTests : IClassFixture<ApiFactory>
     private record FolderDto(Guid Id);
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record VersionDto(Guid Id, int Major, int Minor, int Revision, string Source);
+    private record VersionPage(List<VersionDto> Items, string? NextCursor);
 
     [Fact]
     public async Task Create_then_upload_produces_first_version_0_0_1()
@@ -56,8 +57,8 @@ public class DocumentUploadTests : IClassFixture<ApiFactory>
         var upBody = (await up.Content.ReadFromJsonAsync<UploadDto>())!;
         Assert.Equal((0, 0, 1), (upBody.Major, upBody.Minor, upBody.Revision));
 
-        var versions = await c.GetFromJsonAsync<List<VersionDto>>($"/api/v1/documents/{docId}/versions");
-        var v = Assert.Single(versions!);
+        var versions = await c.GetFromJsonAsync<VersionPage>($"/api/v1/documents/{docId}/versions");
+        var v = Assert.Single(versions!.Items);
         Assert.Equal((0, 0, 1), (v.Major, v.Minor, v.Revision));
         Assert.Equal("Upload", v.Source);
 

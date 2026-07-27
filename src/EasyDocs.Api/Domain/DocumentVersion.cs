@@ -1,6 +1,6 @@
 namespace EasyDocs.Api.Domain;
 
-public class DocumentVersion
+public class DocumentVersion : IKeyed
 {
     public Guid Id { get; set; }
     public Guid DocumentId { get; set; }

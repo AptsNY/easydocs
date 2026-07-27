@@ -44,6 +44,7 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
     private record DocDto(Guid Id);
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record VersionDto(Guid Id, int Major, int Minor, int Revision, string Source);
+    private record VersionPage(List<VersionDto> Items, string? NextCursor);
     private record MintDto(Guid SessionId, string AccessToken);
 
     // Upload a base version, returning (docId, headVersionId).
@@ -177,8 +178,8 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         var v2 = (await up2.Content.ReadFromJsonAsync<UploadDto>())!;
         Assert.Equal(v1.VersionId, v2.VersionId);
 
-        var versions = await c.GetFromJsonAsync<List<VersionDto>>($"/api/v1/documents/{docId}/versions");
-        Assert.Single(versions!);
+        var versions = await c.GetFromJsonAsync<VersionPage>($"/api/v1/documents/{docId}/versions");
+        Assert.Single(versions!.Items);
 
         using var scope = _f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
