@@ -14,8 +14,9 @@ public static class VersionActionsEndpoints
 
     public static void MapVersionActionEndpoints(this WebApplication app)
     {
-        app.MapPatch("/api/v1/versions/{vid:guid}", Name).RequireAuthorization();
-        app.MapPost("/api/v1/versions/{vid:guid}/revert", Revert).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Versions");
+        g.MapPatch("/api/v1/versions/{vid:guid}", Name).RequireAuthorization();
+        g.MapPost("/api/v1/versions/{vid:guid}/revert", Revert).RequireAuthorization();
     }
 
     // Label a version (metadata only). E11.

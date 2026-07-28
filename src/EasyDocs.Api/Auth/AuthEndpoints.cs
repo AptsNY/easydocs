@@ -13,9 +13,10 @@ public static partial class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/register", Register);
-        app.MapPost("/api/v1/auth/login", Login);
-        app.MapGet("/api/v1/me", Me).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Auth");
+        g.MapPost("/api/v1/auth/register", Register);
+        g.MapPost("/api/v1/auth/login", Login);
+        g.MapGet("/api/v1/me", Me).RequireAuthorization();
     }
 
     private static async Task<IResult> Register(

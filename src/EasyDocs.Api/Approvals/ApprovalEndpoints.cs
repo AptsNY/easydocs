@@ -17,9 +17,10 @@ public static class ApprovalEndpoints
 
     public static void MapApprovalEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/versions/{vid:guid}/approvals", Request).RequireAuthorization();
-        app.MapPost("/api/v1/approvals/{id:guid}:respond", Respond).RequireAuthorization();
-        app.MapPost("/api/v1/approvals/{id:guid}:cancel", Cancel).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Approvals");
+        g.MapPost("/api/v1/versions/{vid:guid}/approvals", Request).RequireAuthorization();
+        g.MapPost("/api/v1/approvals/{id:guid}:respond", Respond).RequireAuthorization();
+        g.MapPost("/api/v1/approvals/{id:guid}:cancel", Cancel).RequireAuthorization();
     }
 
     private static async Task<IResult> Request(Guid vid, RequestBody req, HttpContext ctx, EasyDocsDbContext db)

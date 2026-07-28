@@ -94,6 +94,27 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
+// OpenAPI 3.1 doc generated from minimal-API metadata (spec §10.1). Declare the `Bearer`
+// (ed_ token) security scheme via a document transformer; served at /openapi/v1.json below.
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "easydocs API";
+        document.Info.Version = "v1";
+        document.Components ??= new Microsoft.OpenApi.OpenApiComponents();
+        document.Components.SecuritySchemes ??=
+            new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+        {
+            Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+            Scheme = "bearer",
+            Description = "ed_ API token or JWT, sent as `Authorization: Bearer <token>`.",
+        };
+        return Task.CompletedTask;
+    });
+});
+
 // Resolve the connection string at DbContext-resolution time (not registration time) so test
 // hosts that inject config via WebApplicationFactory override it before Migrate() runs.
 // Fallback keeps `dotnet ef migrations add` working with no live DB (it never connects).
@@ -111,6 +132,15 @@ using (var scope = app.Services.CreateScope())
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapOpenApi("/openapi/{documentName}.json");
+// Self-contained docs UI: Swagger UI ships its assets as embedded resources served same-origin
+// under the route prefix (no external CDN — spec §3), pointed at the generated /openapi/v1.json.
+app.UseSwaggerUI(o =>
+{
+    o.RoutePrefix = "docs";
+    o.SwaggerEndpoint("/openapi/v1.json", "easydocs API v1");
+});
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();

@@ -13,7 +13,7 @@ public static class FolderEndpoints
 
     public static void MapFolderEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1/folders").RequireAuthorization();
+        var g = app.MapGroup("/api/v1/folders").RequireAuthorization().WithTags("Folders");
         g.MapGet("", List);
         g.MapPost("", Create);
         g.MapPatch("/{id:guid}", Update);

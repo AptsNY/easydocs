@@ -12,8 +12,9 @@ public static class PublishEndpoints
 
     public static void MapPublishEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/versions/{vid:guid}/publish", Publish).RequireAuthorization();
-        app.MapGet("/api/v1/documents/{id:guid}/publications", ListPublications).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Publishing");
+        g.MapPost("/api/v1/versions/{vid:guid}/publish", Publish).RequireAuthorization();
+        g.MapGet("/api/v1/documents/{id:guid}/publications", ListPublications).RequireAuthorization();
     }
 
     // Publish a selected version as minor/major (R3/R4, E6). Editor+ on the version's document.

@@ -20,7 +20,7 @@ public static class DocumentEndpoints
 
     public static void MapDocumentEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1/documents").RequireAuthorization();
+        var g = app.MapGroup("/api/v1/documents").RequireAuthorization().WithTags("Documents");
         g.MapGet("", ListDocuments);
         g.MapPost("", Create);
         g.MapGet("/{id:guid}", Get);
@@ -31,7 +31,7 @@ public static class DocumentEndpoints
         g.MapGet("/{id:guid}/compare", Compare);
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
 
-        var v = app.MapGroup("/api/v1/versions").RequireAuthorization();
+        var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
         v.MapGet("/{vid:guid}/download", Download);
     }
 

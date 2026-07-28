@@ -13,7 +13,7 @@ public static class MergeEndpoints
 
     public static void MapMergeEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization();
+        app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization().WithTags("Merging");
     }
 
     private static async Task<IResult> Merge(Guid id, MergeRequest req, HttpContext ctx, EasyDocsDbContext db, WmlComparerMergeService merge)

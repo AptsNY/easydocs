@@ -22,12 +22,13 @@ public static class ShareEndpoints
 
     public static void MapShareEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/versions/{vid:guid}/share-links", Create).RequireAuthorization();
-        app.MapDelete("/api/v1/share-links/{id:guid}", Revoke).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Sharing");
+        g.MapPost("/api/v1/versions/{vid:guid}/share-links", Create).RequireAuthorization();
+        g.MapDelete("/api/v1/share-links/{id:guid}", Revoke).RequireAuthorization();
 
         // PUBLIC — no RequireAuthorization. Mapped in Program.cs before the SPA fallback, like /wopi.
-        app.MapGet("/s/{token}", PublicView);
-        app.MapGet("/s/{token}/download", PublicDownload);
+        g.MapGet("/s/{token}", PublicView);
+        g.MapGet("/s/{token}/download", PublicDownload);
     }
 
     private static string HashToken(string token) =>

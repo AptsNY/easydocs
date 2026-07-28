@@ -10,7 +10,7 @@ public static class EditingEndpoints
 {
     public static void MapEditingEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1").RequireAuthorization();
+        var g = app.MapGroup("/api/v1").RequireAuthorization().WithTags("Editing");
         g.MapPost("/versions/{vid:guid}/sessions", MintSession);
         g.MapDelete("/sessions/{sid:guid}", CloseSession);
     }

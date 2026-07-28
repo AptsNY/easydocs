@@ -14,9 +14,10 @@ public static class TokenEndpoints
 
     public static void MapTokenEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/tokens", Create).RequireAuthorization();
-        app.MapGet("/api/v1/tokens", List).RequireAuthorization();
-        app.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Tokens");
+        g.MapPost("/api/v1/tokens", Create).RequireAuthorization();
+        g.MapGet("/api/v1/tokens", List).RequireAuthorization();
+        g.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization();
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db, ApiTokenService tokens)

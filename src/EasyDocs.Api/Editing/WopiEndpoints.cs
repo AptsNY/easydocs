@@ -16,10 +16,11 @@ public static class WopiEndpoints
     public static void MapWopiEndpoints(this WebApplication app)
     {
         // fileId == sessionId. Mapped before the M0 /wopi/{**rest} 404 catch-all so these win on precedence.
-        app.MapGet("/wopi/files/{fileId:guid}", CheckFileInfo);
-        app.MapGet("/wopi/files/{fileId:guid}/contents", GetFile);
-        app.MapPost("/wopi/files/{fileId:guid}/contents", PutFile);
-        app.MapPost("/wopi/files/{fileId:guid}", LockOp);
+        var g = app.MapGroup("").WithTags("WOPI");
+        g.MapGet("/wopi/files/{fileId:guid}", CheckFileInfo);
+        g.MapGet("/wopi/files/{fileId:guid}/contents", GetFile);
+        g.MapPost("/wopi/files/{fileId:guid}/contents", PutFile);
+        g.MapPost("/wopi/files/{fileId:guid}", LockOp);
     }
 
     private static async Task<IResult> CheckFileInfo(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens)
