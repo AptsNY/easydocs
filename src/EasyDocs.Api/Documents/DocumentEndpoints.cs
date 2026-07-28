@@ -252,7 +252,23 @@ public static class DocumentEndpoints
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
         if (failure is not null) return failure;
 
-        var file = ctx.Request.Form.Files["file"] ?? ctx.Request.Form.Files.FirstOrDefault();
+        // Both ingest routes (§10.3) funnel through here, so this is the one place that has to survive a
+        // hostile body. Reading Request.Form throws on a non-multipart or malformed multipart request
+        // (e.g. a bad Content-Disposition), which would surface as a 500 on a public endpoint; a bad
+        // request must be an RFC-7807 400.
+        if (!ctx.Request.HasFormContentType)
+            return Problem.Of(400, "Invalid request", "Expected a multipart/form-data body with a file field.");
+
+        IFormFile? file;
+        try
+        {
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+            file = form.Files["file"] ?? form.Files.FirstOrDefault();
+        }
+        catch (InvalidDataException)
+        {
+            return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
+        }
         if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
 
         BlobResult stored;
