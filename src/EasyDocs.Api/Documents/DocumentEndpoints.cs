@@ -32,7 +32,36 @@ public static class DocumentEndpoints
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
 
         var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
+        v.MapGet("/{vid:guid}", GetVersion);
         v.MapGet("/{vid:guid}/download", Download);
+    }
+
+    // Version detail (spec §10.1). Viewer+ suffices, same chokepoint as Download.
+    private static async Task<IResult> GetVersion(Guid vid, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var version = await db.Versions.FirstOrDefaultAsync(x => x.Id == vid, ctx.RequestAborted);
+        if (version is null) return Problem.Of(404, "Not found", "Version not found.");
+
+        var (_, failure) = await AuthorizeAsync(db, ctx, version.DocumentId, requireEdit: false);
+        if (failure is not null) return failure;
+
+        return Results.Ok(new
+        {
+            id = version.Id,
+            documentId = version.DocumentId,
+            major = version.Major,
+            minor = version.Minor,
+            revision = version.Revision,
+            name = version.Name,
+            source = version.Source.ToString(),
+            publishedKind = version.PublishedKind,
+            publishedAt = version.PublishedAt,
+            publishName = version.PublishName,
+            hasPdf = version.PdfBlobSha256 is not null,
+            parentVersionId = version.ParentVersionId,
+            createdAt = version.CreatedAt,
+            createdBy = version.CreatedBy,
+        });
     }
 
     // R8 download (spec §5.3): name the file "{orgSlug}__{Sanitized_Name}-v{M}.{m}.{r}.{ext}".
