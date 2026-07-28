@@ -38,6 +38,8 @@ public static class TokenEndpoints
             CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Add(row);
+        db.Add(Audit.Event(row.OrgId, null, row.UserId, "token.created", "token", row.Id.ToString(),
+            new { name, scopes = row.Scopes, expiresAt = row.ExpiresAt }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         return Results.Created($"/api/v1/tokens/{row.Id}", new { id = row.Id, token = raw });
@@ -70,6 +72,7 @@ public static class TokenEndpoints
         if (row is null) return Problem.Of(404, "Not found", "Token not found.");
 
         row.RevokedAt = DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "token.revoked", "token", row.Id.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
         return Results.NoContent();
     }

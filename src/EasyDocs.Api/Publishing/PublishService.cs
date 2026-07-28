@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Versioning;
@@ -39,6 +40,9 @@ public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWr
         doc.VersionCounterMajor = major;
         doc.VersionCounterMinor = minor;
         doc.VersionCounterRev = rev;
+
+        db.Add(Audit.Event(doc.OrgId, documentId, actorUserId, "version.published",
+            "version", versionId.ToString(), new { number = $"{major}.{minor}.{rev}", kind, name }));
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

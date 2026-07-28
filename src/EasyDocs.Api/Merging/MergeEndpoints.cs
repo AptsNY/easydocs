@@ -29,6 +29,10 @@ public static class MergeEndpoints
         if (!m.Available)
             return Problem.Of(409, "Merge unavailable", "Comparison failed — download both versions and merge manually.");
 
+        db.Add(Audit.Event(orgId, id, userId, "merge.completed", "version", m.MergeVersionId.ToString(),
+            new { left = req.Left, right = req.Right }));
+        await db.SaveChangesAsync(ctx.RequestAborted);
+
         return Results.Created($"/api/v1/documents/{id}/versions/{m.MergeVersionId}",
             new { mergeVersionId = m.MergeVersionId });
     }

@@ -106,6 +106,8 @@ public static class DocumentEndpoints
         doc!.VersionCounterMajor = req.Major;
         doc.VersionCounterMinor = req.Minor;
         doc.VersionCounterRev = req.Rev;
+        db.Add(Audit.Event(doc.OrgId, id, CurrentUser.UserId(ctx.User), "version_counter.set",
+            "document", id.ToString(), new { number = $"{req.Major}.{req.Minor}.{req.Rev}" }));
         await db.SaveChangesAsync(ctx.RequestAborted);
         await tx.CommitAsync(ctx.RequestAborted);
 
@@ -153,6 +155,8 @@ public static class DocumentEndpoints
         db.Add(doc);
         db.Add(new Branch { Id = Guid.NewGuid(), DocumentId = doc.Id, Ordinal = 0, Kind = BranchKind.Main, CreatedAt = now });
         db.Add(new DocumentMember { DocumentId = doc.Id, UserId = userId, Role = DocRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(orgId, doc.Id, userId, "document.created", "document", doc.Id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
         await db.SaveChangesAsync(); // single SaveChanges = one transaction
 
         return Results.Created($"/api/v1/documents/{doc.Id}", new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
@@ -183,6 +187,8 @@ public static class DocumentEndpoints
                 return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
             doc!.FolderId = fid;
         }
+        db.Add(Audit.Event(orgId, doc!.Id, CurrentUser.UserId(ctx.User), "document.updated", "document", id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
         await db.SaveChangesAsync();
         return Results.Ok(new { id = doc!.Id, name = doc.Name, folderId = doc.FolderId });
     }

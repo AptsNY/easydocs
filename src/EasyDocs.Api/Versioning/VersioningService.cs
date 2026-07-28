@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
@@ -101,6 +102,13 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         db.Add(version);
 
         if (session is not null) session.LastCommittedSha = input.BlobSha256;
+
+        // Audited here rather than at each caller: this is the single write path (spec §5.2), so one row
+        // covers upload, import, WOPI PutFile, merge and revert. Inside the transaction, so the trail
+        // cannot disagree with the version it records. The dedupe path returns above — nothing changed.
+        db.Add(Audit.Event(doc.OrgId, input.DocumentId, input.ActorUserId, "version.created",
+            "version", version.Id.ToString(),
+            new { number = $"{major}.{minor}.{rev}", source = input.Source.ToString(), branchId = targetBranch.Id }));
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

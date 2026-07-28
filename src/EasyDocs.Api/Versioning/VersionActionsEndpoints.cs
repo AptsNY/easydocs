@@ -29,6 +29,8 @@ public static class VersionActionsEndpoints
         if (failure is not null) return failure;
 
         version.Name = req.Name?.Trim();
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), version.DocumentId, CurrentUser.UserId(ctx.User),
+            "version.named", "version", vid.ToString(), new { name = version.Name }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         bus.Publish(version.DocumentId, "version.named", new { versionId = vid, name = version.Name });
@@ -50,6 +52,11 @@ public static class VersionActionsEndpoints
 
         var result = await versioning.CommitSaveAsync(
             new CommitInput(target.DocumentId, target.BlobSha256, size, VersionSource.Revert, actorId), ctx.RequestAborted);
+
+        // CommitSaveAsync already audited version.created (Source=Revert); this records the intent.
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), target.DocumentId, actorId, "version.reverted",
+            "version", result.VersionId.ToString(), new { fromVersionId = vid }));
+        await db.SaveChangesAsync(ctx.RequestAborted);
 
         bus.Publish(target.DocumentId, "version.reverted", new { fromVersionId = vid, newVersionId = result.VersionId });
         return Results.Created($"/api/v1/documents/{target.DocumentId}/versions/{result.VersionId}",

@@ -54,6 +54,7 @@ public static partial class AuthEndpoints
         db.Add(org);
         db.Add(user);
         db.Add(new OrgMember { OrgId = org.Id, UserId = user.Id, Role = OrgRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(org.Id, null, user.Id, "org.created", "org", org.Id.ToString(), new { name = org.Name, slug = org.Slug }));
 
         try
         {

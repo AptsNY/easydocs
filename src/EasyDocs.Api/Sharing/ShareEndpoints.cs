@@ -49,7 +49,7 @@ public static class ShareEndpoints
         }
 
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)); // 128-bit, url-safe
-        db.Add(new ShareLink
+        var link = new ShareLink
         {
             VersionId = vid,
             TokenHash = HashToken(token),
@@ -57,7 +57,10 @@ public static class ShareEndpoints
             ExpiresAt = req.ExpiresAt,
             ViewCount = 0,
             CreatedAt = DateTimeOffset.UtcNow,
-        });
+        };
+        db.Add(link);
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), version.DocumentId, CurrentUser.UserId(ctx.User),
+            "share_link.created", "version", vid.ToString(), new { expiresAt = req.ExpiresAt }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         return Results.Created($"/s/{token}", new { token, url = $"/s/{token}" });
@@ -81,6 +84,8 @@ public static class ShareEndpoints
             return Problem.Of(403, "Forbidden", "Only the creator or an editor may revoke this link.");
 
         link.RevokedAt ??= DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), docId, userId, "share_link.revoked",
+            "share_link", link.Id.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
         return Results.NoContent();
     }
