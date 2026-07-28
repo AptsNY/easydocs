@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.Channels;
+using EasyDocs.Api.Approvals;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
@@ -9,6 +10,9 @@ using EasyDocs.Api.Editing;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Folders;
 using EasyDocs.Api.Merging;
+using EasyDocs.Api.Publishing;
+using EasyDocs.Api.Sharing;
+using EasyDocs.Api.Versioning;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
+builder.Services.AddScoped<EasyDocs.Api.Publishing.PublishService>();
 builder.Services.AddSingleton<EventBus>();
 
 // In-process diff queue (spec §7): commits enqueue parent->child jobs; DiffSummaryWorker drains them
@@ -28,6 +33,14 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Re
 builder.Services.AddScoped<WmlComparerDiffService>();
 builder.Services.AddScoped<WmlComparerMergeService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
+
+// In-process PDF render queue (spec §7): publish enqueues a version id; PdfRenderBackgroundService drains
+// it and shells out to LibreOffice. Unbounded — jobs are tiny and re-triggerable by re-publishing.
+builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>());
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Writer);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);
+builder.Services.AddScoped<LibreOfficePdfRenderer>();
+builder.Services.AddHostedService<PdfRenderBackgroundService>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
@@ -92,10 +105,14 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
+app.MapPublishEndpoints();
+app.MapVersionActionEndpoints();
+app.MapApprovalEndpoints();
 app.MapMergeEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
+app.MapShareEndpoints(); // public /s/{token} viewer — must precede the /s/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
 // must 404 (not fall through to index.html), so terminate them before the fallback.

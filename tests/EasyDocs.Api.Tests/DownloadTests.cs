@@ -84,6 +84,37 @@ public class DownloadTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Download_pdf_streams_when_pdf_present()
+    {
+        var (c, slug) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Master Lease");
+        var v = await UploadAsync(c, docId, new byte[] { 10, 20, 30, 40 });
+
+        // Host has no soffice; seed the rendered PDF blob directly (download reads it via IBlobStore only).
+        var pdf = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\nfake pdf body\n%%EOF");
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var blobs = scope.ServiceProvider.GetRequiredService<EasyDocs.Api.Storage.IBlobStore>();
+            var res = await blobs.PutAsync(new MemoryStream(pdf));
+            db.Add(new Blob { Sha256 = res.Sha256, SizeBytes = res.SizeBytes, Mime = "application/pdf", StorageKey = res.Sha256, CreatedAt = DateTimeOffset.UtcNow });
+            var ver = await db.Versions.FirstAsync(x => x.Id == v.VersionId);
+            ver.PdfBlobSha256 = res.Sha256;
+            await db.SaveChangesAsync();
+        }
+
+        var resp = await c.GetAsync($"/api/v1/versions/{v.VersionId}/download?format=pdf");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("application/pdf", resp.Content.Headers.ContentType!.MediaType);
+        var body = await resp.Content.ReadAsByteArrayAsync();
+        Assert.Equal(pdf, body);
+        Assert.StartsWith("%PDF", System.Text.Encoding.ASCII.GetString(body, 0, 4));
+        var filename = resp.Content.Headers.ContentDisposition!.FileName!.Trim('"');
+        Assert.EndsWith(".pdf", filename);
+        Assert.Equal($"{slug}__Master_Lease-v0.0.1.pdf", filename);
+    }
+
+    [Fact]
     public async Task Manual_counter_override_then_next_draft_follows()
     {
         var (c, _) = await AuthedClientAsync();
