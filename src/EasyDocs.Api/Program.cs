@@ -144,6 +144,7 @@ app.UseSwaggerUI(o =>
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
+app.MapInvitationEndpoints();
 app.MapTokenEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();

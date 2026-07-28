@@ -85,7 +85,13 @@ public static partial class AuthEndpoints
         if (user?.PasswordHash is null || !hasher.Verify(req.Password ?? "", user.PasswordHash))
             return Problem.Of(401, "Invalid credentials", "Email or password is incorrect.");
 
-        var member = await db.OrgMembers.FirstAsync(m => m.UserId == user.Id);
+        // A session carries exactly one org. Accepting an invitation can make a user a member of more
+        // than one, so pick deterministically (oldest membership) rather than whatever the DB returns
+        // first. ponytail: no org switcher in v1 — see InvitationEndpoints.
+        var member = await db.OrgMembers
+            .Where(m => m.UserId == user.Id)
+            .OrderBy(m => m.CreatedAt).ThenBy(m => m.OrgId)
+            .FirstAsync();
 
         ctx.Response.Cookies.Append("ed_session", jwt.Issue(user.Id, member.OrgId), new CookieOptions
         {
