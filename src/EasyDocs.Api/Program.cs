@@ -149,6 +149,7 @@ app.MapTokenEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
 app.MapMemberEndpoints();
+app.MapAuditEndpoints();
 app.MapPublishEndpoints();
 app.MapVersionActionEndpoints();
 app.MapApprovalEndpoints();
