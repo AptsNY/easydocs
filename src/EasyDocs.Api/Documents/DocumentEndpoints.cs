@@ -30,6 +30,8 @@ public static class DocumentEndpoints
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
         g.MapGet("/{id:guid}/compare", Compare);
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
+        g.MapDelete("/{id:guid}", Trash);
+        g.MapPost("/{id:guid}:restore", Restore);
 
         var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
         v.MapGet("/{vid:guid}", GetVersion);
@@ -183,6 +185,37 @@ public static class DocumentEndpoints
         }
         await db.SaveChangesAsync();
         return Results.Ok(new { id = doc!.Id, name = doc.Name, folderId = doc.FolderId });
+    }
+
+    // Trash (spec §10.1). Soft-delete only: versions, blobs and members stay put so :restore is lossless.
+    // Owner-only. A trashed document drops out of every other route via the DeletedAt == null filter in
+    // DocumentAuthorization, so a second DELETE is a 404.
+    private static async Task<IResult> Trash(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, _, failure) = await DocumentAuthorization.AuthorizeAsync(db, ctx, id, Need.Own, ct: ctx.RequestAborted);
+        if (failure is not null) return failure;
+
+        doc!.DeletedAt = DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(doc.OrgId, doc.Id, CurrentUser.UserId(ctx.User), "document.trashed", "document", id.ToString(), null));
+        await db.SaveChangesAsync(ctx.RequestAborted);
+        return Results.NoContent();
+    }
+
+    // Restore from trash. Resolves with includeDeleted since the target is by definition trashed;
+    // restoring a live document is a no-op (its postcondition already holds).
+    private static async Task<IResult> Restore(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, _, failure) = await DocumentAuthorization.AuthorizeAsync(
+            db, ctx, id, Need.Own, includeDeleted: true, ct: ctx.RequestAborted);
+        if (failure is not null) return failure;
+
+        if (doc!.DeletedAt is not null)
+        {
+            doc.DeletedAt = null;
+            db.Add(Audit.Event(doc.OrgId, doc.Id, CurrentUser.UserId(ctx.User), "document.restored", "document", id.ToString(), null));
+            await db.SaveChangesAsync(ctx.RequestAborted);
+        }
+        return Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
     private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
