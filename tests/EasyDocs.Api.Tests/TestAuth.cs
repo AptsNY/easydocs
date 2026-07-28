@@ -1,6 +1,11 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using EasyDocs.Api.Auth;
+using EasyDocs.Api.Data;
+using EasyDocs.Api.Domain;
 using EasyDocs.Api.Tests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
 
@@ -49,6 +54,56 @@ public static class TestAuth
         var client = f.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", raw);
         return client;
+    }
+
+    // Seeds a second user directly into an existing org and logs them in. Registration always creates a
+    // *new* org, so until POST /invitations/{token}:accept lands this is the only way to get two members
+    // of one org — which E12's role matrix needs (a same-org non-member must be distinguishable from a
+    // cross-org caller: 403 vs 404).
+    public static async Task<Account> SeedOrgUserAsync(this ApiFactory f, Guid orgId, OrgRole role = OrgRole.Member)
+    {
+        var email = $"seed-{Guid.NewGuid():N}@example.com";
+        const string password = "pw-at-least-12";
+        Guid userId;
+
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+            var now = DateTimeOffset.UtcNow;
+            var user = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = email,
+                DisplayName = "Seed",
+                PasswordHash = hasher.Hash(password),
+                CreatedAt = now,
+            };
+            db.Add(user);
+            db.Add(new OrgMember { OrgId = orgId, UserId = user.Id, Role = role, CreatedAt = now });
+            await db.SaveChangesAsync();
+            userId = user.Id;
+        }
+
+        var client = f.CreateClient();
+        var res = await client.PostAsJsonAsync("/api/v1/auth/login", new { email, password });
+        res.EnsureSuccessStatusCode();
+        var cookie = res.Headers.GetValues("Set-Cookie").First(c => c.StartsWith("ed_session=", StringComparison.Ordinal));
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", cookie["ed_session=".Length..].Split(';')[0]);
+
+        return new Account(client, userId, orgId, email);
+    }
+
+    // Directly sets a caller's role on a document, for tests that need to observe a role they cannot
+    // yet reach through the API.
+    public static async Task SetRoleAsync(this ApiFactory f, Guid docId, Guid userId, DocRole role)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var m = await db.DocumentMembers.SingleAsync(x => x.DocumentId == docId && x.UserId == userId);
+        m.Role = role;
+        await db.SaveChangesAsync();
     }
 
     public static MultipartFormDataContent DocxForm(byte[]? bytes = null, string fileName = "f.docx")
