@@ -210,6 +210,29 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Concurrent_first_uploads_of_identical_content_all_succeed()
+    {
+        var acct = await _f.RegisterAsync();
+
+        // One capture, reused: DocxFixtures.Base() rebuilds the zip each call (different entry
+        // timestamps => different sha), so calling it per upload would never exercise the
+        // shared-blob path this test targets.
+        var bytes = EasyDocs.Api.Tests.Fixtures.DocxFixtures.Base();
+
+        var docIds = new List<Guid>();
+        for (var i = 0; i < 8; i++) docIds.Add(await acct.Client.CreateDocAsync($"Race {i}"));
+
+        // Blobs are content-addressed with Sha256 as the PK (spec §5.2): all these requests race to
+        // insert the same new row. Check-then-insert without a unique-violation guard 500s the losers.
+        var responses = await Task.WhenAll(docIds.Select(id =>
+            acct.Client.PostAsync($"/api/v1/documents/{id}/versions", TestAuth.DocxForm(bytes))));
+
+        Assert.All(responses, r =>
+            Assert.True(r.StatusCode == HttpStatusCode.Created,
+                $"expected 201, got {(int)r.StatusCode} {r.StatusCode}"));
+    }
+
+    [Fact]
     public async Task Fast_forward_saves_advance_seq_on_main()
     {
         var c = await AuthedClientAsync();
