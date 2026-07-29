@@ -300,6 +300,131 @@ select {
   margin-block-start: 8px;
 }
 
+/* Document console: history beside the members panel. Structure only — Task 17 owns the look. */
+.console {
+  display: flex;
+  align-items: start;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.console-main {
+  flex: 1;
+  min-width: 22rem;
+}
+
+.console-main > nav {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--border);
+}
+
+.spine,
+.spine ol,
+.members ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.version-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-block-start: 1px solid var(--border);
+  font-size: 15px;
+}
+
+.version-number {
+  font-family: var(--mono);
+  color: var(--text-h);
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-h);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+
+/* The indent IS the branch: a concurrent branch is drawn hanging off the version it forked from. */
+.branch-group {
+  margin-inline-start: 24px;
+  padding-inline-start: 16px;
+  border-inline-start: 2px solid var(--accent-border);
+}
+
+.branch-group h4 {
+  margin: 8px 0 0;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+.branch-group button {
+  margin-block-start: 8px;
+}
+
+.members {
+  min-width: 18rem;
+  max-width: 24rem;
+}
+
+.members h3 {
+  color: var(--text-h);
+  margin: 0 0 8px;
+}
+
+.members li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-block-start: 1px solid var(--border);
+  font-size: 15px;
+}
+
+.member-who {
+  margin-inline-end: auto;
+  color: var(--text-h);
+}
+
+.muted {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.invitation {
+  margin-block-start: 12px;
+  padding: 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.invitation code {
+  margin-block-start: 6px;
+  overflow-wrap: anywhere;
+}
+
+/* Available to a screen reader, invisible on screen — for labels a sighted reader gets from context. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .error {
   padding: 8px 10px;
   border-radius: 6px;

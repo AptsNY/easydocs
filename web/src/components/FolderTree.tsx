@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, ApiError, type Folder } from '../api'
+import { api, problemText, type Folder } from '../api'
 
 const ROOT = 'root'
 export type DeleteMode = 'trash' | 'promote_children'
@@ -40,7 +40,7 @@ export function useFolderTree(): FolderTreeState {
       await fn()
       return true
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail || e.title : 'Folder request failed.')
+      setError(problemText(e, 'Folder request failed.'))
       return false
     }
   }, [])

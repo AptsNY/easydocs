@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { api, ApiError, type Paged, type Tile } from '../api'
+import { api, problemText, type Paged, type Tile } from '../api'
 import FolderTree, { useFolderTree } from '../components/FolderTree'
 
 // Spec §9's dashboard: folder tree, document tiles, name search — plus the trash view, which is the
@@ -39,7 +39,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   )
 
   useEffect(() => {
-    load(null).catch((e: unknown) => setError(message(e)))
+    load(null).catch((e: unknown) => setError(problemText(e)))
   }, [load])
 
   // Every mutation goes through here so a failure always says why. A silent no-op is the worst
@@ -50,7 +50,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
       await fn()
       await load(null)
     } catch (e) {
-      setError(message(e))
+      setError(problemText(e))
     }
   }
 
@@ -205,7 +205,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
           <button
             type="button"
             onClick={() => {
-              load(nextCursor).catch((e: unknown) => setError(message(e)))
+              load(nextCursor).catch((e: unknown) => setError(problemText(e)))
             }}
           >
             Load more
@@ -214,10 +214,6 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
       </div>
     </section>
   )
-}
-
-function message(e: unknown) {
-  return e instanceof ApiError ? e.detail || e.title : 'Something went wrong.'
 }
 
 // The API sends UTC; the tile shows the reader's own clock.

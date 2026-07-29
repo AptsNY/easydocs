@@ -38,6 +38,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
 
+// Every screen needs the same "show the API's own words" line, so it lives next to ApiError rather than
+// being re-typed per route. The fallback is per-caller because "Folder request failed." reads better
+// under a folder tree than a generic apology.
+export function problemText(e: unknown, fallback = 'Something went wrong.') {
+  return e instanceof ApiError ? e.detail || e.title : fallback
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
@@ -97,3 +104,28 @@ export type VersionRow = {
 }
 
 export type Paged<T> = { items: T[]; nextCursor: string | null }
+
+// GET /api/v1/documents/{id} — the console header. Deliberately thinner than Tile: no counts, because
+// the console reads the version list anyway.
+export type DocumentDetail = { id: string; name: string; folderId: string | null; orgId: string }
+
+export type DocRole = 'Owner' | 'Editor' | 'Viewer'
+
+// GET /api/v1/documents/{id}/members returns a BARE array, not a Paged<T> — the roster is small enough
+// that it was never paginated.
+export type Member = {
+  userId: string
+  email: string
+  displayName: string
+  role: DocRole
+  createdAt: string
+}
+
+// POST .../members answers one of two shapes: a direct grant when the email is already in the org, or an
+// invitation whose raw token is returned exactly once (only its hash is stored).
+export type MemberAdded = {
+  userId?: string
+  email: string
+  role: DocRole
+  invitationToken?: string
+}

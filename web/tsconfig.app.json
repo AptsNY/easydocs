@@ -4,7 +4,10 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // "node" is here for the e2e specs below, which read the committed .docx fixtures off disk to
+    // drive the WOPI contract. A separate project for e2e would be the tidier split; one word is
+    // cheaper, and Vite would fail any build that actually imported node: from src/.
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
