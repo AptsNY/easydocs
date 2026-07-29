@@ -100,8 +100,21 @@ public static class ShareEndpoints
     }
 
     // PUBLIC viewer: version metadata + a download link. Increments the view count and audits the read.
-    private static async Task<IResult> PublicView(string token, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> PublicView(string token, HttpContext ctx, EasyDocsDbContext db, IWebHostEnvironment env)
     {
+        // A browser navigating here wants the landing page; the SPA then re-requests this same URL with
+        // Accept: application/json. Returned before any DB work so the shell hit neither audits nor
+        // counts a view, and so an unknown token is not distinguishable from a live one.
+        if (ctx.Request.GetTypedHeaders().Accept
+                .Any(a => a.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)))
+        {
+            var shell = env.WebRootFileProvider.GetFileInfo("index.html");
+            // ponytail: falls through to JSON when the SPA has not been built (dotnet run without a
+            // prior `npm run build`). Drop the fallback once the build always produces wwwroot.
+            if (shell.Exists && shell.PhysicalPath is not null)
+                return Results.File(shell.PhysicalPath, "text/html");
+        }
+
         var link = await ResolveLiveAsync(db, token, ctx.RequestAborted);
         if (link is null) return Problem.Of(404, "Not found", "Link not found.");
 
