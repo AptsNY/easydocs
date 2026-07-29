@@ -1,5 +1,6 @@
 using EasyDocs.Api.Api;
 using EasyDocs.Api.Auth;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,6 +25,11 @@ public static class AuditEndpoints
         var page = await Pagination.PageAsync(
             db.AuditEvents.Where(e => e.DocumentId == id), cursor, limit, descending: true, ctx.RequestAborted);
 
+        // A null actor (anonymous public share-link read, spec §11) must stay null — it is not
+        // "unknown", it is genuinely nobody, so it never enters the lookup and never gets a placeholder.
+        var actorIds = page.Items.Where(e => e.ActorUserId is not null).Select(e => e.ActorUserId!.Value);
+        var authors = await AuthorNames.ForAsync(db, actorIds, ctx.RequestAborted);
+
         return Results.Ok(new
         {
             items = page.Items.Select(e => new
@@ -31,6 +37,7 @@ public static class AuditEndpoints
                 id = e.Id,
                 action = e.Action,
                 actorUserId = e.ActorUserId,
+                actorName = e.ActorUserId is { } uid ? authors.GetValueOrDefault(uid, AuthorNames.Unknown) : null,
                 targetType = e.TargetType,
                 targetId = e.TargetId,
                 metadata = e.Metadata,

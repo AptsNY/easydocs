@@ -1,3 +1,4 @@
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -28,11 +29,7 @@ public static class VersionListProjection
             .Where(b => branchIds.Contains(b.Id))
             .ToDictionaryAsync(b => b.Id, ct);
 
-        var authorIds = versions.Select(v => v.CreatedBy).Distinct().ToArray();
-        var authors = await db.Users
-            .Where(u => authorIds.Contains(u.Id))
-            .Select(u => new { u.Id, u.DisplayName })
-            .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var authors = await AuthorNames.ForAsync(db, versions.Select(v => v.CreatedBy), ct);
 
         var summaries = await SummariesAsync(db, versions, ct);
 
@@ -46,7 +43,7 @@ public static class VersionListProjection
                 b.Id, b.Kind.ToString(), b.Ordinal, b.MergedIntoVersionId,
                 // Defensive fallback on a read path: an unresolvable display name should degrade
                 // gracefully, not 500 a history read, unlike a missing branch row above which is a bug.
-                v.CreatedBy, authors.GetValueOrDefault(v.CreatedBy, "(unknown)"),
+                v.CreatedBy, authors.GetValueOrDefault(v.CreatedBy, AuthorNames.Unknown),
                 v.CreatedAt, summaries.GetValueOrDefault(v.Id));
         }).ToList();
     }
