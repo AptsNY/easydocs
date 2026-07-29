@@ -52,6 +52,11 @@ function Shell() {
 
   return (
     <div className="shell">
+      {/* First stop in the tab order, visible only when focused: the masthead is five links deep on
+          every screen, and a keyboard reader should not have to walk it to reach the work. */}
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       <header>
         <Link to="/" className="brand">
           easydocs
@@ -74,7 +79,7 @@ function Shell() {
           Sign out
         </button>
       </header>
-      <main>
+      <main id="main">
         <Outlet />
       </main>
     </div>

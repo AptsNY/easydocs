@@ -135,17 +135,22 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
               <p data-testid="tile-author">{t.lastAuthorName ?? ''}</p>
 
               {trashed ? (
+                // Every one of these controls exists once per tile, so each has to say WHICH document it
+                // acts on — the same visually-hidden suffix the console tabs already use for their
+                // repeated Accept/Reject/Cancel buttons.
                 <button
                   type="button"
                   data-testid="restore-button"
                   onClick={() => void act(() => api.post(`/api/v1/documents/${t.id}:restore`))}
                 >
                   Restore
+                  <span className="visually-hidden"> {t.name}</span>
                 </button>
               ) : (
                 <div className="tile-actions">
                   <label>
                     <span>Upload version</span>
+                    <span className="visually-hidden"> of {t.name}</span>
                     <input
                       type="file"
                       data-testid="upload-input"
@@ -166,6 +171,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                       set folderId back to null, so there is no "move to top level" option. */}
                   <label>
                     <span>Move to</span>
+                    <span className="visually-hidden"> folder, for {t.name}</span>
                     <select
                       value=""
                       onChange={(e) => {
@@ -192,6 +198,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                     onClick={() => void act(() => api.del(`/api/v1/documents/${t.id}`))}
                   >
                     Move to trash
+                    <span className="visually-hidden"> — {t.name}</span>
                   </button>
                 </div>
               )}
