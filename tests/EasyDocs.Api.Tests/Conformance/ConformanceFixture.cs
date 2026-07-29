@@ -29,7 +29,18 @@ public record VersionDto(
     Guid Id, Guid DocumentId, int Major, int Minor, int Revision, string? Name, string Source,
     string? PublishedKind, DateTimeOffset? PublishedAt, string? PublishName, bool HasPdf,
     Guid? ParentVersionId, DateTimeOffset CreatedAt, Guid CreatedBy);
-public record VersionListItem(Guid Id, int Major, int Minor, int Revision, string Source, DateTimeOffset CreatedAt, Guid CreatedBy);
+// The nested per-row diff summary (Task 2: E3 "list shows summary"). Null until DiffSummaryWorker
+// has drained the job for that row's parent->child pair.
+public record ChangeSummaryDto(int Insertions, int Deletions, int Moves, int FormatChanges);
+
+// Task 1 (spec §9): branch identity, publish state, resolved names and ordering, so a criterion can
+// assert on the console row the SPA actually renders, not just the bare version tuple. Existing fields
+// keep their original positions; the new ones are appended so no positional construction elsewhere breaks.
+public record VersionListItem(
+    Guid Id, int Major, int Minor, int Revision, string Source, DateTimeOffset CreatedAt, Guid CreatedBy,
+    string Number, string? Name, string? PublishedKind, DateTimeOffset? PublishedAt, string? PublishName,
+    bool HasPdf, Guid? ParentVersionId, Guid BranchId, string BranchKind, int BranchOrdinal,
+    Guid? BranchMergedIntoVersionId, string CreatedByName, ChangeSummaryDto? Summary);
 public record VersionListDto(VersionListItem[] Items, string? NextCursor);
 public record PublicationItem(Guid VersionId, int Major, int Minor, int Revision, string? Name, Guid PublishedBy, DateTimeOffset PublishedAt, string Kind);
 public record PublicationListDto(PublicationItem[] Items, string? NextCursor);
@@ -45,6 +56,25 @@ public record CopyDto(Guid Id, string Name, Guid ParentDocumentId, Guid ForkedFr
 public record PushRequestDto(
     Guid Id, string Status, Guid CopyDocumentId, Guid TargetDocumentId, Guid SourceVersionId,
     Guid? MaterializedVersionId, Guid PushedBy, DateTimeOffset? DecidedAt);
+
+// Task 4 (spec §9): one dashboard tile / trash row.
+public record DocumentTileDto(
+    Guid Id, string Name, Guid? FolderId, string? CurrentNumber, int VersionCount,
+    DateTimeOffset? UpdatedAt, string? LastAuthorName, DateTimeOffset? DeletedAt);
+public record DocumentTileListDto(DocumentTileDto[] Items, string? NextCursor);
+
+// Task 5 (spec §9): one approvals-inbox row, resolved names and derived status included.
+public record ApprovalListItemDto(
+    Guid Id, Guid VersionId, Guid DocumentId, string DocumentName, string VersionNumber,
+    Guid ApproverId, string ApproverName, Guid RequestedBy, string RequestedByName,
+    string? Decision, string? DecisionComment, DateTimeOffset? DueAt,
+    DateTimeOffset? DecidedAt, DateTimeOffset? CancelledAt, string Status, DateTimeOffset CreatedAt);
+public record ApprovalListDto(ApprovalListItemDto[] Items, string? NextCursor);
+
+// Task 6 (spec §9 settings screen).
+public record OrgDto(Guid Id, string Name, string Slug, string MyRole);
+public record OrgMemberDto(Guid UserId, string Email, string DisplayName, string Role, DateTimeOffset CreatedAt);
+public record OrgInviteDto(string Email, string Role, string InvitationToken);
 
 // A typed client over the public v1 surface, authenticated with an `ed_` PAT. Methods that a criterion
 // expects to succeed throw on failure; `Http` is exposed for the negative/role-matrix assertions.
@@ -112,6 +142,11 @@ public sealed class EdApi
     public Task<HttpResponseMessage> TrashDocumentRawAsync(Guid id) => Http.DeleteAsync($"/api/v1/documents/{id}");
     public Task<HttpResponseMessage> RestoreDocumentRawAsync(Guid id) => Http.PostAsync($"/api/v1/documents/{id}:restore", null);
 
+    // Task 4: `?trashed=true` swaps the dashboard's DeletedAt filter so the SPA's trash view can reach
+    // :restore.
+    public async Task<DocumentTileListDto> ListTrashAsync() =>
+        await ReadAsync<DocumentTileListDto>(await Http.GetAsync("/api/v1/documents?trashed=true"));
+
     // ---- Versions (§10.1, §10.3 multipart ingest) ----
     public async Task<VersionRefDto> UploadAsync(Guid docId, byte[]? bytes = null, string fileName = "doc.docx") =>
         await ReadAsync<VersionRefDto>(await Http.PostAsync($"/api/v1/documents/{docId}/versions", TestAuth.DocxForm(bytes, fileName)));
@@ -119,8 +154,10 @@ public sealed class EdApi
     public async Task<VersionRefDto> ImportAsync(Guid docId, byte[]? bytes = null) =>
         await ReadAsync<VersionRefDto>(await Http.PostAsync($"/api/v1/documents/{docId}/versions:import", TestAuth.DocxForm(bytes)));
 
-    public async Task<VersionListDto> ListVersionsAsync(Guid docId, int? limit = 100) =>
-        await ReadAsync<VersionListDto>(await Http.GetAsync($"/api/v1/documents/{docId}/versions?limit={limit}"));
+    // `order=desc` (Task 1) is opt-in; omitted, the API keeps its ascending default.
+    public async Task<VersionListDto> ListVersionsAsync(Guid docId, int? limit = 100, string? order = null) =>
+        await ReadAsync<VersionListDto>(await Http.GetAsync(
+            $"/api/v1/documents/{docId}/versions?limit={limit}" + (order is null ? "" : $"&order={order}")));
 
     public async Task<VersionDto> GetVersionAsync(Guid vid) =>
         await ReadAsync<VersionDto>(await Http.GetAsync($"/api/v1/versions/{vid}"));
@@ -190,6 +227,20 @@ public sealed class EdApi
     public Task<HttpResponseMessage> CancelApprovalRawAsync(Guid approvalId) =>
         Http.PostAsync($"/api/v1/approvals/{approvalId}:cancel", null);
 
+    // Task 5: the approvals inbox. `filter=assigned|requested`, `status=open|closed`, both optional.
+    public async Task<ApprovalListDto> ListApprovalsAsync(string? filter = null, string? status = null)
+    {
+        var qs = new List<string>();
+        if (filter is not null) qs.Add($"filter={filter}");
+        if (status is not null) qs.Add($"status={status}");
+        var query = qs.Count == 0 ? "" : "?" + string.Join("&", qs);
+        return await ReadAsync<ApprovalListDto>(await Http.GetAsync($"/api/v1/approvals{query}"));
+    }
+
+    // Task 5: the approvals panel on one version — a bare array, not cursor-paginated.
+    public async Task<ApprovalListItemDto[]> ListVersionApprovalsAsync(Guid vid) =>
+        await ReadAsync<ApprovalListItemDto[]>(await Http.GetAsync($"/api/v1/versions/{vid}/approvals"));
+
     // ---- Sharing (§10.1) ----
     public async Task<ShareLinkDto> CreateShareLinkAsync(Guid vid, DateTimeOffset? expiresAt = null) =>
         await ReadAsync<ShareLinkDto>(await Http.PostAsJsonAsync($"/api/v1/versions/{vid}/share-links", new { expiresAt }));
@@ -248,6 +299,19 @@ public sealed class EdApi
 
     public async Task<PushRequestDto> DecidePushAsync(Guid pushRequestId, string decision) =>
         await ReadAsync<PushRequestDto>(await DecidePushRawAsync(pushRequestId, decision));
+
+    // ---- Org (§10.1, settings screen) ----
+    public async Task<OrgDto> GetOrgAsync() =>
+        await ReadAsync<OrgDto>(await Http.GetAsync("/api/v1/org"));
+
+    public async Task<OrgMemberDto[]> ListOrgMembersAsync() =>
+        await ReadAsync<OrgMemberDto[]>(await Http.GetAsync("/api/v1/org/members"));
+
+    public Task<HttpResponseMessage> InviteOrgMemberRawAsync(string email, string role) =>
+        Http.PostAsJsonAsync("/api/v1/org/members", new { email, role });
+
+    public async Task<OrgInviteDto> InviteOrgMemberAsync(string email, string role) =>
+        await ReadAsync<OrgInviteDto>(await InviteOrgMemberRawAsync(email, role));
 
     // Convenience: a document with one uploaded base version.
     public async Task<(Guid DocId, Guid VersionId)> NewDocumentWithBaseAsync(string name = "Doc", byte[]? bytes = null)

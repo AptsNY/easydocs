@@ -44,6 +44,29 @@ public class OpenApiTests(ApiFactory f) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Openapi_json_lists_the_m4_5_phase_a_routes()
+    {
+        // Phase A (M4.5) added the approvals-read and org-management endpoints the SPA needs
+        // (spec §10.1). Routes are discovered from minimal-API metadata, so this is the guard
+        // that catches a route added to src/ without the tags/grouping needed to surface it here.
+        var res = await f.CreateClient().GetAsync("/openapi/v1.json");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var paths = doc.RootElement.GetProperty("paths");
+
+        foreach (var path in new[]
+        {
+            "/api/v1/approvals",
+            "/api/v1/versions/{vid}/approvals",
+            "/api/v1/org",
+            "/api/v1/org/members",
+            "/api/v1/org/members/{uid}",
+        })
+            Assert.True(paths.TryGetProperty(path, out _), $"missing {path} in the published document");
+    }
+
+    [Fact]
     public async Task Docs_page_is_self_contained_html()
     {
         var res = await f.CreateClient().GetAsync("/docs");
