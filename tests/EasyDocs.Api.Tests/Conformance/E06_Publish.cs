@@ -105,6 +105,17 @@ public class E06_Publish
         }
         Assert.NotNull(pdfSha);
 
+        // The rendered PDF must be a registered blob, not just a file on disk: PdfBlobSha256 is a
+        // foreign key, so a missing `blobs` row makes the link fail and the PDF silently never appear.
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var blob = await db.Blobs.AsNoTracking().FirstOrDefaultAsync(b => b.Sha256 == pdfSha);
+            Assert.NotNull(blob);
+            Assert.Equal("application/pdf", blob!.Mime);
+            Assert.True(blob.SizeBytes > 0);
+        }
+
         // The API reports it and serves it.
         Assert.True((await api.GetVersionAsync(vid)).HasPdf);
 
