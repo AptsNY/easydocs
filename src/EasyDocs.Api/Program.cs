@@ -24,6 +24,13 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Minimal-API body binding uses its own JSON options (Microsoft.AspNetCore.Http.Json.JsonOptions),
+// separate from MVC's (which this project doesn't use) - so the UTC-normalizing DateTimeOffset
+// converter has to be registered here to reach every endpoint's request body. See
+// UtcDateTimeOffsetConverter for why: Npgsql rejects any non-UTC offset at save time.
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter()));
+
 builder.Services.AddScoped<IPasswordHasher, Argon2idPasswordHasher>();
 builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
 builder.Services.AddScoped<EasyDocs.Api.Publishing.PublishService>();

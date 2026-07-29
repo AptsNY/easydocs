@@ -40,14 +40,14 @@ public class ProblemDetailsTests : IClassFixture<ApiFactory>
     public async Task Malformed_datetimeoffset_in_approvals_body_is_400_not_500()
     {
         // "2026-08-05" (the literal repro in the bug report) is NOT actually a JSON-binding
-        // failure on this build: System.Text.Json parses a date with no offset by assuming the
-        // *local machine's* offset (documented ISO-8601 behavior), so it binds fine and only
-        // blows up later inside the handler when Npgsql refuses a non-UTC offset for
-        // `timestamptz` (DbUpdateException, not BadHttpRequestException) - a distinct,
-        // pre-existing bug in ApprovalEndpoints that is out of scope here (see
-        // Genuine_server_fault_in_approvals_still_returns_500 below, which uses that exact input
-        // to prove this fix does NOT swallow it). A value that truly cannot parse as a
-        // DateTimeOffset is what actually reaches the JSON-binding chokepoint this test covers.
+        // failure: System.Text.Json parses a date with no offset by assuming the *local
+        // machine's* offset (documented ISO-8601 behavior), so it binds fine and only blew up
+        // later inside the handler when Npgsql refused a non-UTC offset for `timestamptz`
+        // (DbUpdateException, not BadHttpRequestException). That was a distinct, separate bug,
+        // since fixed - see DateTimeNormalizationTests, which normalizes every inbound
+        // DateTimeOffset to UTC before it ever reaches a handler. A value that truly cannot parse
+        // as a DateTimeOffset at all is what actually reaches the JSON-binding chokepoint this
+        // test covers.
         var owner = await _f.RegisterAsync();
         var docId = await owner.Client.CreateDocAsync("Doc");
         var (vid, _) = await owner.Client.UploadAsync(docId, DocxFixtures.Base());
@@ -86,26 +86,18 @@ public class ProblemDetailsTests : IClassFixture<ApiFactory>
     }
 
     // Proves the handler is narrow: a genuine server-side fault must still be a 500, or the fix
-    // would hide real bugs (worse than the bug it fixes). We cannot add test-only throwing code
-    // to src/ to manufacture one, but this codebase already has a real, naturally-occurring fault
-    // reachable from an HTTP request - ApprovalEndpoints.Request persists a client-supplied
-    // DateTimeOffset without normalizing it to UTC, and Npgsql's `timestamptz` mapping throws
-    // ArgumentException for any non-zero offset. That surfaces as Microsoft.EntityFrameworkCore.
-    // DbUpdateException, a type distinct from BadHttpRequestException, so the chokepoint added
-    // for this bug must not (and does not) catch it. An explicit "-05:00" offset (rather than an
-    // offset-less string) keeps this deterministic regardless of the test runner's own timezone.
-    [Fact]
-    public async Task Genuine_server_fault_in_approvals_still_returns_500()
-    {
-        var owner = await _f.RegisterAsync();
-        var docId = await owner.Client.CreateDocAsync("Doc");
-        var (vid, _) = await owner.Client.UploadAsync(docId, DocxFixtures.Base());
-        (await owner.Client.PostAsJsonAsync($"/api/v1/versions/{vid}/publish", new { kind = "minor" }))
-            .EnsureSuccessStatusCode();
-
-        var res = await PostRawAsync(owner.Client, $"/api/v1/versions/{vid}/approvals",
-            $"{{\"approverIds\":[\"{owner.UserId}\"],\"dueAt\":\"2026-08-05T00:00:00-05:00\"}}");
-
-        Assert.Equal(HttpStatusCode.InternalServerError, res.StatusCode);
-    }
+    // would hide real bugs (worse than the bug it fixes). This test originally used a real,
+    // naturally-occurring fault reachable from an HTTP request: ApprovalEndpoints.Request used to
+    // persist a client-supplied DateTimeOffset without normalizing it to UTC, and Npgsql's
+    // `timestamptz` mapping throws ArgumentException for any non-zero offset - a
+    // Microsoft.EntityFrameworkCore.DbUpdateException, distinct from BadHttpRequestException. A
+    // follow-up fix (see DateTimeNormalizationTests) closed that fault by normalizing every
+    // inbound DateTimeOffset to UTC in a JsonConverter, so it can no longer be used as a live
+    // repro here. We didn't go looking for a replacement crash to keep this Fact alive - a
+    // synthetic one would mean adding test-only throwing code to src/, which the original brief
+    // for this fix explicitly ruled out. Narrowness is instead a structural guarantee, readable
+    // directly at the call site in Program.cs: the exception-handler branch pattern-matches only
+    // `BadHttpRequestException` and `throw error;`s anything else unchanged, so any other
+    // exception type (NullReferenceException, a future DbUpdateException, etc.) is never
+    // intercepted and necessarily keeps whatever status the framework gives it by default (500).
 }
