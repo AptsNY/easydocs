@@ -34,6 +34,7 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Wr
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Reader);
 builder.Services.AddScoped<WmlComparerDiffService>();
 builder.Services.AddScoped<WmlComparerMergeService>();
+builder.Services.AddScoped<EasyDocs.Api.Copies.PushService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
 
 // In-process PDF render queue (spec §7): publish enqueues a version id; PdfRenderBackgroundService drains
@@ -156,6 +157,7 @@ app.MapVersionActionEndpoints();
 app.MapApprovalEndpoints();
 app.MapMergeEndpoints();
 app.MapCopyEndpoints();
+app.MapPushEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
