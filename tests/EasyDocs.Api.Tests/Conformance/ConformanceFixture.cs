@@ -41,6 +41,10 @@ public record MemberDto(Guid UserId, string Email, string DisplayName, string Ro
 public record AuditItemDto(Guid Id, string Action, Guid? ActorUserId, string? TargetType, string? TargetId, string? Metadata, DateTimeOffset CreatedAt);
 public record AuditListDto(AuditItemDto[] Items, string? NextCursor);
 public record PublishedDto(Guid VersionId, int Major, int Minor, int Revision, string Kind);
+public record CopyDto(Guid Id, string Name, Guid ParentDocumentId, Guid ForkedFromVersionId, Guid? VersionId);
+public record PushRequestDto(
+    Guid Id, string Status, Guid CopyDocumentId, Guid TargetDocumentId, Guid SourceVersionId,
+    Guid? MaterializedVersionId, Guid PushedBy, DateTimeOffset? DecidedAt);
 
 // A typed client over the public v1 surface, authenticated with an `ed_` PAT. Methods that a criterion
 // expects to succeed throw on failure; `Http` is exposed for the negative/role-matrix assertions.
@@ -217,6 +221,33 @@ public sealed class EdApi
     // ---- Merge (§5.3) ----
     public Task<HttpResponseMessage> MergeRawAsync(Guid docId, Guid left, Guid right) =>
         Http.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
+
+    // ---- Copies & push (§8, §10.1) ----
+    public Task<HttpResponseMessage> ForkRawAsync(Guid vid, string name) =>
+        Http.PostAsJsonAsync($"/api/v1/versions/{vid}/copies", new { name });
+
+    public async Task<CopyDto> ForkAsync(Guid vid, string name) =>
+        await ReadAsync<CopyDto>(await ForkRawAsync(vid, name));
+
+    public async Task<CopyDto[]> ListCopiesAsync(Guid docId) =>
+        await ReadAsync<CopyDto[]>(await Http.GetAsync($"/api/v1/documents/{docId}/copies"));
+
+    public Task<HttpResponseMessage> PushRawAsync(Guid copyId, Guid targetDocumentId, Guid versionId) =>
+        Http.PostAsJsonAsync($"/api/v1/documents/{copyId}/pushes", new { targetDocumentId, versionId });
+
+    public async Task<PushRequestDto> PushAsync(Guid copyId, Guid targetDocumentId, Guid versionId) =>
+        await ReadAsync<PushRequestDto>(await PushRawAsync(copyId, targetDocumentId, versionId));
+
+    public async Task<PushRequestDto[]> ListPushRequestsAsync(Guid docId, string? status = null) =>
+        await ReadAsync<PushRequestDto[]>(await Http.GetAsync(status is null
+            ? $"/api/v1/documents/{docId}/push-requests"
+            : $"/api/v1/documents/{docId}/push-requests?status={status}"));
+
+    public Task<HttpResponseMessage> DecidePushRawAsync(Guid pushRequestId, string decision) =>
+        Http.PostAsync($"/api/v1/push-requests/{pushRequestId}:{decision}", null);
+
+    public async Task<PushRequestDto> DecidePushAsync(Guid pushRequestId, string decision) =>
+        await ReadAsync<PushRequestDto>(await DecidePushRawAsync(pushRequestId, decision));
 
     // Convenience: a document with one uploaded base version.
     public async Task<(Guid DocId, Guid VersionId)> NewDocumentWithBaseAsync(string name = "Doc", byte[]? bytes = null)

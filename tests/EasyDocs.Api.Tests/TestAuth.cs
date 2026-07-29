@@ -106,6 +106,41 @@ public static class TestAuth
         await db.SaveChangesAsync();
     }
 
+    // Captures the SSE event types published for a document while `action` runs, waiting for `until` if
+    // given. Subscribes to the singleton EventBus in-process rather than opening /events over HTTP:
+    // TestServer's in-memory client cannot read a second response while an SSE stream is open (see
+    // SseTests), which would make it impossible to drive the action being observed through the API.
+    public static async Task<string[]> CaptureEventsAsync(
+        this ApiFactory f, Guid documentId, Func<Task> action, string? until = null)
+    {
+        var bus = f.Services.GetRequiredService<EasyDocs.Api.Events.EventBus>();
+        var seen = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var pump = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var e in bus.Subscribe(documentId, cts.Token))
+                    seen.Add(e.Type);
+            }
+            catch (OperationCanceledException) { /* expected teardown */ }
+        }, CancellationToken.None);
+
+        await Task.Delay(200, cts.Token); // let Subscribe register its channel (subscribe-then-receive)
+        await action();
+
+        if (until is null)
+            await Task.Delay(200, CancellationToken.None);
+        else
+            while (!seen.Contains(until) && !cts.IsCancellationRequested)
+                await Task.Delay(25, CancellationToken.None);
+
+        await cts.CancelAsync();
+        await pump;
+        return seen.ToArray();
+    }
+
     public static MultipartFormDataContent DocxForm(byte[]? bytes = null, string fileName = "f.docx")
     {
         var part = new ByteArrayContent(bytes ?? DocxFixtures.Base());

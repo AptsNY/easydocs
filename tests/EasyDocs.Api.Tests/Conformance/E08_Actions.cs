@@ -7,8 +7,8 @@ namespace EasyDocs.Api.Tests.Conformance;
 // Import, Share, Download, Name, Publish, Revert, Push To Copy (8 actions). Desktop "Open in Word"
 // and Export are explicitly v1.1 and must NOT exist.
 //
-// Seven of the eight are backed by shipped endpoints; Push To Copy ships in M4 (E9), so that one
-// action is asserted as pending rather than functional.
+// All eight are backed by shipped endpoints as of M4 — Push To Copy was the last one, and the copies &
+// push behaviour behind it is covered in depth by E9.
 [Collection(ConformanceCollection.Name)]
 public class E08_Actions
 {
@@ -100,11 +100,20 @@ public class E08_Actions
         Assert.Equal("Revert", (await api.GetVersionAsync(reverted.VersionId)).Source);
     }
 
-    [SkippableFact]
-    public void Push_to_copy_is_pending_until_m4()
+    [Fact]
+    public async Task Push_to_copy_is_functional()
     {
-        // The 8th action (spec §12.1 E8 / §8) lands with copies & push in M4, tracked by E9.
-        Skip.If(true, "Push To Copy ships in M4 (copies & push) — tracked by E9, per spec §13");
+        // The 8th action (spec §12.1 E8 / §8): fork a version into an isolated copy. The full copies &
+        // push behaviour behind it is E9's job; this asserts the action itself works from the menu.
+        var api = await EdApi.NewAsync(_f);
+        var (docId, vid) = await api.NewDocumentWithBaseAsync("Action: push to copy");
+
+        var copy = await api.ForkAsync(vid, "Reviewer copy");
+
+        Assert.Equal("Reviewer copy", copy.Name);
+        Assert.Equal(docId, copy.ParentDocumentId);
+        Assert.Equal(vid, copy.ForkedFromVersionId);
+        Assert.Equal(copy.Id, Assert.Single(await api.ListCopiesAsync(docId)).Id);
     }
 
     // The action set is closed: v1.1 features must not have leaked into the v1 surface.
