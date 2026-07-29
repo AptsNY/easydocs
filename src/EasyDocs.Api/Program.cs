@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Channels;
 using EasyDocs.Api.Approvals;
 using EasyDocs.Api.Auth;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Copies;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
@@ -17,6 +18,7 @@ using EasyDocs.Api.Versioning;
 using EasyDocs.Api.Storage;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -131,6 +133,27 @@ RequireJwtKeyBytes(app.Configuration);
 
 using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>().Database.Migrate();
+
+// RFC-7807 for malformed JSON bodies (API-conventions clause: every error is problem+json).
+// A body-binding failure (bad GUID/enum/number, truncated JSON, an unparseable date) throws
+// BadHttpRequestException wrapping a JsonException *before* any handler runs. The framework
+// already turns that into a 400 via the exception's own StatusCode even with nothing registered
+// here, but the body it writes is either empty (no Content-Type at all) or, in Development, a
+// leaked internal exception dump via the implicit dev-exception-page - never problem+json, and
+// never actionable. Registered first (ahead of auth/endpoints) so it wraps the whole downstream
+// pipeline and gets first claim on the exception, ahead of that implicit dev page. Narrow by
+// type: only BadHttpRequestException (unambiguously a client mistake) is handled; anything else
+// is rethrown so a genuine server fault (e.g. a NullReferenceException) still surfaces as a 500.
+app.UseExceptionHandler(branch => branch.Run(async ctx =>
+{
+    var error = ctx.Features.Get<IExceptionHandlerPathFeature>()?.Error
+        ?? throw new InvalidOperationException("Exception handler ran without a captured error.");
+    if (error is not BadHttpRequestException bad)
+        throw error;
+
+    await Problem.Of(bad.StatusCode, "Malformed request body",
+        bad.InnerException?.Message ?? bad.Message).ExecuteAsync(ctx);
+}));
 
 app.UseAuthentication();
 app.UseAuthorization();
