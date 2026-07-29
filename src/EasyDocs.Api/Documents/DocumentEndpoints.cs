@@ -224,16 +224,21 @@ public static class DocumentEndpoints
         return Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
-    private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
+    // Console history (spec §9). `order=desc` is opt-in: the ascending default is load-bearing for the
+    // E-suite's oldest-first assertions, so the UI asks for desc rather than the default flipping.
+    private static async Task<IResult> ListVersions(
+        Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit, string? order)
     {
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
         if (failure is not null) return failure;
 
+        var descending = Pagination.Descending(order);
         var page = await Pagination.PageAsync(
-            db.Versions.Where(v => v.DocumentId == id), cursor, limit, descending: false, ctx.RequestAborted);
+            db.Versions.Where(v => v.DocumentId == id), cursor, limit, descending, ctx.RequestAborted);
+
         return Results.Ok(new
         {
-            items = page.Items.Select(v => new { id = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision, source = v.Source.ToString(), createdAt = v.CreatedAt, createdBy = v.CreatedBy }),
+            items = await VersionListProjection.BuildAsync(db, page.Items, ctx.RequestAborted),
             nextCursor = page.NextCursor,
         });
     }

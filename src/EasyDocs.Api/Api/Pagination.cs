@@ -15,6 +15,10 @@ public static class Pagination
     public static int ClampLimit(int? limit) =>
         limit is null or < 1 ? DefaultLimit : Math.Min(limit.Value, MaxLimit);
 
+    // `order=desc` is the only recognised value; anything else keeps the ascending default.
+    public static bool Descending(string? order) =>
+        string.Equals(order, "desc", StringComparison.OrdinalIgnoreCase);
+
     // Cursor = base64url(8-byte UtcTicks || 16-byte Guid). Opaque to clients.
     public static string Encode((DateTimeOffset Time, Guid Id) key)
     {
