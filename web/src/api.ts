@@ -31,11 +31,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   })
 
-  if (!res.ok) {
-    const problem: Problem | null = await res.json().catch(() => null)
-    throw new ApiError(res.status, problem?.title ?? res.statusText, problem?.detail ?? '')
-  }
+  if (!res.ok) await fail(res)
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+async function fail(res: Response): Promise<never> {
+  const problem: Problem | null = await res.json().catch(() => null)
+  throw new ApiError(res.status, problem?.title ?? res.statusText, problem?.detail ?? '')
+}
+
+// Two v1 reads are not JSON: the redline HTML (text/html) and the redline .docx (a stream). They still
+// need the same cookie and the same problem+json failure, so they share one raw read and pick their own
+// body decoder, rather than growing a second wrapper per content type.
+export async function getRaw(path: string): Promise<Response> {
+  const res = await fetch(path, { credentials: 'same-origin' })
+  if (!res.ok) await fail(res)
+  return res
 }
 
 // Every screen needs the same "show the API's own words" line, so it lives next to ApiError rather than

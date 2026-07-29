@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useOutletContext, useParams } from 'react-router'
+import { Link, useOutletContext, useParams } from 'react-router'
 import { api, problemText, type DocRole, type Paged, type VersionRow as Version } from '../api'
 import Row from '../components/VersionRow'
 
@@ -66,6 +66,12 @@ export default function History() {
   return (
     <div data-testid="history">
       <h3>History</h3>
+
+      {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
+          not a console tab), so without this link nothing in the app reaches it. */}
+      <p>
+        <Link to={`/documents/${id}/compare`}>Compare versions</Link>
+      </p>
 
       {error && (
         <p role="alert" className="error">

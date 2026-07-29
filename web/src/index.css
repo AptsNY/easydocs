@@ -470,6 +470,26 @@ select {
   margin-block-start: 16px;
 }
 
+/* Comparison view: the two pickers on one line above the redline frame. Structure only — Task 17 owns
+   the look. */
+.compare-pickers {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-block: 12px;
+}
+
+.compare-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.compare-picker label {
+  color: var(--text-h);
+}
+
 .editor-frame {
   width: 100%;
   height: 75svh;
