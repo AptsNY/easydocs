@@ -470,6 +470,48 @@ select {
   margin-block-start: 16px;
 }
 
+/* One row shape for the four list tabs (major versions, copies, pushes, audit) — same line as a history
+   row. Structure only; Task 17 owns the look. */
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rows > li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-block-start: 1px solid var(--border);
+  font-size: 15px;
+}
+
+.rows > li button {
+  margin: 0;
+  font-size: 15px;
+}
+
+.rows > li a {
+  color: var(--text-h);
+}
+
+.audit-meta {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.push-back {
+  align-items: start;
+  margin-block-start: 20px;
+}
+
+.push-back h4 {
+  margin: 0;
+  color: var(--text-h);
+}
+
 /* Comparison view: the two pickers on one line above the redline frame. Structure only — Task 17 owns
    the look. */
 .compare-pickers {

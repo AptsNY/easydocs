@@ -132,6 +132,59 @@ export type Member = {
   createdAt: string
 }
 
+// GET /api/v1/documents/{id}/publications — the Major Versions tab. `publishedByName` is resolved
+// server-side by the shared AuthorNames helper, like every other read surface.
+export type Publication = {
+  versionId: string
+  major: number
+  minor: number
+  revision: number
+  name: string | null
+  publishedBy: string
+  publishedByName: string | null
+  publishedAt: string
+  kind: 'minor' | 'major'
+}
+
+// GET /api/v1/documents/{id}/copies returns a BARE array. A copy is a separate document with its own
+// members and its own history, so all this carries is enough to name it and link to it.
+export type Copy = {
+  id: string
+  name: string
+  parentDocumentId: string | null
+  forkedFromVersionId: string | null
+  versionId: string | null
+  createdAt: string
+}
+
+// GET /api/v1/documents/{id}/push-requests — also a bare array, and it answers for BOTH directions: rows
+// where targetDocumentId is this document are inbound (to review), rows where copyDocumentId is are
+// outbound (to follow). One route, because a pusher may hold no role on the target at all.
+export type PushRequest = {
+  id: string
+  status: 'pending' | 'accepted' | 'rejected' | 'auto_accepted'
+  copyDocumentId: string
+  targetDocumentId: string
+  sourceVersionId: string
+  materializedVersionId: string | null
+  pushedBy: string
+  createdAt: string
+  decidedAt: string | null
+}
+
+// GET /api/v1/documents/{id}/audit — newest first. `actorUserId` and `actorName` are BOTH null for an
+// anonymous public share-link read: that row has no actor, which is not the same as an unresolvable one.
+export type AuditRow = {
+  id: string
+  action: string
+  actorUserId: string | null
+  actorName: string | null
+  targetType: string | null
+  targetId: string | null
+  metadata: string | null
+  createdAt: string
+}
+
 // POST .../members answers one of two shapes: a direct grant when the email is already in the org, or an
 // invitation whose raw token is returned exactly once (only its hash is stored).
 export type MemberAdded = {

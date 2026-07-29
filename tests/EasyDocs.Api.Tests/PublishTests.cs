@@ -18,7 +18,7 @@ public class PublishTests : IClassFixture<ApiFactory>
     private record DocDto(Guid Id);
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record PublishDto(Guid VersionId, int Major, int Minor, int Revision, string Kind);
-    private record PublicationDto(Guid VersionId, int Major, int Minor, int Revision, string? Name, Guid PublishedBy, DateTimeOffset PublishedAt, string Kind);
+    private record PublicationDto(Guid VersionId, int Major, int Minor, int Revision, string? Name, Guid PublishedBy, string? PublishedByName, DateTimeOffset PublishedAt, string Kind);
     private record PublicationPage(List<PublicationDto> Items, string? NextCursor);
 
     private async Task<(HttpClient client, Guid userId)> AuthedClientAsync()
@@ -146,5 +146,33 @@ public class PublishTests : IClassFixture<ApiFactory>
         Assert.Equal("Second", list[0].Name);
         Assert.Equal(v1.VersionId, list[1].VersionId);
         Assert.Equal("minor", list[1].Kind);
+    }
+
+    // The Major Versions list is a read surface, so it resolves display names like every other one
+    // (version rows, the audit trail, approvals). Two publishers on one page: the page is fetched first
+    // and then ONE AuthorNames lookup covers both, so this also pins the absence of an N+1.
+    [Fact]
+    public async Task Publications_resolve_the_publisher_display_name()
+    {
+        var owner = await _f.RegisterAsync();                        // DisplayName "U"
+        var docId = await owner.Client.CreateDocAsync();
+        var second = await _f.SeedOrgUserAsync(owner.OrgId);         // DisplayName "Seed"
+        (await owner.Client.PostAsJsonAsync($"/api/v1/documents/{docId}/members",
+            new { email = second.Email, role = "Editor" })).EnsureSuccessStatusCode();
+
+        var (v1, _) = await owner.Client.UploadAsync(docId, new byte[] { 1, 9, 9 });
+        var (v2, _) = await owner.Client.UploadAsync(docId, new byte[] { 2, 9, 9 });
+        (await owner.Client.PostAsJsonAsync($"/api/v1/versions/{v1}/publish", new { kind = "minor" })).EnsureSuccessStatusCode();
+        (await second.Client.PostAsJsonAsync($"/api/v1/versions/{v2}/publish", new { kind = "major" })).EnsureSuccessStatusCode();
+
+        var list = (await owner.Client.GetFromJsonAsync<PublicationPage>($"/api/v1/documents/{docId}/publications"))!.Items;
+        Assert.Equal(2, list.Count);
+
+        var byVersion = list.ToDictionary(p => p.VersionId);
+        Assert.Equal("U", byVersion[v1].PublishedByName);
+        Assert.Equal("Seed", byVersion[v2].PublishedByName);
+        // The raw id is still there — the name is additional, not a replacement.
+        Assert.Equal(owner.UserId, byVersion[v1].PublishedBy);
+        Assert.Equal(second.UserId, byVersion[v2].PublishedBy);
     }
 }

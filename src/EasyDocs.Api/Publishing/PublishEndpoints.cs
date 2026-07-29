@@ -44,12 +44,24 @@ public static class PublishEndpoints
         var page = await Pagination.PageAsync(
             db.Versions.Where(v => v.DocumentId == id && v.PublishedKind != null),
             cursor, limit, descending: true, ctx.RequestAborted);
+
+        // Page first, then ONE lookup for the whole page — never one per row. The raw id stays in the
+        // payload (it is the stable identifier); the name is what a Major Versions list can actually show,
+        // the same way the version list and the audit trail resolve theirs.
+        var names = await AuthorNames.ForAsync(
+            db, page.Items.Where(v => v.PublishedBy is not null).Select(v => v.PublishedBy!.Value),
+            ctx.RequestAborted);
+
         return Results.Ok(new
         {
             items = page.Items.Select(v => new
             {
                 versionId = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision,
-                name = v.PublishName, publishedBy = v.PublishedBy, publishedAt = v.PublishedAt, kind = v.PublishedKind,
+                name = v.PublishName, publishedBy = v.PublishedBy,
+                // Null actor stays null (a published version always has one, but the column is nullable);
+                // an id that resolves to nothing degrades to the shared placeholder rather than 500ing.
+                publishedByName = v.PublishedBy is { } uid ? names.GetValueOrDefault(uid, AuthorNames.Unknown) : null,
+                publishedAt = v.PublishedAt, kind = v.PublishedKind,
             }),
             nextCursor = page.NextCursor,
         });
