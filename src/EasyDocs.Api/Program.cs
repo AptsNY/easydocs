@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Channels;
 using EasyDocs.Api.Approvals;
 using EasyDocs.Api.Auth;
+using EasyDocs.Api.Copies;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Documents;
@@ -154,6 +155,7 @@ app.MapPublishEndpoints();
 app.MapVersionActionEndpoints();
 app.MapApprovalEndpoints();
 app.MapMergeEndpoints();
+app.MapCopyEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.

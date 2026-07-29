@@ -34,19 +34,4 @@ public class E09_Copies
 
     [SkippableFact]
     public void A_copy_never_leaks_master_drafts() => Skip.If(true, PendingM4);
-
-    // The one E9 assertion that is meaningful today: the M4 surface is genuinely absent rather than
-    // half-built and silently reachable. When M4 lands, this test flips to the skipped ones above.
-    [Fact]
-    public async Task The_copies_and_push_endpoints_are_not_yet_served()
-    {
-        var api = await EdApi.NewAsync(_f);
-        var (docId, vid) = await api.NewDocumentWithBaseAsync("M4 boundary");
-
-        Assert.Equal(HttpStatusCode.NotFound, (await api.Http.PostAsJsonAsync($"/api/v1/versions/{vid}/copies", new { })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await api.Http.GetAsync($"/api/v1/documents/{docId}/copies")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await api.Http.PostAsJsonAsync($"/api/v1/documents/{docId}/pushes", new { })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await api.Http.GetAsync($"/api/v1/documents/{docId}/push-requests")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await api.Http.PostAsync($"/api/v1/push-requests/{Guid.NewGuid()}:accept", null)).StatusCode);
-    }
 }
