@@ -2,6 +2,7 @@ using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Documents;
 using EasyDocs.Api.Domain;
+using EasyDocs.Api.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Auth;
@@ -22,7 +23,7 @@ public static class InvitationEndpoints
     }
 
     private static async Task<IResult> Accept(
-        string token, HttpContext ctx, EasyDocsDbContext db, JwtService jwt)
+        string token, HttpContext ctx, EasyDocsDbContext db, JwtService jwt, EventBus bus)
     {
         var userId = CurrentUser.UserId(ctx.User);
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ctx.RequestAborted);
@@ -45,9 +46,13 @@ public static class InvitationEndpoints
         if (!await db.OrgMembers.AnyAsync(m => m.OrgId == invite.OrgId && m.UserId == userId, ctx.RequestAborted))
             db.Add(new OrgMember { OrgId = invite.OrgId, UserId = userId, Role = invite.Role, CreatedAt = now });
 
+        // Only a fresh row is a real roster change (accept is a no-op retry if the row already exists) —
+        // that is the moment, not the invitation mint, this actually becomes a member.added (spec §10.2).
+        var joinedDocument = false;
         if (invite.DocumentId is { } docId && invite.DocRole is { } docRole)
         {
-            if (!await db.DocumentMembers.AnyAsync(m => m.DocumentId == docId && m.UserId == userId, ctx.RequestAborted))
+            joinedDocument = !await db.DocumentMembers.AnyAsync(m => m.DocumentId == docId && m.UserId == userId, ctx.RequestAborted);
+            if (joinedDocument)
                 db.Add(new DocumentMember { DocumentId = docId, UserId = userId, Role = docRole, CreatedAt = now });
             db.Add(Audit.Event(invite.OrgId, docId, userId, "invitation.accepted",
                 "invitation", invite.Id.ToString(), new { role = docRole.ToString() }));
@@ -59,6 +64,10 @@ public static class InvitationEndpoints
         }
 
         await db.SaveChangesAsync(ctx.RequestAborted);
+
+        if (joinedDocument)
+            bus.Publish(invite.DocumentId!.Value, "member.added",
+                new { userId, email = user.Email, role = invite.DocRole!.Value.ToString() });
 
         // Rebind the session to the invited org. A session carries exactly one org (spec §10.2), so
         // without this an invitee who already had their own org would authenticate against that one and

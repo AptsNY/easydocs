@@ -4,6 +4,7 @@ using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
+using EasyDocs.Api.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Documents;
@@ -55,7 +56,7 @@ public static class MemberEndpoints
         return Results.Ok(rows);
     }
 
-    private static async Task<IResult> Add(Guid id, AddRequest req, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> Add(Guid id, AddRequest req, HttpContext ctx, EasyDocsDbContext db, EventBus bus)
     {
         var (doc, _, failure) = await DocumentAuthorization.AuthorizeAsync(db, ctx, id, Need.Own, ct: ctx.RequestAborted);
         if (failure is not null) return failure;
@@ -80,6 +81,9 @@ public static class MemberEndpoints
             db.Add(Audit.Event(doc!.OrgId, id, CurrentUser.UserId(ctx.User), "member.added",
                 "user", user.Id.ToString(), new { role = role.ToString() }));
             await db.SaveChangesAsync(ctx.RequestAborted);
+
+            // spec §10.2: the roster actually changed here, so an open console needs to know.
+            bus.Publish(id, "member.added", new { userId = user.Id, email, role = role.ToString() });
 
             return Results.Created($"/api/v1/documents/{id}/members/{user.Id}",
                 new { userId = user.Id, email, role = role.ToString() });

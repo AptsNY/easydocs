@@ -227,7 +227,7 @@ Audit: `GET /documents/{id}/audit`.
 
 ### 10.2 Live updates (SSE)
 
-`GET /api/v1/documents/{id}/events` — Server-Sent Events, authorized via the `httpOnly` session cookie (native `EventSource` cannot send a `Bearer` header) or a short-lived `?token=` capability param, then `resolve_role` on the document. v1 events: `version.created`, `version.published`, `merge.completed`, `diff.ready`, `member.added`, `push.requested`, `approval.responded`.
+`GET /api/v1/documents/{id}/events` — Server-Sent Events, authorized via the `httpOnly` session cookie (native `EventSource` cannot send a `Bearer` header) or a short-lived `?token=` capability param, then `resolve_role` on the document. v1 events: `version.created`, `version.published`, `merge.completed`, `diff.ready`, `member.added`, `push.requested`, `push.reviewed`, `approval.responded`, `pdf.ready`, `version.named`, `version.reverted`.
 
 ### 10.3 Ingest (filesystem, no pre-signed URLs)
 

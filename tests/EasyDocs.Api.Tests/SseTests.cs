@@ -35,6 +35,7 @@ public class SseTests : IClassFixture<ApiFactory>
 
     private record RegisterDto(Guid Id);
     private record DocDto(Guid Id);
+    private record InviteDto(string Email, string Role, string InvitationToken);
 
     [Fact]
     public async Task Version_created_delivered_over_sse()
@@ -76,6 +77,47 @@ public class SseTests : IClassFixture<ApiFactory>
         var resp = await other.GetAsync($"/api/v1/documents/{docId}/events",
             HttpCompletionOption.ResponseHeadersRead);
         Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode); // 404 cross-org (or 403)
+    }
+
+    // spec §10.2: member.added is a declared v1 event, but until now MemberEndpoints.Add wrote the
+    // audit row and stopped — an open console never learned a direct add changed the roster.
+    [Fact]
+    public async Task Member_added_delivered_over_sse_for_a_direct_add()
+    {
+        var owner = await _f.RegisterAsync();
+        var docId = await owner.Client.CreateDocAsync();
+        var addedUser = await _f.SeedOrgUserAsync(owner.OrgId);
+
+        var events = await _f.CaptureEventsAsync(docId,
+            () => owner.Client.PostAsJsonAsync($"/api/v1/documents/{docId}/members",
+                new { email = addedUser.Email, role = "Editor" }),
+            until: "member.added");
+
+        Assert.Contains("member.added", events);
+    }
+
+    // The other path onto a roster: an invitation minted for an unknown/cross-org email only becomes a
+    // real DocumentMember row when it is accepted (InvitationEndpoints.Accept), so that is where
+    // member.added belongs too — minting the invitation itself changes nothing yet.
+    [Fact]
+    public async Task Member_added_delivered_over_sse_when_an_invitation_is_accepted()
+    {
+        var owner = await _f.RegisterAsync();
+        var docId = await owner.Client.CreateDocAsync();
+        var email = $"invitee-{Guid.NewGuid():N}@example.com";
+
+        var invite = await owner.Client.PostAsJsonAsync($"/api/v1/documents/{docId}/members",
+            new { email, role = "Viewer" });
+        invite.EnsureSuccessStatusCode();
+        var token = (await invite.Content.ReadFromJsonAsync<InviteDto>())!.InvitationToken;
+
+        var invitee = await _f.RegisterAsync(email);
+
+        var events = await _f.CaptureEventsAsync(docId,
+            () => invitee.Client.PostAsync($"/api/v1/invitations/{token}:accept", null),
+            until: "member.added");
+
+        Assert.Contains("member.added", events);
     }
 
     private async Task CommitVersionAsync(Guid docId, Guid userId, byte[] bytes)

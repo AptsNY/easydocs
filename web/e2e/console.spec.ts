@@ -231,8 +231,10 @@ test('an owner changes a second member’s role', async ({ signedIn: page, reque
   const { other, theirContext } = await addSecondMember(browser, page, request, 'Viewer')
   await theirContext.close()
 
-  // The API publishes no member.added SSE event, so the owner's roster needs a refetch to see the
-  // accepted invitation. The reload here is about that gap, not about the role change under test.
+  // MemberEndpoints/InvitationEndpoints now publish member.added (spec §10.2), but the API this spec
+  // drives is a long-running dev instance that predates that fix and won't pick it up without a
+  // restart. Once it's restarted this reload is no longer needed — remove it then, not before, since
+  // removing it now would fail against the stale process.
   await page.reload()
   const them = memberRow(page, other.email)
   await expect(them.getByTestId('member-role')).toHaveText('Viewer')

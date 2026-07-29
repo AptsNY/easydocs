@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-// The 7 v1 event types (spec §10.2). EventSource cannot send an Authorization header, which is
+// The 11 v1 event types (spec §10.2). EventSource cannot send an Authorization header, which is
 // exactly why the API falls back to the ed_session cookie — so this needs no token plumbing.
 export type DocEvent =
   | 'version.created'
@@ -9,7 +9,11 @@ export type DocEvent =
   | 'diff.ready'
   | 'member.added'
   | 'push.requested'
+  | 'push.reviewed'
   | 'approval.responded'
+  | 'pdf.ready'
+  | 'version.named'
+  | 'version.reverted'
 
 const TYPES: DocEvent[] = [
   'version.created',
@@ -18,11 +22,15 @@ const TYPES: DocEvent[] = [
   'diff.ready',
   'member.added',
   'push.requested',
+  'push.reviewed',
   'approval.responded',
+  'pdf.ready',
+  'version.named',
+  'version.reverted',
 ]
 
 /**
- * One EventSource per document, subscribed to all seven v1 event types and closed on cleanup.
+ * One EventSource per document, subscribed to all eleven v1 event types and closed on cleanup.
  *
  * `onEvent` MUST be stable — wrap it in useCallback. It is in the effect's dependency list (honestly:
  * a stale callback would push updates into a dead render), so a fresh function identity on every
