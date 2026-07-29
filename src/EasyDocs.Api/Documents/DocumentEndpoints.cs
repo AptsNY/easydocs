@@ -114,23 +114,27 @@ public static class DocumentEndpoints
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
-    // Dashboard list (spec §10): documents the caller is a member of, org-scoped, optional folderId/q
-    // filters, cursor-paginated on (CreatedAt, Id) ascending.
+    // Dashboard list (spec §9/§10): documents the caller is a member of, org-scoped, optional
+    // folderId/q filters, cursor-paginated. `trashed=true` swaps the DeletedAt filter so the SPA's
+    // trash view can reach :restore — membership scoping is identical either way (spec §11).
     private static async Task<IResult> ListDocuments(
-        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit)
+        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit, bool? trashed)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
 
-        var query = db.Documents.Where(d => d.OrgId == orgId && d.DeletedAt == null
+        var membership = db.Documents.Where(d => d.OrgId == orgId
             && db.DocumentMembers.Any(m => m.DocumentId == d.Id && m.UserId == userId));
+        var query = trashed is true
+            ? membership.Where(d => d.DeletedAt != null)
+            : membership.Where(d => d.DeletedAt == null);
         if (folderId is { } fid) query = query.Where(d => d.FolderId == fid);
         if (!string.IsNullOrWhiteSpace(q)) query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%"));
 
         var page = await Pagination.PageAsync(query, cursor, limit, descending: false, ctx.RequestAborted);
         return Results.Ok(new
         {
-            items = page.Items.Select(d => new { id = d.Id, name = d.Name, folderId = d.FolderId }),
+            items = await DocumentListProjection.BuildAsync(db, page.Items, ctx.RequestAborted),
             nextCursor = page.NextCursor,
         });
     }
