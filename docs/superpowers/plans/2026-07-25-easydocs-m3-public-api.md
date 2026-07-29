@@ -47,53 +47,69 @@ tests/EasyDocs.Api.Tests/
 
 **Files:** `Auth/ApiTokenService.cs`, `Auth/TokenEndpoints.cs`; test `ApiTokenTests.cs`.
 
-- [ ] Failing tests: `POST /api/v1/tokens {name, scopes[], expires_at?}` returns the raw `ed_…` token ONCE (store only `TokenHash`); `GET /api/v1/tokens` lists (no secret); `DELETE` revokes (`RevokedAt`); the raw token is a valid `Authorization: Bearer ed_…` credential on a protected endpoint; expired/revoked → 401; `LastUsedAt` updates on use.
-- [ ] Implement `ApiTokenService` (random 256-bit, `ed_` prefix, SHA-256 hash at rest, constant-time compare) and the endpoints (require a logged-in user; token inherits the creating user's identity/org). Commit `-s`.
+- [x] Failing tests: `POST /api/v1/tokens {name, scopes[], expires_at?}` returns the raw `ed_…` token ONCE (store only `TokenHash`); `GET /api/v1/tokens` lists (no secret); `DELETE` revokes (`RevokedAt`); the raw token is a valid `Authorization: Bearer ed_…` credential on a protected endpoint; expired/revoked → 401; `LastUsedAt` updates on use.
+- [x] Implement `ApiTokenService` (random 256-bit, `ed_` prefix, SHA-256 hash at rest, constant-time compare) and the endpoints (require a logged-in user; token inherits the creating user's identity/org). Commit `-s`.
 
 ## Task 2: `ed_` Bearer authentication handler
 
 **Files:** `Auth/ApiTokenAuthHandler.cs`; modify `Program.cs`; extend `ApiTokenTests.cs`.
 
-- [ ] Failing test: a request with `Authorization: Bearer ed_…` authenticates and `CurrentUser.UserId/OrgId` resolve from the token's owner; `DocumentAuthorization` enforces the owner's role (a Viewer's token cannot mutate).
-- [ ] Implement a custom `AuthenticationHandler` (scheme `"ApiToken"`) added to the auth pipeline via a **policy scheme** that dispatches: `ed_` Bearer → ApiToken handler; otherwise → the existing JWT/cookie scheme. Build the same claims principal (`sub`, `org`). Commit `-s`.
+- [x] Failing test: a request with `Authorization: Bearer ed_…` authenticates and `CurrentUser.UserId/OrgId` resolve from the token's owner; `DocumentAuthorization` enforces the owner's role (a Viewer's token cannot mutate).
+- [x] Implement a custom `AuthenticationHandler` (scheme `"ApiToken"`) added to the auth pipeline via a **policy scheme** that dispatches: `ed_` Bearer → ApiToken handler; otherwise → the existing JWT/cookie scheme. Build the same claims principal (`sub`, `org`). Commit `-s`.
 
 ## Task 3: Cursor pagination
 
 **Files:** `Api/Pagination.cs`; modify the list endpoints; test `PaginationTests.cs`.
 
-- [ ] Failing tests: `GET /api/v1/documents?limit=2` returns 2 items + a `next_cursor`; passing `?cursor=` returns the next page; stable ordering; opaque base64 cursor (encodes the sort key, e.g. `(created_at, id)`).
-- [ ] Implement `PagedResult<T>` + cursor encode/decode; apply to `/documents`, `/documents/{id}/versions`, `/documents/{id}/publications`, `/documents/{id}/audit`. Commit `-s`.
+- [x] Failing tests: `GET /api/v1/documents?limit=2` returns 2 items + a `next_cursor`; passing `?cursor=` returns the next page; stable ordering; opaque base64 cursor (encodes the sort key, e.g. `(created_at, id)`).
+- [x] Implement `PagedResult<T>` + cursor encode/decode; apply to `/documents`, `/documents/{id}/versions`, `/documents/{id}/publications`, `/documents/{id}/audit`. Commit `-s`.
 
 ## Task 4: OpenAPI 3.1 + `/docs`
 
 **Files:** `Api/OpenApiConfig.cs`, `wwwroot/docs/*`; modify endpoints to add metadata; test `OpenApiTests.cs`.
 
-- [ ] Failing tests: `GET /openapi/v1.json` returns a valid OpenAPI 3.1 document that includes the core endpoints (documents, versions, publish, approvals, share-links, tokens) and declares the security schemes (`ed_` Bearer + cookie); `GET /docs` returns a self-contained HTML page (no external CDN requests — CSP-safe, spec §3) that renders the spec.
-- [ ] Add `builder.Services.AddOpenApi()` + `app.MapOpenApi()`; annotate endpoint groups with `.WithTags`/`.Produces<T>`/`.WithName`; serve a bundled docs UI (Scalar or Swagger UI static assets copied into `wwwroot/docs`, referenced locally). Ensure the v1 endpoint set matches spec §10.1 exactly (no dead endpoints — no exports/tasks/sso/webdav). Commit `-s`.
+- [x] Failing tests: `GET /openapi/v1.json` returns a valid OpenAPI 3.1 document that includes the core endpoints (documents, versions, publish, approvals, share-links, tokens) and declares the security schemes (`ed_` Bearer + cookie); `GET /docs` returns a self-contained HTML page (no external CDN requests — CSP-safe, spec §3) that renders the spec.
+- [x] Add `builder.Services.AddOpenApi()` + `app.MapOpenApi()`; annotate endpoint groups with `.WithTags`/`.Produces<T>`/`.WithName`; serve a bundled docs UI (Scalar or Swagger UI static assets copied into `wwwroot/docs`, referenced locally). Ensure the v1 endpoint set matches spec §10.1 exactly (no dead endpoints — no exports/tasks/sso/webdav). Commit `-s`.
 
 ## Task 5: E1–E12 conformance suite (v1 profile)
 
 **Files:** `tests/EasyDocs.Api.Tests/Conformance/*`; test the suite itself.
 
-- [ ] Implement the **v1 conformance profile** exactly as spec §12.1 restates it (E2 local-upload-only; E3 Collabora-save; E8 the 8-action set; E10 share+download no cloud export; E7 approvals single-decision-no-thread; etc.). Each `E##_*.cs` drives the API (via a PAT where possible) end-to-end against the `ApiFactory`/compose stack. Pure-API criteria hit the API directly; criteria needing the Collabora browser round-trip (E3, E4, parts of E8) use a headless-browser driver or a WOPI-level simulation of `PutFile` (document which). E9 (copies) is marked **pending until M4** — the suite should skip-with-reason, not fail.
-- [ ] Prove the **reference automation flow** unattended: a single test script using only a PAT does create → upload → (edit/commit) → publish → request approval → respond → share, asserting each step (spec §3.5-equivalent). Commit `-s`.
+- [x] Implement the **v1 conformance profile** exactly as spec §12.1 restates it (E2 local-upload-only; E3 Collabora-save; E8 the 8-action set; E10 share+download no cloud export; E7 approvals single-decision-no-thread; etc.). Each `E##_*.cs` drives the API (via a PAT where possible) end-to-end against the `ApiFactory`/compose stack. Pure-API criteria hit the API directly; criteria needing the Collabora browser round-trip (E3, E4, parts of E8) use a headless-browser driver or a WOPI-level simulation of `PutFile` (document which). E9 (copies) is marked **pending until M4** — the suite should skip-with-reason, not fail.
+- [x] Prove the **reference automation flow** unattended: a single test script using only a PAT does create → upload → (edit/commit) → publish → request approval → respond → share, asserting each step (spec §3.5-equivalent). Commit `-s`.
 
 ## Task 6: Conformance CI job + full suite + PR
 
 **Files:** `.github/workflows/conformance.yml`; modify `ci.yml` if needed.
 
-- [ ] Add a CI job that boots the docker-compose stack (Postgres + Collabora + bundled LibreOffice) and runs the `Conformance` suite (spec §12.3); mark which criteria are pure-API vs. browser-round-trip. Keep the fast `build-test` job (unit + Testcontainers) as-is.
-- [ ] `dotnet test` all green; `dotnet build` 0 warnings; `git push -u origin m3-public-api && gh pr create --fill --base main`.
+- [x] Add a CI job that boots the docker-compose stack (Postgres + Collabora + bundled LibreOffice) and runs the `Conformance` suite (spec §12.3); mark which criteria are pure-API vs. browser-round-trip. Keep the fast `build-test` job (unit + Testcontainers) as-is.
+- [x] `dotnet test` all green; `dotnet build` 0 warnings; `git push -u origin m3-public-api && gh pr create --fill --base main`.
+
+---
+
+## Unplanned work this milestone actually required
+
+Recorded because the plan did not anticipate it, and M4 inherits the result.
+
+**Nine §10.1 endpoints had never been mapped.** Task 4 says "ensure the v1 endpoint set matches spec §10.1 exactly (no dead endpoints)", which turned out to mean *writing* them, not annotating them. Missing: `GET/POST /documents/{id}/members` + `PATCH/DELETE .../members/{uid}`, `GET /documents/{id}/audit`, `DELETE /documents/{id}`, `POST /documents/{id}:restore`, `POST /invitations/{token}:accept`, `GET /versions/{vid}`. E12's role matrix and E10's "audited" clause are untestable without members and audit, so these blocked Task 5 rather than being cosmetic. `Domain/Invitation.cs` was entirely unused; it gained a `DocRole` column (an `OrgRole` cannot express "Editor on document X") and `Token` → `TokenHash`, hashed at rest like share links per §11.
+
+**"Every mutation audited" was false.** Only `ShareEndpoints` wrote `AuditEvent` rows. `version.created` is now audited inside `VersioningService.CommitSaveAsync` and `version.published` inside `PublishService`, so one row covers every write path and a future path cannot forget; the remaining ~15 sites audit at the endpoint.
+
+**Two bugs the new tests found:**
+- Malformed or non-multipart upload bodies returned **500** instead of RFC-7807 400 — reading `Request.Body`'s form throws on a bad `Content-Disposition`. Guarded in the one place both ingest routes funnel through.
+- Publishing had **never produced a PDF in a real deployment**: the worker set `Versions.PdfBlobSha256` without inserting the `blobs` row it is an FK onto, so every render ended in a 23503 and a swallowed warning. Invisible because the only covering test skips without LibreOffice and no CI job installed it — exactly the gap Task 6 closes.
+
+**Deferred, with the ceiling named:** accepting an invitation can make a user a member of two orgs, but a session carries exactly one. Accept rebinds the session to the invited org and `/auth/login` now picks the oldest membership deterministically. No org switcher in v1 — add `POST /auth/switch-org` when multi-org is a real workflow.
 
 ---
 
 ## M3 Done — Exit Checklist
 
-- [ ] `ed_` PATs mint/verify/revoke; Bearer auth composes with the JWT cookie; a token never exceeds its owner's document role; org role grants no implicit doc access.
-- [ ] `GET /openapi/v1.json` is valid OpenAPI 3.1 matching the §10.1 endpoint set (no dead endpoints); `/docs` renders self-contained (no phone-home).
-- [ ] Cursor pagination on all list endpoints; RFC-7807 errors; every mutation audited.
-- [ ] The reference automation flow runs **unattended via a PAT** end-to-end.
-- [ ] E1–E12 conformance suite runs in CI on the compose stack (E9 pending M4, skip-with-reason).
+- [x] `ed_` PATs mint/verify/revoke; Bearer auth composes with the JWT cookie; a token never exceeds its owner's document role; org role grants no implicit doc access.
+- [x] `GET /openapi/v1.json` is valid OpenAPI 3.1 matching the §10.1 endpoint set (no dead endpoints); `/docs` renders self-contained (no phone-home).
+- [x] Cursor pagination on all list endpoints; RFC-7807 errors; every mutation audited.
+- [x] The reference automation flow runs **unattended via a PAT** end-to-end.
+- [x] E1–E12 conformance suite runs in CI on the compose stack (E9 pending M4, skip-with-reason).
 
 **Assumed interfaces introduced here (referenced later):** the `ed_` Bearer auth path (M4 push automation can use a service-account PAT), the conformance harness (M4 fills in E9; M5 makes it the public conformance badge).
 
