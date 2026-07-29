@@ -24,6 +24,10 @@ Also not built yet, so you do not go looking for them:
 - **No OIDC/SSO.** Local email + password only (Argon2id). SSO is v1.1.
 - **No desktop "Open in Word."** Editing is in the browser via Collabora. WebDAV + `ms-word:` is v1.1.
 - **No API rate limiting.** Put a reverse proxy in front of anything public.
+- **You cannot revoke a share link early.** `DELETE /api/v1/share-links/{id}` exists, but creating a link
+  returns only its token and URL — never its id — and nothing lists them, so no client can call it. Set
+  an expiry when you create the link; that path works. A listing endpoint is the fix, and it is not here
+  yet.
 - **No graphical revision graph** (history is an indented list), **no full-text content search**
   (names only), **no cloud export/import pickers**. All v1.1.
 
@@ -67,8 +71,9 @@ Terminate TLS at a reverse proxy in front of the app. That is the supported answ
 - **Client copies with push-back review.** Fork a version into an isolated copy with its own members and
   its own history. When the copy pushes work back, a member of the original reviews it: accept and it
   lands as a clearly-labelled incoming branch, reject and it never enters the history.
-- **Share links.** Version-scoped, revocable, expiring, audited. The recipient needs no account and
-  sees a plain download page — no app chrome, no sign-up wall.
+- **Share links.** Version-scoped, expiring, audited — every anonymous read lands on the audit trail.
+  The recipient needs no account and sees a plain download page: no app chrome, no sign-up wall.
+  (Revoking one early is not reachable yet — see below.)
 - **Folders, members, revert, trash, and an audit trail** for every one of the above.
 
 The web UI covers all of it across eight screens: dashboard, document console, comparison view, Major
