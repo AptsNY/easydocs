@@ -13,9 +13,10 @@ public static partial class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/auth/register", Register);
-        app.MapPost("/api/v1/auth/login", Login);
-        app.MapGet("/api/v1/me", Me).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Auth");
+        g.MapPost("/api/v1/auth/register", Register);
+        g.MapPost("/api/v1/auth/login", Login);
+        g.MapGet("/api/v1/me", Me).RequireAuthorization();
     }
 
     private static async Task<IResult> Register(
@@ -53,6 +54,7 @@ public static partial class AuthEndpoints
         db.Add(org);
         db.Add(user);
         db.Add(new OrgMember { OrgId = org.Id, UserId = user.Id, Role = OrgRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(org.Id, null, user.Id, "org.created", "org", org.Id.ToString(), new { name = org.Name, slug = org.Slug }));
 
         try
         {
@@ -84,7 +86,13 @@ public static partial class AuthEndpoints
         if (user?.PasswordHash is null || !hasher.Verify(req.Password ?? "", user.PasswordHash))
             return Problem.Of(401, "Invalid credentials", "Email or password is incorrect.");
 
-        var member = await db.OrgMembers.FirstAsync(m => m.UserId == user.Id);
+        // A session carries exactly one org. Accepting an invitation can make a user a member of more
+        // than one, so pick deterministically (oldest membership) rather than whatever the DB returns
+        // first. ponytail: no org switcher in v1 — see InvitationEndpoints.
+        var member = await db.OrgMembers
+            .Where(m => m.UserId == user.Id)
+            .OrderBy(m => m.CreatedAt).ThenBy(m => m.OrgId)
+            .FirstAsync();
 
         ctx.Response.Cookies.Append("ed_session", jwt.Issue(user.Id, member.OrgId), new CookieOptions
         {

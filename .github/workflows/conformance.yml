@@ -1,0 +1,126 @@
+name: Conformance
+
+# The v1 conformance profile (spec §12.1 E1-E12) as a gate, run against the real deployment artifact
+# (spec §12.3). Separate from ci.yml on purpose: ci.yml stays the fast unit+Testcontainers signal,
+# this job builds an image and boots LibreOffice and Collabora, so it is minutes not seconds.
+#
+# How each criterion is exercised:
+#
+#   Pure API (xUnit suite, in-process host + Testcontainers Postgres)
+#     E1  Folders          nesting, move-preserves-history/members, promote-vs-trash
+#     E2  Ingest           local multipart only, first version 0.0.1
+#     E5  Numbering        R1-R6 + manual override, R8 download names
+#     E6  Publish          renumber + Major Versions (PDF leg below)
+#     E7  Approvals        published-only, one row per approver, single immutable decision, cancel
+#     E8  Actions          7 of the 8 v1 actions; Push To Copy pending M4
+#     E10 Share/download   version-scoped, revocable, audited, docx + pdf, no cloud export
+#     E11 Revert           new head equals target, history intact
+#     E12 Security         role matrix x endpoint, org-role grants nothing, token <= owner role
+#
+#   WOPI protocol round trip (xUnit suite plays Collabora's side: LOCK + PutFile)
+#     E3  Edit/version     save creates a version, unchanged re-save does not, author/time/summary
+#     E4  Branch/merge     two sessions on one head -> two branches, merge attributes the incoming author
+#     §12.3 allows a headless-browser driver here instead. We drive the WOPI contract directly: it is
+#     the exact HTTP conversation Collabora has with the host, and it keeps a browser out of CI. The
+#     browser-rendered editor UI itself is therefore NOT covered by this job — see the compose leg,
+#     which asserts Collabora discovery and a real editor URL, and issue-tracked manual QA for the UI.
+#
+#   Compose stack (conformance-smoke.sh, against the published image over HTTP)
+#     E6's PDF leg          bundled LibreOffice actually renders (%PDF verified)
+#     E2/E6/E10 end-to-end  PAT-only create -> upload -> publish -> share -> anonymous read
+#     M3 surface            /openapi/v1.json is 3.1 and matches §10.1; /docs is self-contained
+#
+#   Pending M4
+#     E9  Copies/push       skips with a reason; the suite asserts the routes are absent, not half-built
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # E6 asserts a rendered PDF. Without soffice on the runner that criterion skips itself, which
+      # would make a green run overstate coverage — so install it and let the assertion run for real.
+      - name: Install LibreOffice (so E6's PDF criterion runs instead of skipping)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer
+          soffice --version
+
+      - name: Run the E1-E12 conformance suite
+        run: |
+          dotnet test -c Release --filter 'FullyQualifiedName~Conformance' \
+            --logger 'console;verbosity=normal' \
+            --logger 'trx;LogFileName=conformance.trx'
+
+      # A silently-skipped criterion is worse than a red one: it reads as coverage that does not exist.
+      # Only E9 and E8's Push To Copy are allowed to skip, and only until M4.
+      - name: Assert no conformance criterion skipped unexpectedly
+        run: |
+          trx=$(find . -name conformance.trx | head -1)
+          if [ -z "$trx" ]; then echo "::error::no trx produced"; exit 1; fi
+          python3 - "$trx" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
+          root = ET.parse(sys.argv[1]).getroot()
+          skipped = [r.get('testName') for r in root.findall('.//t:UnitTestResult', ns)
+                     if r.get('outcome') in ('NotExecuted', 'Skipped')]
+          # E9 (copies/push) and E8's Push To Copy are expected to skip until M4 — nothing else may.
+          unexpected = [s for s in skipped if 'E09_Copies' not in s and 'Push_to_copy' not in s]
+          for s in skipped:
+              print(('EXPECTED SKIP  ' if s not in unexpected else 'UNEXPECTED SKIP') + f'  {s}')
+          if unexpected:
+              print(f'::error::{len(unexpected)} conformance criteria skipped that should have run')
+              sys.exit(1)
+          print(f'\n{len(skipped)} skipped, all expected (E9 / Push To Copy pending M4).')
+          PY
+
+      - name: Boot the compose stack (Postgres + Collabora + bundled LibreOffice)
+        working-directory: deploy/compose
+        run: |
+          cp .env.example .env
+          # Never ship the example secret, even to a throwaway CI stack.
+          python3 - <<'PY'
+          import re, secrets, pathlib
+          p = pathlib.Path('.env')
+          p.write_text(re.sub(r'^Jwt__Secret=.*$', f'Jwt__Secret={secrets.token_urlsafe(48)}',
+                              p.read_text(), flags=re.M))
+          PY
+          docker compose up -d --build
+
+      - name: Wait for the stack to come up
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
+              echo "up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::easydocs did not become healthy within 90s"
+          exit 1
+
+      - name: Conformance smoke against the shipped image
+        run: bash .github/scripts/conformance-smoke.sh
+
+      - name: Compose logs
+        if: always()
+        working-directory: deploy/compose
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        working-directory: deploy/compose
+        run: docker compose down -v

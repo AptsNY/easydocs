@@ -1,6 +1,6 @@
 namespace EasyDocs.Api.Domain;
 
-public class AuditEvent
+public class AuditEvent : IKeyed
 {
     public Guid Id { get; set; }
     public Guid OrgId { get; set; }

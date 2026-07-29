@@ -467,6 +467,9 @@ namespace EasyDocs.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DocRole")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("DocumentId")
                         .HasColumnType("uuid");
 
@@ -487,7 +490,7 @@ namespace EasyDocs.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Token")
+                    b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -498,6 +501,9 @@ namespace EasyDocs.Api.Data.Migrations
                     b.HasIndex("InvitedBy");
 
                     b.HasIndex("OrgId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
 
                     b.ToTable("Invitations");
                 });

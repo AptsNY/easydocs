@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Domain;
 using EasyDocs.Api.Events;
 using EasyDocs.Api.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -28,8 +29,22 @@ public sealed class PdfRenderBackgroundService(
                 var renderer = scope.ServiceProvider.GetRequiredService<LibreOfficePdfRenderer>();
 
                 await using var docx = await blobs.OpenReadAsync(version.BlobSha256, stoppingToken);
-                var pdfSha = await renderer.RenderToBlobAsync(docx, stoppingToken);
-                if (pdfSha is null) continue; // guard: soffice absent/failed — leave PdfBlobSha256 null
+                var pdf = await renderer.RenderToBlobAsync(docx, stoppingToken);
+                if (pdf is null) continue; // guard: soffice absent/failed — leave PdfBlobSha256 null
+
+                // Versions.PdfBlobSha256 is a foreign key onto `blobs`, so the row has to exist before we
+                // point at it. The renderer only writes the content-addressed file; registering the blob is
+                // the caller's job here exactly as it is in VersioningService.CommitSaveAsync.
+                var pdfSha = pdf.Value.Sha256;
+                if (!await db.Blobs.AnyAsync(b => b.Sha256 == pdfSha, stoppingToken))
+                    db.Add(new Blob
+                    {
+                        Sha256 = pdfSha,
+                        SizeBytes = pdf.Value.SizeBytes,
+                        Mime = "application/pdf",
+                        StorageKey = pdfSha,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                    });
 
                 version.PdfBlobSha256 = pdfSha;
                 await db.SaveChangesAsync(stoppingToken);

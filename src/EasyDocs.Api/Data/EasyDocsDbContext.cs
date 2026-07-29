@@ -83,6 +83,8 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         b.Entity<Invitation>(e =>
         {
             e.Property(x => x.Role).HasConversion<string>();
+            e.Property(x => x.DocRole).HasConversion<string>();
+            e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrgId).OnDelete(R);
             e.HasOne<Document>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.InvitedBy).OnDelete(R);

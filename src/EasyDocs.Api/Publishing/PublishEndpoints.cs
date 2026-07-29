@@ -1,3 +1,4 @@
+using EasyDocs.Api.Api;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
@@ -11,8 +12,9 @@ public static class PublishEndpoints
 
     public static void MapPublishEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/versions/{vid:guid}/publish", Publish).RequireAuthorization();
-        app.MapGet("/api/v1/documents/{id:guid}/publications", ListPublications).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Publishing");
+        g.MapPost("/api/v1/versions/{vid:guid}/publish", Publish).RequireAuthorization();
+        g.MapGet("/api/v1/documents/{id:guid}/publications", ListPublications).RequireAuthorization();
     }
 
     // Publish a selected version as minor/major (R3/R4, E6). Editor+ on the version's document.
@@ -33,21 +35,24 @@ public static class PublishEndpoints
     }
 
     // The "Major Versions" list (E6): published versions only, newest first. Viewer+.
-    private static async Task<IResult> ListPublications(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    // Cursor-paginated on (CreatedAt, Id) descending — newest-created first (matches publish order in practice).
+    private static async Task<IResult> ListPublications(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
     {
         var (failure, _) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
         if (failure is not null) return failure;
 
-        var items = await db.Versions
-            .Where(v => v.DocumentId == id && v.PublishedKind != null)
-            .OrderByDescending(v => v.PublishedAt)
-            .Select(v => new
+        var page = await Pagination.PageAsync(
+            db.Versions.Where(v => v.DocumentId == id && v.PublishedKind != null),
+            cursor, limit, descending: true, ctx.RequestAborted);
+        return Results.Ok(new
+        {
+            items = page.Items.Select(v => new
             {
                 versionId = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision,
                 name = v.PublishName, publishedBy = v.PublishedBy, publishedAt = v.PublishedAt, kind = v.PublishedKind,
-            })
-            .ToListAsync();
-        return Results.Ok(items);
+            }),
+            nextCursor = page.NextCursor,
+        });
     }
 
     // Mirrors DocumentEndpoints.AuthorizeAsync: no org-role fallback; 404/403 mapping; returns the actor id.

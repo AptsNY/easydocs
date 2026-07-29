@@ -13,7 +13,7 @@ public static class FolderEndpoints
 
     public static void MapFolderEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1/folders").RequireAuthorization();
+        var g = app.MapGroup("/api/v1/folders").RequireAuthorization().WithTags("Folders");
         g.MapGet("", List);
         g.MapPost("", Create);
         g.MapPatch("/{id:guid}", Update);
@@ -47,6 +47,8 @@ public static class FolderEndpoints
 
         var folder = new Folder { Id = Guid.NewGuid(), OrgId = orgId, ParentId = req.ParentId, Name = name, CreatedAt = DateTimeOffset.UtcNow };
         db.Add(folder);
+        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "folder.created", "folder", folder.Id.ToString(),
+            new { name, parentId = req.ParentId }));
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException) { return Problem.Of(409, "Duplicate name", "A folder with that name already exists here."); }
         return Results.Created($"/api/v1/folders/{folder.Id}", new { folder.Id, folder.Name, folder.ParentId });
@@ -71,6 +73,8 @@ public static class FolderEndpoints
             folder.ParentId = pid;
         }
 
+        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "folder.updated", "folder", id.ToString(),
+            new { name = folder.Name, parentId = folder.ParentId }));
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException) { return Problem.Of(409, "Duplicate name", "A folder with that name already exists here."); }
         return Results.Ok(new { folder.Id, folder.Name, folder.ParentId });
@@ -95,6 +99,8 @@ public static class FolderEndpoints
         // mode=trash (or empty folder): soft-delete just this folder; children left in place.
 
         folder.DeletedAt = now;
+        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "folder.deleted", "folder", id.ToString(),
+            new { mode = mode ?? "trash", promoted = mode == "promote_children" ? children.Count : 0 }));
         await db.SaveChangesAsync();
         return Results.NoContent();
     }

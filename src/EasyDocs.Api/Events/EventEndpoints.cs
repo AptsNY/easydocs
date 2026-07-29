@@ -8,7 +8,7 @@ public static class EventEndpoints
 {
     public static void MapEventEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/documents/{id:guid}/events", Stream).RequireAuthorization();
+        app.MapGet("/api/v1/documents/{id:guid}/events", Stream).RequireAuthorization().WithTags("Events");
     }
 
     private static async Task Stream(Guid id, HttpContext ctx, EasyDocsDbContext db, EventBus bus)

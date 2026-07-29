@@ -17,9 +17,10 @@ public static class ApprovalEndpoints
 
     public static void MapApprovalEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/versions/{vid:guid}/approvals", Request).RequireAuthorization();
-        app.MapPost("/api/v1/approvals/{id:guid}:respond", Respond).RequireAuthorization();
-        app.MapPost("/api/v1/approvals/{id:guid}:cancel", Cancel).RequireAuthorization();
+        var g = app.MapGroup("").WithTags("Approvals");
+        g.MapPost("/api/v1/versions/{vid:guid}/approvals", Request).RequireAuthorization();
+        g.MapPost("/api/v1/approvals/{id:guid}:respond", Respond).RequireAuthorization();
+        g.MapPost("/api/v1/approvals/{id:guid}:cancel", Cancel).RequireAuthorization();
     }
 
     private static async Task<IResult> Request(Guid vid, RequestBody req, HttpContext ctx, EasyDocsDbContext db)
@@ -43,6 +44,9 @@ public static class ApprovalEndpoints
             RequestedBy = actor, DueAt = req.DueAt, CreatedAt = now,
         }).ToList();
         db.ApprovalRequests.AddRange(rows);
+        foreach (var r in rows)
+            db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), version.DocumentId, actor, "approval.requested",
+                "approval", r.Id.ToString(), new { versionId = vid, approverId = r.ApproverId, dueAt = r.DueAt }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         return Results.Created($"/api/v1/versions/{vid}/approvals",
@@ -67,9 +71,11 @@ public static class ApprovalEndpoints
         ar.Decision = decision;
         ar.DecisionComment = req.Comment;
         ar.DecidedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ctx.RequestAborted);
 
         var documentId = await db.Versions.Where(v => v.Id == ar.VersionId).Select(v => v.DocumentId).FirstAsync(ctx.RequestAborted);
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), documentId, CurrentUser.UserId(ctx.User), "approval.responded",
+            "approval", ar.Id.ToString(), new { versionId = ar.VersionId, decision = ar.Decision }));
+        await db.SaveChangesAsync(ctx.RequestAborted);
         bus.Publish(documentId, "approval.responded",
             new { id = ar.Id, versionId = ar.VersionId, decision = ar.Decision, decidedAt = ar.DecidedAt });
 
@@ -93,6 +99,8 @@ public static class ApprovalEndpoints
             return Problem.Of(409, "Already closed", "This approval request has already been decided or cancelled.");
 
         ar.CancelledAt = DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), documentId, CurrentUser.UserId(ctx.User), "approval.cancelled",
+            "approval", ar.Id.ToString(), new { versionId = ar.VersionId }));
         await db.SaveChangesAsync(ctx.RequestAborted);
         return Results.Ok(new { id = ar.Id, cancelledAt = ar.CancelledAt });
     }

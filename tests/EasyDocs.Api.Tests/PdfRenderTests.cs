@@ -71,6 +71,15 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         }
 
         Assert.NotNull(pdfSha);
+
+        // The PDF must also be a registered blob — Versions.PdfBlobSha256 is an FK onto `blobs`.
+        using (var s1 = _f.Services.CreateScope())
+        {
+            var db = s1.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            Assert.True(await db.Blobs.AsNoTracking().AnyAsync(b => b.Sha256 == pdfSha),
+                "the rendered PDF was never registered in `blobs`, so linking it violates the foreign key");
+        }
+
         using var s2 = _f.Services.CreateScope();
         var blobs = s2.ServiceProvider.GetRequiredService<IBlobStore>();
         await using var pdf = await blobs.OpenReadAsync(pdfSha!);

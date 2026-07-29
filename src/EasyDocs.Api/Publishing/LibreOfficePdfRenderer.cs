@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using EasyDocs.Api.Storage;
 
+
 namespace EasyDocs.Api.Publishing;
 
 // Out-of-process renderer (spec §7): docx -> PDF via `soffice --headless --convert-to pdf`, guarded by a
@@ -10,7 +11,9 @@ public sealed class LibreOfficePdfRenderer(IBlobStore blobs, ILogger<LibreOffice
 {
     private const int TimeoutSeconds = 60;
 
-    public async Task<string?> RenderToBlobAsync(Stream docx, CancellationToken ct)
+    // Returns the stored blob (sha + size) so the caller can insert the matching `blobs` row — the size
+    // is only known here, and Versions.PdfBlobSha256 is a foreign key onto that row.
+    public async Task<BlobResult?> RenderToBlobAsync(Stream docx, CancellationToken ct)
     {
         // Buffer once so the single retry can re-feed the same bytes.
         byte[] bytes;
@@ -28,14 +31,14 @@ public sealed class LibreOfficePdfRenderer(IBlobStore blobs, ILogger<LibreOffice
 
         for (var attempt = 1; attempt <= 2; attempt++)
         {
-            var sha = await TryRenderAsync(bytes, ct);
-            if (sha is not null) return sha;
+            var blob = await TryRenderAsync(bytes, ct);
+            if (blob is not null) return blob;
             log.LogWarning("pdf render attempt {Attempt} failed", attempt);
         }
         return null;
     }
 
-    private async Task<string?> TryRenderAsync(byte[] docx, CancellationToken ct)
+    private async Task<BlobResult?> TryRenderAsync(byte[] docx, CancellationToken ct)
     {
         var soffice = ResolveSoffice();
         if (soffice is null)
@@ -90,8 +93,7 @@ public sealed class LibreOfficePdfRenderer(IBlobStore blobs, ILogger<LibreOffice
             }
 
             await using var stream = File.OpenRead(pdf);
-            var result = await blobs.PutAsync(stream, ct);
-            return result.Sha256;
+            return await blobs.PutAsync(stream, ct);
         }
         catch (Exception ex)
         {

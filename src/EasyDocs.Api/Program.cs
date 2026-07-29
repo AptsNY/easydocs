@@ -14,6 +14,7 @@ using EasyDocs.Api.Publishing;
 using EasyDocs.Api.Sharing;
 using EasyDocs.Api.Versioning;
 using EasyDocs.Api.Storage;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -42,6 +43,7 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reade
 builder.Services.AddScoped<LibreOfficePdfRenderer>();
 builder.Services.AddHostedService<PdfRenderBackgroundService>();
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<ApiTokenService>(); // stateless: mint/hash `ed_` PATs
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
 // Singleton so the ~24h discovery cache persists across requests; one long-lived HttpClient is fine
 // for a once-daily call. Test/dev use the COLLABORA_ACTION_URL seam and never hit the network.
@@ -58,7 +60,16 @@ JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 
 // Read Jwt:Secret at DI-resolution time, not here: test hosts (WebApplicationFactory) only merge their
 // injected config during Build(), after these top-level statements run. RequireJwtKeyBytes validates it.
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+// "Composite" is the default scheme: it forwards `Authorization: Bearer ed_...` to the ApiToken PAT
+// handler and everything else (JWT bearer / ed_session cookie) to the JWT scheme, so a single
+// .RequireAuthorization() accepts either credential without regressing the existing web-app auth.
+builder.Services.AddAuthentication("Composite")
+    .AddJwtBearer() // stays JwtBearerDefaults.AuthenticationScheme; options configured below
+    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(ApiTokenAuthHandler.SchemeName, null)
+    .AddPolicyScheme("Composite", "Composite", o => o.ForwardDefaultSelector = ctx =>
+        ctx.Request.Headers.Authorization.ToString().StartsWith("Bearer ed_", StringComparison.Ordinal)
+            ? ApiTokenAuthHandler.SchemeName
+            : JwtBearerDefaults.AuthenticationScheme);
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<IConfiguration>((o, cfg) =>
     {
@@ -83,6 +94,27 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
+// OpenAPI 3.1 doc generated from minimal-API metadata (spec §10.1). Declare the `Bearer`
+// (ed_ token) security scheme via a document transformer; served at /openapi/v1.json below.
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "easydocs API";
+        document.Info.Version = "v1";
+        document.Components ??= new Microsoft.OpenApi.OpenApiComponents();
+        document.Components.SecuritySchemes ??=
+            new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+        {
+            Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+            Scheme = "bearer",
+            Description = "ed_ API token or JWT, sent as `Authorization: Bearer <token>`.",
+        };
+        return Task.CompletedTask;
+    });
+});
+
 // Resolve the connection string at DbContext-resolution time (not registration time) so test
 // hosts that inject config via WebApplicationFactory override it before Migrate() runs.
 // Fallback keeps `dotnet ef migrations add` working with no live DB (it never connects).
@@ -101,10 +133,23 @@ using (var scope = app.Services.CreateScope())
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapOpenApi("/openapi/{documentName}.json");
+// Self-contained docs UI: Swagger UI ships its assets as embedded resources served same-origin
+// under the route prefix (no external CDN — spec §3), pointed at the generated /openapi/v1.json.
+app.UseSwaggerUI(o =>
+{
+    o.RoutePrefix = "docs";
+    o.SwaggerEndpoint("/openapi/v1.json", "easydocs API v1");
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
+app.MapInvitationEndpoints();
+app.MapTokenEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();
+app.MapMemberEndpoints();
+app.MapAuditEndpoints();
 app.MapPublishEndpoints();
 app.MapVersionActionEndpoints();
 app.MapApprovalEndpoints();

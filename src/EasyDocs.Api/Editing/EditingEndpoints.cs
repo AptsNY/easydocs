@@ -10,7 +10,7 @@ public static class EditingEndpoints
 {
     public static void MapEditingEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1").RequireAuthorization();
+        var g = app.MapGroup("/api/v1").RequireAuthorization().WithTags("Editing");
         g.MapPost("/versions/{vid:guid}/sessions", MintSession);
         g.MapDelete("/sessions/{sid:guid}", CloseSession);
     }
@@ -43,6 +43,8 @@ public static class EditingEndpoints
             LastCommittedSha = null,
         };
         db.Add(session);
+        db.Add(Audit.Event(orgId, version.DocumentId, userId, "edit_session.opened",
+            "session", session.Id.ToString(), new { baseVersionId = vid }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         var actionUrl = await discovery.ActionUrlForDocxAsync(ctx.RequestAborted);
@@ -68,6 +70,8 @@ public static class EditingEndpoints
         if (session is null || session.UserId != userId)
             return Problem.Of(404, "Not found", "Session not found.");
         session.ClosedAt = DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), session.DocumentId, userId, "edit_session.closed",
+            "session", sid.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
         return Results.NoContent();
     }

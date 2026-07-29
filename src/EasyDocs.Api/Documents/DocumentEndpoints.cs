@@ -1,3 +1,4 @@
+using EasyDocs.Api.Api;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
@@ -19,7 +20,8 @@ public static class DocumentEndpoints
 
     public static void MapDocumentEndpoints(this WebApplication app)
     {
-        var g = app.MapGroup("/api/v1/documents").RequireAuthorization();
+        var g = app.MapGroup("/api/v1/documents").RequireAuthorization().WithTags("Documents");
+        g.MapGet("", ListDocuments);
         g.MapPost("", Create);
         g.MapGet("/{id:guid}", Get);
         g.MapPatch("/{id:guid}", Update);
@@ -28,9 +30,40 @@ public static class DocumentEndpoints
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
         g.MapGet("/{id:guid}/compare", Compare);
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
+        g.MapDelete("/{id:guid}", Trash);
+        g.MapPost("/{id:guid}:restore", Restore);
 
-        var v = app.MapGroup("/api/v1/versions").RequireAuthorization();
+        var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
+        v.MapGet("/{vid:guid}", GetVersion);
         v.MapGet("/{vid:guid}/download", Download);
+    }
+
+    // Version detail (spec §10.1). Viewer+ suffices, same chokepoint as Download.
+    private static async Task<IResult> GetVersion(Guid vid, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var version = await db.Versions.FirstOrDefaultAsync(x => x.Id == vid, ctx.RequestAborted);
+        if (version is null) return Problem.Of(404, "Not found", "Version not found.");
+
+        var (_, failure) = await AuthorizeAsync(db, ctx, version.DocumentId, requireEdit: false);
+        if (failure is not null) return failure;
+
+        return Results.Ok(new
+        {
+            id = version.Id,
+            documentId = version.DocumentId,
+            major = version.Major,
+            minor = version.Minor,
+            revision = version.Revision,
+            name = version.Name,
+            source = version.Source.ToString(),
+            publishedKind = version.PublishedKind,
+            publishedAt = version.PublishedAt,
+            publishName = version.PublishName,
+            hasPdf = version.PdfBlobSha256 is not null,
+            parentVersionId = version.ParentVersionId,
+            createdAt = version.CreatedAt,
+            createdBy = version.CreatedBy,
+        });
     }
 
     // R8 download (spec §5.3): name the file "{orgSlug}__{Sanitized_Name}-v{M}.{m}.{r}.{ext}".
@@ -73,10 +106,33 @@ public static class DocumentEndpoints
         doc!.VersionCounterMajor = req.Major;
         doc.VersionCounterMinor = req.Minor;
         doc.VersionCounterRev = req.Rev;
+        db.Add(Audit.Event(doc.OrgId, id, CurrentUser.UserId(ctx.User), "version_counter.set",
+            "document", id.ToString(), new { number = $"{req.Major}.{req.Minor}.{req.Rev}" }));
         await db.SaveChangesAsync(ctx.RequestAborted);
         await tx.CommitAsync(ctx.RequestAborted);
 
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
+    }
+
+    // Dashboard list (spec §10): documents the caller is a member of, org-scoped, optional folderId/q
+    // filters, cursor-paginated on (CreatedAt, Id) ascending.
+    private static async Task<IResult> ListDocuments(
+        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit)
+    {
+        var orgId = CurrentUser.OrgId(ctx.User);
+        var userId = CurrentUser.UserId(ctx.User);
+
+        var query = db.Documents.Where(d => d.OrgId == orgId && d.DeletedAt == null
+            && db.DocumentMembers.Any(m => m.DocumentId == d.Id && m.UserId == userId));
+        if (folderId is { } fid) query = query.Where(d => d.FolderId == fid);
+        if (!string.IsNullOrWhiteSpace(q)) query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%"));
+
+        var page = await Pagination.PageAsync(query, cursor, limit, descending: false, ctx.RequestAborted);
+        return Results.Ok(new
+        {
+            items = page.Items.Select(d => new { id = d.Id, name = d.Name, folderId = d.FolderId }),
+            nextCursor = page.NextCursor,
+        });
     }
 
     private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
@@ -99,6 +155,8 @@ public static class DocumentEndpoints
         db.Add(doc);
         db.Add(new Branch { Id = Guid.NewGuid(), DocumentId = doc.Id, Ordinal = 0, Kind = BranchKind.Main, CreatedAt = now });
         db.Add(new DocumentMember { DocumentId = doc.Id, UserId = userId, Role = DocRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(orgId, doc.Id, userId, "document.created", "document", doc.Id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
         await db.SaveChangesAsync(); // single SaveChanges = one transaction
 
         return Results.Created($"/api/v1/documents/{doc.Id}", new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
@@ -129,20 +187,55 @@ public static class DocumentEndpoints
                 return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
             doc!.FolderId = fid;
         }
+        db.Add(Audit.Event(orgId, doc!.Id, CurrentUser.UserId(ctx.User), "document.updated", "document", id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
         await db.SaveChangesAsync();
         return Results.Ok(new { id = doc!.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
-    private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    // Trash (spec §10.1). Soft-delete only: versions, blobs and members stay put so :restore is lossless.
+    // Owner-only. A trashed document drops out of every other route via the DeletedAt == null filter in
+    // DocumentAuthorization, so a second DELETE is a 404.
+    private static async Task<IResult> Trash(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, _, failure) = await DocumentAuthorization.AuthorizeAsync(db, ctx, id, Need.Own, ct: ctx.RequestAborted);
+        if (failure is not null) return failure;
+
+        doc!.DeletedAt = DateTimeOffset.UtcNow;
+        db.Add(Audit.Event(doc.OrgId, doc.Id, CurrentUser.UserId(ctx.User), "document.trashed", "document", id.ToString(), null));
+        await db.SaveChangesAsync(ctx.RequestAborted);
+        return Results.NoContent();
+    }
+
+    // Restore from trash. Resolves with includeDeleted since the target is by definition trashed;
+    // restoring a live document is a no-op (its postcondition already holds).
+    private static async Task<IResult> Restore(Guid id, HttpContext ctx, EasyDocsDbContext db)
+    {
+        var (doc, _, failure) = await DocumentAuthorization.AuthorizeAsync(
+            db, ctx, id, Need.Own, includeDeleted: true, ct: ctx.RequestAborted);
+        if (failure is not null) return failure;
+
+        if (doc!.DeletedAt is not null)
+        {
+            doc.DeletedAt = null;
+            db.Add(Audit.Event(doc.OrgId, doc.Id, CurrentUser.UserId(ctx.User), "document.restored", "document", id.ToString(), null));
+            await db.SaveChangesAsync(ctx.RequestAborted);
+        }
+        return Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
+    }
+
+    private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
     {
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
         if (failure is not null) return failure;
-        var items = await db.Versions
-            .Where(v => v.DocumentId == id)
-            .OrderBy(v => v.CreatedAt)
-            .Select(v => new { id = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision, source = v.Source.ToString(), createdAt = v.CreatedAt, createdBy = v.CreatedBy })
-            .ToListAsync();
-        return Results.Ok(items);
+
+        var page = await Pagination.PageAsync(
+            db.Versions.Where(v => v.DocumentId == id), cursor, limit, descending: false, ctx.RequestAborted);
+        return Results.Ok(new
+        {
+            items = page.Items.Select(v => new { id = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision, source = v.Source.ToString(), createdAt = v.CreatedAt, createdBy = v.CreatedBy }),
+            nextCursor = page.NextCursor,
+        });
     }
 
     private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
@@ -159,7 +252,23 @@ public static class DocumentEndpoints
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
         if (failure is not null) return failure;
 
-        var file = ctx.Request.Form.Files["file"] ?? ctx.Request.Form.Files.FirstOrDefault();
+        // Both ingest routes (§10.3) funnel through here, so this is the one place that has to survive a
+        // hostile body. Reading Request.Form throws on a non-multipart or malformed multipart request
+        // (e.g. a bad Content-Disposition), which would surface as a 500 on a public endpoint; a bad
+        // request must be an RFC-7807 400.
+        if (!ctx.Request.HasFormContentType)
+            return Problem.Of(400, "Invalid request", "Expected a multipart/form-data body with a file field.");
+
+        IFormFile? file;
+        try
+        {
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+            file = form.Files["file"] ?? form.Files.FirstOrDefault();
+        }
+        catch (InvalidDataException)
+        {
+            return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
+        }
         if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
 
         BlobResult stored;

@@ -13,7 +13,7 @@ public static class MergeEndpoints
 
     public static void MapMergeEndpoints(this WebApplication app)
     {
-        app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization();
+        app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization().WithTags("Merging");
     }
 
     private static async Task<IResult> Merge(Guid id, MergeRequest req, HttpContext ctx, EasyDocsDbContext db, WmlComparerMergeService merge)
@@ -28,6 +28,10 @@ public static class MergeEndpoints
         var m = await merge.MergeAsync(id, req.Left, req.Right, userId, ctx.RequestAborted);
         if (!m.Available)
             return Problem.Of(409, "Merge unavailable", "Comparison failed — download both versions and merge manually.");
+
+        db.Add(Audit.Event(orgId, id, userId, "merge.completed", "version", m.MergeVersionId.ToString(),
+            new { left = req.Left, right = req.Right }));
+        await db.SaveChangesAsync(ctx.RequestAborted);
 
         return Results.Created($"/api/v1/documents/{id}/versions/{m.MergeVersionId}",
             new { mergeVersionId = m.MergeVersionId });
