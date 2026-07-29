@@ -608,6 +608,47 @@ select {
   color: var(--text-h);
 }
 
+/* The public share landing — the one screen with no app shell around it, so it centres itself. */
+.share {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.share-brand {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.share-card {
+  margin-block-start: 16px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.share-card h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.6px;
+}
+
+.share-card p {
+  margin-block-start: 12px;
+}
+
+/* An anchor that acts as the primary control — same look as a button, still a link. */
+a.button {
+  display: inline-block;
+  margin-block-start: 20px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-h);
+  text-decoration: none;
+}
+
 /* Settings is three stacked sections; each keeps its own heading and its own list. */
 .settings > section {
   margin-block-start: 28px;
