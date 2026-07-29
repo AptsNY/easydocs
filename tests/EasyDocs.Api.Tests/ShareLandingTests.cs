@@ -66,6 +66,27 @@ public class ShareLandingTests : IClassFixture<ApiFactory>
         Assert.Empty(db.AuditEvents.Where(a => a.Action == "share_link.viewed" && a.DocumentId == docId).ToList());
     }
 
+    [Theory]
+    [InlineData("text/html")]      // the shell
+    [InlineData("application/json")] // the metadata
+    public async Task Both_representations_forbid_caching_and_vary_on_accept(string accept)
+    {
+        // Regression: this one URL answers two representations, and the shell branch is a static file
+        // (Last-Modified, no Cache-Control). Against the shipped image Chromium heuristically cached the
+        // shell and then served it back to the SPA's Accept: application/json fetch of the SAME url, so
+        // the landing page decided every live link was dead. Vite sends no-cache on index.html, so only
+        // the container ever reproduced it. `no-store` also protects the side effects: this GET counts a
+        // view and writes share_link.viewed, and a cached response loses both.
+        var (url, _) = await ShareUrlAsync();
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+
+        var res = await _f.CreateClient().SendAsync(req);
+
+        Assert.True(res.Headers.CacheControl?.NoStore, $"{accept} response is cacheable");
+        Assert.Contains("Accept", res.Headers.Vary);
+    }
+
     [Fact]
     public async Task An_unknown_token_still_serves_the_shell_to_a_browser()
     {
