@@ -22,5 +22,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  // e2e is checked here rather than in a project of its own: `playwright test` transpiles without
+  // typechecking, so a type error in a spec would otherwise only ever surface as a runtime failure.
+  "include": ["src", "e2e"]
 }

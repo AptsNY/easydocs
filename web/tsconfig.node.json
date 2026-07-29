@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // playwright.config.ts belongs here for `process.env`. The specs themselves are in the app project,
+  // which resolves modules bundler-style the way Playwright itself does.
+  "include": ["vite.config.ts", "playwright.config.ts"]
 }

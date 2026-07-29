@@ -109,3 +109,116 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Enough structure for the shell and the auth form to be usable. The real design pass is Task 17
+   (spec §9), so this stays deliberately thin. */
+#root {
+  text-align: start;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.shell > header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 24px;
+  border-block-end: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.shell > header nav {
+  display: flex;
+  gap: 16px;
+  margin-inline-end: auto;
+}
+
+.brand {
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.shell > main {
+  padding: 24px;
+}
+
+nav a {
+  color: var(--text);
+}
+nav a[aria-current='page'] {
+  color: var(--accent);
+}
+
+.auth {
+  max-width: 22rem;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stack label {
+  margin-block-start: 10px;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+input {
+  font: inherit;
+  font-size: 16px;
+  padding: 8px 10px;
+  color: var(--text-h);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  font-size: 16px;
+  margin-block-start: 16px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-h);
+  cursor: pointer;
+}
+button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+button.link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.error {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid currentcolor;
+  color: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  .error {
+    color: #f2b8b5;
+  }
+}

@@ -4,5 +4,12 @@
   "rules": {
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  },
+  "overrides": [
+    {
+      // Playwright fixtures take a callback named `use`, which the React hooks rule mistakes for a hook.
+      "files": ["e2e/**"],
+      "rules": { "react/rules-of-hooks": "off" }
+    }
+  ]
 }
