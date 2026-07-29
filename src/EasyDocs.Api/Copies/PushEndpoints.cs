@@ -84,7 +84,7 @@ public static class PushEndpoints
             new { status = pr.Status, sourceVersionId = source.Id });
         await db.SaveChangesAsync(ct);
 
-        if (auto && await pushes.MaterializeAsync(pr, userId, ct) is null)
+        if (auto && await pushes.MaterializeAsync(pr, ct) is null)
             return Problem.Of(409, "Nothing to push",
                 "This version's content already matches the target's current head.");
         if (auto) await db.SaveChangesAsync(ct); // persist MaterializedVersionId
@@ -135,7 +135,7 @@ public static class PushEndpoints
             return Problem.Of(409, "Already decided", $"This push request is already {pr.Status}.");
 
         var userId = CurrentUser.UserId(ctx.User);
-        if (accept && await pushes.MaterializeAsync(pr, userId, ct) is null)
+        if (accept && await pushes.MaterializeAsync(pr, ct) is null)
             return Problem.Of(409, "Nothing to push",
                 "This version's content already matches the target's current head.");
 

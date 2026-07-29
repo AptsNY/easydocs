@@ -25,7 +25,11 @@ public sealed class PushService(EasyDocsDbContext db, VersioningService versioni
     // Land the pushed version on a fresh incoming_push branch of the target. Returns null when there is
     // nothing to materialize (see IsNoOpAsync) — re-checked here because main may have moved between the
     // push and the review. Sets pr.MaterializedVersionId; the caller owns the status transition and save.
-    public async Task<Guid?> MaterializeAsync(PushRequest pr, Guid actorUserId, CancellationToken ct)
+    //
+    // The version is credited to pr.PushedBy, NOT to whoever accepted it: the content is the pusher's work,
+    // and §5.3 attributes the merge redline to the incoming author. Accepting is a decision, audited
+    // separately as push.accepted by the acceptor.
+    public async Task<Guid?> MaterializeAsync(PushRequest pr, CancellationToken ct)
     {
         var source = await db.Versions.FirstAsync(v => v.Id == pr.SourceVersionId, ct);
         if (await IsNoOpAsync(pr.TargetDocumentId, source.BlobSha256, ct)) return null;
@@ -57,7 +61,7 @@ public sealed class PushService(EasyDocsDbContext db, VersioningService versioni
         // parents the incoming version inside the target's history and gives the version list a change
         // summary against the content the reviewer actually started from.
         var commit = await versioning.CommitSaveAsync(
-            new CommitInput(pr.TargetDocumentId, source.BlobSha256, size, VersionSource.CopyPush, actorUserId,
+            new CommitInput(pr.TargetDocumentId, source.BlobSha256, size, VersionSource.CopyPush, pr.PushedBy,
                 ExplicitBranchId: branch.Id, BaseVersionId: forkPoint), ct);
 
         pr.MaterializedVersionId = commit.VersionId;

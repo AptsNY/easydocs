@@ -9,11 +9,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Merging;
 
-// Concrete (no interface): merge-into-main (spec §5.3, E4). The main-branch head is the accepted content,
-// so it becomes the BASE (not tracked changes). A single guarded WmlComparer.Compare(mainHead, incoming)
-// renders the incoming concurrent branch's edits as a clean single-author redline (stamped with the
-// incoming author's DisplayName) on top of current main — ready to accept/reject. The compare is guarded:
-// any failure (malformed blob, no incoming branch) degrades to Available=false, NEVER throws / partial-commits.
+// Concrete (no interface): merge-into-main (spec §5.3, E4, and cross-document pushes in E9). The
+// main-branch head is the accepted content, so it becomes the BASE (not tracked changes). A single guarded
+// WmlComparer.Compare(mainHead, incoming) renders the incoming branch's edits as a clean single-author
+// redline (stamped with the incoming author's DisplayName) on top of current main — ready to accept/reject.
+// The compare is guarded: any failure (malformed blob, no incoming branch) degrades to Available=false,
+// NEVER throws / partial-commits.
 public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext db, VersioningService versioning, EventBus bus)
 {
     public record MergeResult(bool Available, Guid? MergeVersionId);
@@ -27,9 +28,17 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         var leftBranch = await db.Branches.FirstAsync(b => b.Id == left.BranchId, ct);
         var rightBranch = await db.Branches.FirstAsync(b => b.Id == right.BranchId, ct);
 
-        // The incoming side is the one on a concurrent branch; its edits become the tracked redline.
-        var (incoming, incomingBranch) = rightBranch.Kind == BranchKind.Concurrent ? (right, rightBranch)
-            : leftBranch.Kind == BranchKind.Concurrent ? (left, leftBranch)
+        // The incoming side is the one that is not main; its edits become the tracked redline. Two kinds
+        // qualify: a concurrent branch from a stale-base save (M1, E4) and an incoming_push branch
+        // materialized from a copy (M4, E9) — both are "somebody else's work to bring onto main", and the
+        // merge treats them identically.
+        //
+        // ponytail: an incoming_push branch carries the fork point in RootVersionId (spec §8), but nothing
+        // here reads it — merge-into-main (§5.3 [D]) compares the current main head against the incoming
+        // head, so the common ancestor is provenance, not a merge input. Ceiling: a true three-way fuse of
+        // both authors over the ancestor would need it; that is the deferred v1.1 enhancement in §5.3.
+        var (incoming, incomingBranch) = IsIncoming(rightBranch) ? (right, rightBranch)
+            : IsIncoming(leftBranch) ? (left, leftBranch)
             : (null, null!);
         if (incoming is null) return new MergeResult(false, null);
 
@@ -67,6 +76,8 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         bus.Publish(documentId, "merge.completed", new { mergeVersionId = commit.VersionId });
         return new MergeResult(true, commit.VersionId);
     }
+
+    private static bool IsIncoming(Branch b) => b.Kind is BranchKind.Concurrent or BranchKind.IncomingPush;
 
     private static WmlComparerSettings SettingsFor(string author) =>
         new() { AuthorForRevisions = author };
