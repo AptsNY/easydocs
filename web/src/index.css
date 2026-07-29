@@ -211,6 +211,95 @@ button.link {
   text-decoration: underline;
 }
 
+/* Dashboard: tree beside tiles. Structure only — Task 17 owns the look. */
+.dashboard {
+  display: flex;
+  align-items: start;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.dashboard .docs {
+  flex: 1;
+  min-width: 20rem;
+}
+
+.folder-tree {
+  min-width: 14rem;
+}
+
+.folder-tree h3 {
+  color: var(--text-h);
+  margin: 0 0 8px;
+}
+
+.folder-tree ul,
+.tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.folder-tree ul ul {
+  padding-inline-start: 16px;
+  border-inline-start: 1px solid var(--border);
+}
+
+[data-testid='folder-row'],
+.tile-actions,
+.confirm {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+[data-testid='folder-row'] a {
+  margin-inline-end: auto;
+  color: var(--text-h);
+}
+[data-testid='folder-row'] a[aria-current='page'] {
+  color: var(--accent);
+}
+
+.tiles > li {
+  padding: 12px 0;
+  border-block-start: 1px solid var(--border);
+  font-size: 15px;
+}
+
+.tiles > li > a {
+  color: var(--text-h);
+  font-size: 18px;
+}
+
+.tile-actions {
+  margin-block-start: 8px;
+}
+
+.tile-actions label,
+.tile-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 15px;
+}
+
+select {
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-h);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.confirm button {
+  margin-block-start: 8px;
+}
+
 .error {
   padding: 8px 10px;
   border-radius: 6px;
