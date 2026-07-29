@@ -68,4 +68,30 @@ public class VersionListTests : IClassFixture<ApiFactory>
         Assert.Equal(v1, asc!.Items.First().Id); // unchanged default — E-tests depend on it
         Assert.Equal(v2, desc!.Items.First().Id);
     }
+
+    [Fact]
+    public async Task The_row_summary_is_populated_from_the_cached_diff()
+    {
+        var acct = await _f.RegisterAsync();
+        var docId = await acct.Client.CreateDocAsync("Summary row");
+        var (v1, _) = await acct.Client.UploadAsync(docId, DocxFixtures.Base());
+        var (v2, _) = await acct.Client.UploadAsync(docId, DocxFixtures.Edited());
+
+        // Force the diff synchronously instead of racing DiffSummaryWorker's in-memory Channel:
+        // compare?format=summary computes inline and upserts the version_diffs row before responding
+        // (WmlComparerDiffService.SummaryAsync -> SaveChangesAsync), which DiffTests already proves works
+        // in this environment. A poll loop here would be a flaky-CI test waiting to happen.
+        (await acct.Client.GetAsync(
+            $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=summary")).EnsureSuccessStatusCode();
+
+        var page = await acct.Client.GetFromJsonAsync<Page>($"/api/v1/documents/{docId}/versions?limit=100");
+        var summary = page!.Items.Single(r => r.Id == v2).Summary;
+
+        Assert.NotNull(summary);
+        Assert.True(summary!.Insertions > 0 || summary.Deletions > 0,
+            $"expected a non-empty redline between the base and edited fixture, got {summary.Insertions}/{summary.Deletions}");
+
+        // The first version has no parent, so it has no summary — and that must be null, not zeroes.
+        Assert.Null(page.Items.Single(r => r.Id == v1).Summary);
+    }
 }
