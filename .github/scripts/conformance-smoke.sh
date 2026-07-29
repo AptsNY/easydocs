@@ -51,7 +51,11 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 assert d.get("openapi", "").startswith("3.1"), f"expected OpenAPI 3.1, got {d.get('openapi')!r}"
 paths = d.get("paths", {})
-for required in ["/api/v1/documents", "/api/v1/tokens", "/api/v1/documents/{id}/members", "/api/v1/documents/{id}/audit"]:
+for required in ["/api/v1/documents", "/api/v1/tokens", "/api/v1/documents/{id}/members", "/api/v1/documents/{id}/audit",
+                 # The copies/push line of §10.1 — added in M4, which completes the v1 endpoint set.
+                 "/api/v1/versions/{vid}/copies", "/api/v1/documents/{id}/copies",
+                 "/api/v1/documents/{id}/pushes", "/api/v1/documents/{id}/push-requests",
+                 "/api/v1/push-requests/{id}:accept", "/api/v1/push-requests/{id}:reject"]:
     assert required in paths, f"missing {required} in the published document"
 schemes = d.get("components", {}).get("securitySchemes", {})
 assert "Bearer" in schemes, "the ed_ Bearer security scheme is not declared"

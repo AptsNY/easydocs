@@ -22,6 +22,19 @@ public class OpenApiTests(ApiFactory f) : IClassFixture<ApiFactory>
         Assert.True(paths.TryGetProperty("/api/v1/versions/{vid}/publish", out _));
         Assert.True(paths.TryGetProperty("/api/v1/tokens", out _));
 
+        // The copies/push line of §10.1 — the last routes to land (M4), so the published document is now
+        // the complete v1 endpoint set.
+        foreach (var path in new[]
+        {
+            "/api/v1/versions/{vid}/copies",
+            "/api/v1/documents/{id}/copies",
+            "/api/v1/documents/{id}/pushes",
+            "/api/v1/documents/{id}/push-requests",
+            "/api/v1/push-requests/{id}:accept",
+            "/api/v1/push-requests/{id}:reject",
+        })
+            Assert.True(paths.TryGetProperty(path, out _), $"missing {path} in the published document");
+
         var schemes = root.GetProperty("components").GetProperty("securitySchemes");
         var hasBearer = schemes.EnumerateObject()
             .Any(s => string.Equals(

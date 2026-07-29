@@ -12,7 +12,10 @@ name: Conformance
 #     E5  Numbering        R1-R6 + manual override, R8 download names
 #     E6  Publish          renumber + Major Versions (PDF leg below)
 #     E7  Approvals        published-only, one row per approver, single immutable decision, cancel
-#     E8  Actions          7 of the 8 v1 actions; Push To Copy pending M4
+#     E8  Actions          all 8 v1 actions, incl. Push To Copy (M4)
+#     E9  Copies           isolated members/history, non-member push -> pending review, accept ->
+#                          incoming_push branch, reject -> hidden + pusher notified, merge into main
+#                          via the fork-point branch root, and no master draft reachable from a copy
 #     E10 Share/download   version-scoped, revocable, audited, docx + pdf, no cloud export
 #     E11 Revert           new head equals target, history intact
 #     E12 Security         role matrix x endpoint, org-role grants nothing, token <= owner role
@@ -28,10 +31,10 @@ name: Conformance
 #   Compose stack (conformance-smoke.sh, against the published image over HTTP)
 #     E6's PDF leg          bundled LibreOffice actually renders (%PDF verified)
 #     E2/E6/E10 end-to-end  PAT-only create -> upload -> publish -> share -> anonymous read
-#     M3 surface            /openapi/v1.json is 3.1 and matches §10.1; /docs is self-contained
+#     §10.1 surface         /openapi/v1.json is 3.1 and publishes the complete endpoint set (the
+#                           copies/push routes landed in M4); /docs is self-contained
 #
-#   Pending M4
-#     E9  Copies/push       skips with a reason; the suite asserts the routes are absent, not half-built
+# As of M4 every criterion E1-E12 runs for real: NOTHING in this suite is allowed to skip.
 
 on:
   push:
@@ -67,8 +70,10 @@ jobs:
             --logger 'trx;LogFileName=conformance.trx'
 
       # A silently-skipped criterion is worse than a red one: it reads as coverage that does not exist.
-      # Only E9 and E8's Push To Copy are allowed to skip, and only until M4.
-      - name: Assert no conformance criterion skipped unexpectedly
+      # M4 was the last milestone with a pending criterion, so the allowlist is now empty — every one of
+      # E1-E12 must actually run. The only reason anything here skips is a missing host dependency
+      # (LibreOffice for E6's PDF leg), which this job installs above precisely so it does not.
+      - name: Assert no conformance criterion skipped
         run: |
           trx=$(find . -name conformance.trx | head -1)
           if [ -z "$trx" ]; then echo "::error::no trx produced"; exit 1; fi
@@ -78,14 +83,12 @@ jobs:
           root = ET.parse(sys.argv[1]).getroot()
           skipped = [r.get('testName') for r in root.findall('.//t:UnitTestResult', ns)
                      if r.get('outcome') in ('NotExecuted', 'Skipped')]
-          # E9 (copies/push) and E8's Push To Copy are expected to skip until M4 — nothing else may.
-          unexpected = [s for s in skipped if 'E09_Copies' not in s and 'Push_to_copy' not in s]
           for s in skipped:
-              print(('EXPECTED SKIP  ' if s not in unexpected else 'UNEXPECTED SKIP') + f'  {s}')
-          if unexpected:
-              print(f'::error::{len(unexpected)} conformance criteria skipped that should have run')
+              print(f'UNEXPECTED SKIP  {s}')
+          if skipped:
+              print(f'::error::{len(skipped)} conformance criteria skipped; E1-E12 must all run as of M4')
               sys.exit(1)
-          print(f'\n{len(skipped)} skipped, all expected (E9 / Push To Copy pending M4).')
+          print('no conformance criterion skipped — E1-E12 all ran.')
           PY
 
       - name: Boot the compose stack (Postgres + Collabora + bundled LibreOffice)
