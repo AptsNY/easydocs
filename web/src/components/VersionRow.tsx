@@ -1,13 +1,28 @@
-import type { ChangeSummary, VersionRow as Version } from '../api'
+import type { ChangeSummary, DocRole, VersionRow as Version } from '../api'
+import ActionsMenu from './ActionsMenu'
 
-// One history row (spec §9). Task 13 drops the per-version Actions menu into the seam at the bottom.
-export default function VersionRow({ version }: { version: Version }) {
+// One history row (spec §9), with the per-version Actions menu (E8) at the end of it.
+//
+// `role` is the caller's own role on this document, resolved once by the console. Until it arrives the menu
+// is not rendered at all — a Viewer must never see the mutating actions flash before the filter catches up.
+export default function VersionRow({
+  version,
+  documentId,
+  role,
+  onDone,
+}: {
+  version: Version
+  documentId: string
+  role: DocRole | null
+  onDone: () => void
+}) {
   return (
     <article
       className="version-row"
       data-testid="version-row"
       data-number={version.number}
       data-branch-kind={version.branchKind}
+      data-source={version.source}
     >
       <span className="version-number" data-testid="version-number">
         {version.number}
@@ -24,7 +39,9 @@ export default function VersionRow({ version }: { version: Version }) {
       <time dateTime={version.createdAt}>{new Date(version.createdAt).toLocaleString()}</time>
       <span data-testid="version-summary">{summaryText(version.summary)}</span>
 
-      {/* Task 13: per-version Actions menu goes here. */}
+      {role && (
+        <ActionsMenu version={version} documentId={documentId} role={role} onDone={onDone} />
+      )}
     </article>
   )
 }

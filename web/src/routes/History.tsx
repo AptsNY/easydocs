@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext, useParams } from 'react-router'
-import { api, problemText, type Paged, type VersionRow as Version } from '../api'
+import { api, problemText, type DocRole, type Paged, type VersionRow as Version } from '../api'
 import Row from '../components/VersionRow'
 
 // ponytail: history is an indented list — main spine plus grouped concurrent-branch entries, per
@@ -16,7 +16,7 @@ type Group = {
 
 export default function History() {
   const { id } = useParams()
-  const { tick } = useOutletContext<{ tick: number }>()
+  const { tick, myRole } = useOutletContext<{ tick: number; myRole: DocRole | null }>()
   const [rows, setRows] = useState<Version[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -38,6 +38,13 @@ export default function History() {
     load(null).catch((e: unknown) => setError(problemText(e)))
   }, [load, tick])
 
+  // The Actions menu mutates versions, so it needs a way to say "re-read the list". SSE also ticks the
+  // console for most of these, but an explicit refresh keeps a menu action correct even for the events the
+  // stream does not carry (a fork publishes into the COPY's document, not this one).
+  const refresh = useCallback(() => {
+    load(null).catch((e: unknown) => setError(problemText(e)))
+  }, [load])
+
   const act = async (fn: () => Promise<unknown>) => {
     try {
       setError('')
@@ -47,6 +54,8 @@ export default function History() {
     }
     await load(null).catch((e: unknown) => setError(problemText(e)))
   }
+
+  const rowProps: RowProps = { documentId: id!, role: myRole, onDone: refresh }
 
   const { spine, attached, detached } = layout(rows)
   // Merging needs main's head as the left side. Rows arrive newest-first, so that is the first of them.
@@ -67,18 +76,24 @@ export default function History() {
       <ol className="spine" data-testid="branch-spine">
         {spine.map((v) => (
           <li key={v.id}>
-            <Row version={v} />
+            <Row version={v} {...rowProps} />
             {/* A branch is indented under the version it forked from, which is where a reader looks
                 for it. */}
             {attached.get(v.id)?.map((g) => (
-              <BranchGroup key={g.branchId} group={g} canMerge={!!mainHead} onMerge={merge} />
+              <BranchGroup
+                key={g.branchId}
+                group={g}
+                canMerge={!!mainHead}
+                onMerge={merge}
+                rowProps={rowProps}
+              />
             ))}
           </li>
         ))}
         {/* A group whose fork point is past the loaded page still has to render somewhere. */}
         {detached.map((g) => (
           <li key={g.branchId}>
-            <BranchGroup group={g} canMerge={!!mainHead} onMerge={merge} />
+            <BranchGroup group={g} canMerge={!!mainHead} onMerge={merge} rowProps={rowProps} />
           </li>
         ))}
       </ol>
@@ -99,14 +114,20 @@ export default function History() {
   )
 }
 
+// The three props every row needs beyond the version itself, bundled so BranchGroup forwards them rather
+// than re-declaring them.
+type RowProps = { documentId: string; role: DocRole | null; onDone: () => void }
+
 function BranchGroup({
   group,
   canMerge,
   onMerge,
+  rowProps,
 }: {
   group: Group
   canMerge: boolean
   onMerge: (right: string) => void
+  rowProps: RowProps
 }) {
   const concurrent = group.kind === 'Concurrent'
   return (
@@ -137,7 +158,7 @@ function BranchGroup({
       <ol>
         {group.rows.map((v) => (
           <li key={v.id}>
-            <Row version={v} />
+            <Row version={v} {...rowProps} />
           </li>
         ))}
       </ol>

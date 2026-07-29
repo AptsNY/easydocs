@@ -413,6 +413,70 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* The per-version Actions menu (E8) and its modals. Structure only — Task 17 owns the look. */
+.actions {
+  position: relative;
+  margin-inline-start: auto;
+}
+
+.actions > button {
+  margin: 0;
+  font-size: 15px;
+}
+
+.actions-menu {
+  position: absolute;
+  z-index: 1;
+  inset-inline-end: 0;
+  min-width: 13rem;
+  margin: 4px 0 0;
+  padding: 6px;
+  list-style: none;
+  text-align: start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.actions-menu li {
+  padding: 4px 6px;
+}
+
+.modal {
+  min-width: min(26rem, 88vw);
+  padding: 20px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  color: var(--text-h);
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.modal code {
+  margin-block-start: 6px;
+  overflow-wrap: anywhere;
+}
+
+.modal > button.link {
+  margin-block-start: 16px;
+}
+
+.editor-frame {
+  width: 100%;
+  height: 75svh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 /* Available to a screen reader, invisible on screen — for labels a sighted reader gets from context. */
 .visually-hidden {
   position: absolute;
