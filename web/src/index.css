@@ -562,3 +562,55 @@ select {
     color: #f2b8b5;
   }
 }
+
+/* Approvals: the request form's approver checkboxes, and the per-row decision controls. Structure only —
+   Task 17 owns the look. */
+.request-approval {
+  align-items: start;
+  margin-block: 20px;
+}
+
+.request-approval h4,
+.settings h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.approvers {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.approvers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.approvers label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 15px;
+}
+
+.approval-decision {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-decision label {
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+/* Settings is three stacked sections; each keeps its own heading and its own list. */
+.settings > section {
+  margin-block-start: 28px;
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--border);
+}

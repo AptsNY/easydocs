@@ -193,3 +193,51 @@ export type MemberAdded = {
   role: DocRole
   invitationToken?: string
 }
+
+// GET /api/v1/approvals (paged, the inbox) and GET /api/v1/versions/{vid}/approvals (a BARE array, one
+// version's panel) answer the same row. `documentName` and `versionNumber` are denormalised into it on
+// purpose, so an inbox renders with no follow-up request per item, and `status` is DERIVED server-side:
+// "cancelled" if cancelled, else the decision, else "open" — cancel wins over a decision that can never
+// arrive.
+export type Approval = {
+  id: string
+  versionId: string
+  documentId: string
+  documentName: string
+  versionNumber: string
+  approverId: string
+  approverName: string
+  requestedBy: string
+  requestedByName: string
+  decision: string | null
+  decisionComment: string | null
+  dueAt: string | null
+  decidedAt: string | null
+  cancelledAt: string | null
+  status: 'open' | 'approved' | 'rejected' | 'cancelled'
+  createdAt: string
+}
+
+// GET /api/v1/tokens — a BARE array, and the name field is `serviceName`, not `name` (the create request
+// calls it `name`). Revoking is a soft revoke: the row stays, with revokedAt set.
+export type ApiTokenRow = {
+  id: string
+  serviceName: string
+  scopes: string[]
+  expiresAt: string | null
+  lastUsedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+}
+
+export type OrgRole = 'Owner' | 'Admin' | 'Member'
+
+// GET /api/v1/org/members — a BARE array, readable by ANY org member because the SPA's person pickers need
+// it. Org role grants nothing on a document (spec §11): this roster is not a document roster.
+export type OrgMember = {
+  userId: string
+  email: string
+  displayName: string
+  role: OrgRole
+  createdAt: string
+}
