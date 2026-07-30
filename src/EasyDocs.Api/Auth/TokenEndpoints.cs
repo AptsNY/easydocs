@@ -47,11 +47,32 @@ public static class TokenEndpoints
         return Results.Created($"/api/v1/tokens/{row.Id}", new { id = row.Id, token = raw });
     }
 
-    private static async Task<IResult> List(HttpContext ctx, EasyDocsDbContext db)
+    // What this caller may see and revoke. ONE predicate for both the list and the delete: a scoped list
+    // with an unscoped delete would be theatre.
+    //
+    // A PAT is a per-user capability whose authority never exceeds its owner's (spec §11), so its metadata
+    // is its owner's too — a Member enumerating a colleague's token names, scopes and last-used times is
+    // not part of that, and neither is an org Owner doing it. Seniority is not ownership.
+    //
+    // ApiToken.UserId is nullable for org-level service accounts (spec §4): those have no owning user, so
+    // `own tokens only` would orphan them. They belong to whoever runs the org — Owner/Admin, the same pair
+    // OrgEndpoints gates org management on.
+    private static async Task<IQueryable<ApiToken>> VisibleAsync(HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
-        var list = await db.ApiTokens
-            .Where(t => t.OrgId == orgId)
+        var userId = CurrentUser.UserId(ctx.User);
+        var role = await db.OrgMembers
+            .Where(m => m.OrgId == orgId && m.UserId == userId)
+            .Select(m => (OrgRole?)m.Role)
+            .FirstOrDefaultAsync(ctx.RequestAborted);
+        var manages = role is OrgRole.Owner or OrgRole.Admin;
+
+        return db.ApiTokens.Where(t => t.OrgId == orgId && (t.UserId == userId || (manages && t.UserId == null)));
+    }
+
+    private static async Task<IResult> List(HttpContext ctx, EasyDocsDbContext db)
+    {
+        var list = await (await VisibleAsync(ctx, db))
             .OrderByDescending(t => t.CreatedAt)
             .Select(t => new
             {
@@ -69,12 +90,13 @@ public static class TokenEndpoints
 
     private static async Task<IResult> Revoke(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
-        var orgId = CurrentUser.OrgId(ctx.User);
-        var row = await db.ApiTokens.FirstOrDefaultAsync(t => t.Id == id && t.OrgId == orgId, ctx.RequestAborted);
+        // 404 rather than 403 for someone else's token: it is not in this caller's list, so it does not
+        // exist for them — the same no-existence-leak rule DocumentAuthorization follows.
+        var row = await (await VisibleAsync(ctx, db)).FirstOrDefaultAsync(t => t.Id == id, ctx.RequestAborted);
         if (row is null) return Problem.Of(404, "Not found", "Token not found.");
 
         row.RevokedAt = DateTimeOffset.UtcNow;
-        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "token.revoked", "token", row.Id.ToString(), null));
+        db.Add(Audit.Event(row.OrgId, null, CurrentUser.UserId(ctx.User), "token.revoked", "token", row.Id.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
         return Results.NoContent();
     }

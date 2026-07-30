@@ -123,9 +123,12 @@ export default function Settings() {
         {/* ponytail: no scopes picker and no expiry field. Scopes are stored but nothing in the API checks
             them yet, and an unscoped non-expiring token is exactly what the endpoint mints by default — a
             picker here would imply a restriction that does not exist. Add both when scope enforcement lands.
-            The list is org-wide, not per-user, because GET /api/v1/tokens is (a Member sees their
-            colleagues' token names, never a value). */}
-        <p className="muted">Tokens act for this organization. The value is shown once, at creation.</p>
+            The list is the caller's OWN tokens — GET /api/v1/tokens was org-wide until M5, so a Member saw
+            every colleague's token names, scopes and last-used times. An org Owner/Admin additionally sees
+            org-level service tokens, which have no owning user (spec §11). */}
+        <p className="muted">
+          A token acts as you, in this organization. The value is shown once, at creation.
+        </p>
 
         <form className="stack" onSubmit={createToken}>
           <label htmlFor="token-name">Token name</label>
