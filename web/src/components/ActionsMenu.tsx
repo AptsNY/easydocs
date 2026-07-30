@@ -1,6 +1,14 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { api, problemText, type DocRole, type VersionRow as Version } from '../api'
+import {
+  api,
+  problemText,
+  type DocRole,
+  type Paged,
+  type ShareLinkRow,
+  type VersionRow as Version,
+} from '../api'
+import { useSession } from '../auth'
 import Modal from './Modal'
 
 // The v1 action set from spec §9, conformance criterion E8: "Open in Collabora, Import, Share, Download,
@@ -32,9 +40,11 @@ export default function ActionsMenu({
   onDone: () => void
 }) {
   const navigate = useNavigate()
+  const { me } = useSession()
   const [open, setOpen] = useState(false)
   const [modal, setModal] = useState<ModalKind | null>(null)
   const [shareUrl, setShareUrl] = useState('')
+  const [links, setLinks] = useState<ShareLinkRow[]>([])
   const [error, setError] = useState('')
   const triggerRef = useRef<HTMLButtonElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -50,9 +60,27 @@ export default function ActionsMenu({
   const closeModal = () => {
     setModal(null)
     setShareUrl('')
+    setLinks([])
     setError('')
     triggerRef.current?.focus()
   }
+
+  // The links the document already has. Document-scoped, not version-scoped, because that is the question
+  // — "what have I shared?" — so each row names the version it points at. Not routed through act(): opening
+  // the dialog is a read, and act() also fires onDone(), which would refetch the whole version list.
+  const loadLinks = async () => {
+    try {
+      const page = await api.get<Paged<ShareLinkRow>>(`/api/v1/documents/${documentId}/share-links`)
+      setLinks(page.items)
+    } catch (e) {
+      setError(problemText(e))
+    }
+  }
+
+  // Revoked and expired rows are listed too, flagged — a dead link is part of the answer, and the API
+  // treats both as the same 404 for the recipient. Only a live one gets a Revoke button.
+  const linkState = (l: ShareLinkRow) =>
+    l.revokedAt ? 'Revoked' : l.expiresAt && new Date(l.expiresAt) <= new Date() ? 'Expired' : 'Live'
 
   // Every action funnels through here, so a failure always reaches a role="alert" with the API's own
   // words. A silent no-op is worse than an error message. `stay` is for Share, whose result IS the dialog.
@@ -81,7 +109,14 @@ export default function ActionsMenu({
     // a bookmark, a reload, a link — has to mint one anyway.
     { label: 'Open in Collabora', need: 'edit', run: () => navigate(`/versions/${vid}/edit`) },
     { label: 'Import', need: 'edit', run: () => fileRef.current?.click() },
-    { label: 'Share', need: 'read', run: () => setModal('share') },
+    {
+      label: 'Share',
+      need: 'read',
+      run: () => {
+        setModal('share')
+        void loadLinks()
+      },
+    },
     {
       label: 'Download',
       need: 'read',
@@ -185,32 +220,75 @@ export default function ActionsMenu({
 
       {modal && (
         <Modal title={`${TITLES[modal]} (${version.number})`} onClose={closeModal}>
-          {modal === 'share' &&
-            (shareUrl ? (
-              <div className="stack">
-                <p>
-                  Copy this link now — the API returns the token once and stores only its hash, so it
-                  cannot be shown again.
-                </p>
-                <code data-testid="share-url">{shareUrl}</code>
-              </div>
-            ) : (
-              <form
-                className="stack"
-                onSubmit={onSubmit(async (f) => {
-                  const raw = String(f.get('expiresAt') ?? '')
-                  const link = await api.post<{ token: string; url: string }>(
-                    `/api/v1/versions/${vid}/share-links`,
-                    { expiresAt: raw ? new Date(raw).toISOString() : null },
-                  )
-                  setShareUrl(link.url)
-                }, 'stay')}
-              >
-                <label htmlFor={`${fieldId}-expires`}>Expires (optional)</label>
-                <input id={`${fieldId}-expires`} name="expiresAt" type="datetime-local" />
-                <button type="submit">Create link</button>
-              </form>
-            ))}
+          {modal === 'share' && (
+            <>
+              {shareUrl ? (
+                <div className="stack">
+                  <p>
+                    Copy this link now — the API returns the token once and stores only its hash, so it
+                    cannot be shown again.
+                  </p>
+                  <code data-testid="share-url">{shareUrl}</code>
+                </div>
+              ) : (
+                <form
+                  className="stack"
+                  onSubmit={onSubmit(async (f) => {
+                    const raw = String(f.get('expiresAt') ?? '')
+                    const link = await api.post<{ token: string; url: string }>(
+                      `/api/v1/versions/${vid}/share-links`,
+                      { expiresAt: raw ? new Date(raw).toISOString() : null },
+                    )
+                    setShareUrl(link.url)
+                    await loadLinks()
+                  }, 'stay')}
+                >
+                  <label htmlFor={`${fieldId}-expires`}>Expires (optional)</label>
+                  <input id={`${fieldId}-expires`} name="expiresAt" type="datetime-local" />
+                  <button type="submit">Create link</button>
+                </form>
+              )}
+
+              {/* Withdrawing a share is the point of this list: until M5 the row id was never exposed, so
+                  DELETE /api/v1/share-links/{id} existed and no client could call it. */}
+              <h4>Links for this document</h4>
+              {links.length === 0 ? (
+                <p className="muted">No links yet.</p>
+              ) : (
+                <ul className="rows">
+                  {links.map((l) => (
+                    <li key={l.id} data-testid="share-link-row" data-state={linkState(l)}>
+                      <span className="version-number">{l.versionNumber}</span>
+                      <span>{linkState(l)}</span>
+                      <span className="muted">
+                        {l.createdByName} · {new Date(l.createdAt).toLocaleDateString()} ·{' '}
+                        {l.viewCount} views
+                        {l.expiresAt && ` · expires ${new Date(l.expiresAt).toLocaleDateString()}`}
+                      </span>
+                      {/* Revoke is creator-or-Editor+ server-side, so a Viewer looking at a colleague's
+                          link would only ever get a 403 — the same reason the menu itself filters on role.
+                          The API is still the enforcement. */}
+                      {linkState(l) === 'Live' && (l.createdBy === me?.id || canEdit) && (
+                        <button
+                          type="button"
+                          className="link"
+                          aria-label={`Revoke the share link for version ${l.versionNumber} created ${new Date(l.createdAt).toLocaleDateString()}`}
+                          onClick={() =>
+                            void act(async () => {
+                              await api.del(`/api/v1/share-links/${l.id}`)
+                              await loadLinks()
+                            }, 'stay')
+                          }
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
 
           {modal === 'name' && (
             <form

@@ -1,14 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
-using EasyDocs.Api.Data;
 using EasyDocs.Api.Tests.Fixtures;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests.Conformance;
 
 // E10 Share/download (spec §12.1): a share link is scoped to ONE version, revocable, and audited;
 // DOCX + PDF download work, with no cloud export.
+//
+// M5: "revocable" is now proved entirely through the public surface. It used to read the row id straight
+// out of the database, because POST /share-links returned only {token, url} and nothing listed links — so
+// the criterion was honest about the data model and silent about whether any client could revoke. It could
+// not. GET /documents/{id}/share-links closed that, and this file no longer touches a DbContext.
 [Collection(ConformanceCollection.Name)]
 public class E10_ShareDownload
 {
@@ -16,13 +18,6 @@ public class E10_ShareDownload
     public E10_ShareDownload(ApiFactory f) => _f = f;
 
     private record PublicViewDto(string DocumentName, string Version, string DownloadUrl);
-
-    private async Task<Guid> ShareLinkIdAsync(Guid versionId)
-    {
-        using var scope = _f.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-        return await db.ShareLinks.Where(s => s.VersionId == versionId).Select(s => s.Id).SingleAsync();
-    }
 
     [Fact]
     public async Task A_share_link_is_scoped_to_a_single_version()
@@ -72,18 +67,24 @@ public class E10_ShareDownload
     public async Task A_share_link_is_revocable()
     {
         var api = await EdApi.NewAsync(_f);
-        var (_, vid) = await api.NewDocumentWithBaseAsync("Revocable");
+        var (docId, vid) = await api.NewDocumentWithBaseAsync("Revocable");
         var link = await api.CreateShareLinkAsync(vid);
         var anon = _f.CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await anon.GetAsync(link.Url)).StatusCode);
 
-        var linkId = await ShareLinkIdAsync(vid);
-        Assert.Equal(HttpStatusCode.NoContent, (await api.RevokeShareLinkRawAsync(linkId)).StatusCode);
+        // The id comes from the public list, not the database — that reachability IS half of "revocable".
+        var listed = Assert.Single((await api.ListShareLinksAsync(docId)).Items);
+        Assert.Equal(vid, listed.VersionId);
+        Assert.Null(listed.RevokedAt);
+        Assert.Equal(HttpStatusCode.NoContent, (await api.RevokeShareLinkRawAsync(listed.Id)).StatusCode);
 
         // Dead for both view and download.
         Assert.Equal(HttpStatusCode.NotFound, (await anon.GetAsync(link.Url)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await anon.GetAsync($"{link.Url}/download")).StatusCode);
+
+        // And the list says so, so a member can see what is still live.
+        Assert.NotNull(Assert.Single((await api.ListShareLinksAsync(docId)).Items).RevokedAt);
     }
 
     [Fact]
@@ -105,7 +106,7 @@ public class E10_ShareDownload
         var link = await api.CreateShareLinkAsync(vid);
 
         (await _f.CreateClient().GetAsync(link.Url)).EnsureSuccessStatusCode();
-        var linkId = await ShareLinkIdAsync(vid);
+        var linkId = Assert.Single((await api.ListShareLinksAsync(docId)).Items).Id;
         (await api.RevokeShareLinkRawAsync(linkId)).EnsureSuccessStatusCode();
 
         var trail = (await api.AuditAsync(docId)).Items;

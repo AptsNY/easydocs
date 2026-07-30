@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using EasyDocs.Api.Api;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
@@ -24,6 +25,10 @@ public static class ShareEndpoints
     {
         var g = app.MapGroup("").WithTags("Sharing");
         g.MapPost("/api/v1/versions/{vid:guid}/share-links", Create).RequireAuthorization();
+        // Document-scoped, not version-scoped: the person asking "what have I shared?" is thinking about
+        // the document, and without SOME list the row id is unreachable, which made DELETE below dead code
+        // for every client (spec §11 — a share is revocable).
+        g.MapGet("/api/v1/documents/{id:guid}/share-links", List).RequireAuthorization();
         g.MapDelete("/api/v1/share-links/{id:guid}", Revoke).RequireAuthorization();
 
         // PUBLIC — no RequireAuthorization. Mapped in Program.cs before the SPA fallback, like /wopi.
@@ -68,6 +73,50 @@ public static class ShareEndpoints
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         return Results.Created($"/s/{token}", new { token, url = $"/s/{token}" });
+    }
+
+    // Any member may read the list — Create is Viewer+, so a Viewer who shared has to be able to see and
+    // revoke their own link, and the audit trail (also any-member) already names share_link rows. Newest
+    // first, cursor-paginated like the other document reads.
+    //
+    // Revoked and expired rows are INCLUDED, flagged by revokedAt/expiresAt: "did I revoke that?" is one of
+    // the two questions this list exists to answer, and a filter nobody asked for would hide the answer.
+    // Never the token (returned once, unrecoverable) and never its hash — a revoke decision needs neither,
+    // and the hash is secret-adjacent (spec §11).
+    private static async Task<IResult> List(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
+    {
+        var (_, _, failure) = await DocumentAuthorization.AuthorizeAsync(db, ctx, id, Need.Read, ct: ctx.RequestAborted);
+        if (failure is not null) return failure;
+
+        // ShareLink carries only VersionId, so the document filter is an EXISTS over versions.
+        var page = await Pagination.PageAsync(
+            db.ShareLinks.Where(s => db.Versions.Any(v => v.Id == s.VersionId && v.DocumentId == id)),
+            cursor, limit, descending: true, ctx.RequestAborted);
+
+        // Page-then-lookup for both denormalised fields: one query each for the whole page, never per row.
+        var authors = await AuthorNames.ForAsync(db, page.Items.Select(s => s.CreatedBy), ctx.RequestAborted);
+        var vids = page.Items.Select(s => s.VersionId).Distinct().ToArray();
+        var numbers = await db.Versions
+            .Where(v => vids.Contains(v.Id))
+            .Select(v => new { v.Id, v.Major, v.Minor, v.Revision })
+            .ToDictionaryAsync(v => v.Id, v => $"{v.Major}.{v.Minor}.{v.Revision}", ctx.RequestAborted);
+
+        return Results.Ok(new
+        {
+            items = page.Items.Select(s => new
+            {
+                id = s.Id,
+                versionId = s.VersionId,
+                versionNumber = numbers.GetValueOrDefault(s.VersionId, ""),
+                createdBy = s.CreatedBy,
+                createdByName = authors.GetValueOrDefault(s.CreatedBy, AuthorNames.Unknown),
+                createdAt = s.CreatedAt,
+                expiresAt = s.ExpiresAt,
+                revokedAt = s.RevokedAt,
+                viewCount = s.ViewCount,
+            }),
+            nextCursor = page.NextCursor,
+        });
     }
 
     // Creator or an Editor+ of the document may revoke.

@@ -216,7 +216,7 @@ Versions: `POST /documents/{id}/versions` (multipart upload — §10.3), `POST /
 Editing: `POST /versions/{vid}/sessions` (wopi only), `DELETE /sessions/{sid}`; WOPI host under `/wopi/*`.
 Publish/approvals: `POST /versions/{vid}/publish`, `GET /documents/{id}/publications`, `POST /versions/{vid}/approvals`, `POST /approvals/{id}:respond`, `POST /approvals/{id}:cancel`.
 Approvals (read): `GET /approvals?filter=assigned|requested&status=`, `GET /versions/{vid}/approvals`.
-Sharing: `POST /versions/{vid}/share-links`, `GET /s/{token}` (public), `DELETE /share-links/{id}`.
+Sharing: `POST /versions/{vid}/share-links`, `GET /documents/{id}/share-links`, `GET /s/{token}` (public), `DELETE /share-links/{id}`.
 Copies/push: `POST /versions/{vid}/copies`, `GET /documents/{id}/copies`, `POST /documents/{id}/pushes`, `GET /documents/{id}/push-requests`, `POST /push-requests/{id}:accept|reject`.
 Members/merge: `GET/POST /documents/{id}/members`, `PATCH/DELETE /documents/{id}/members/{uid}`, `POST /documents/{id}/merges`.
 Tokens: `GET/POST/DELETE /tokens`.

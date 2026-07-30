@@ -230,6 +230,22 @@ export type ApiTokenRow = {
   createdAt: string
 }
 
+// GET /api/v1/documents/{id}/share-links — paged, newest first, and DOCUMENT-scoped even though a link
+// points at one version: "what have I shared?" is a question about the document. Revoked and expired rows
+// are included and flagged. No token and no hash: the raw token is unrecoverable by design (spec §11) and
+// the hash is not the UI's business — `id` is all a revoke needs.
+export type ShareLinkRow = {
+  id: string
+  versionId: string
+  versionNumber: string
+  createdBy: string
+  createdByName: string
+  createdAt: string
+  expiresAt: string | null
+  revokedAt: string | null
+  viewCount: number
+}
+
 export type OrgRole = 'Owner' | 'Admin' | 'Member'
 
 // GET /api/v1/org/members — a BARE array, readable by ANY org member because the SPA's person pickers need

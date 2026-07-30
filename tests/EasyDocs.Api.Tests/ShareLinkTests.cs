@@ -144,6 +144,57 @@ public class ShareLinkTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.NotFound, expiredGet.StatusCode);
     }
 
+    // Until M5 the row id was never exposed anywhere, so DELETE /api/v1/share-links/{id} existed but no
+    // client could reach it: a shared document could not be un-shared (spec §11).
+    [Fact]
+    public async Task Share_links_are_listable_per_document_so_revocation_is_reachable()
+    {
+        var c = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Listable");
+        var v = await UploadAsync(c, docId, new byte[] { 1 });
+        await c.PostAsJsonAsync($"/api/v1/versions/{v.VersionId}/share-links", new { });
+
+        var res = await c.GetAsync($"/api/v1/documents/{docId}/share-links");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var raw = await res.Content.ReadAsStringAsync();
+        // Neither the raw token (unrecoverable) nor the stored hash: a revoke decision needs neither.
+        Assert.DoesNotContain("token", raw, StringComparison.OrdinalIgnoreCase);
+
+        var page = (await res.Content.ReadFromJsonAsync<PagedShareLinks>())!;
+        var row = Assert.Single(page.Items);
+        Assert.NotEqual(Guid.Empty, row.Id);
+        Assert.Equal(v.VersionId, row.VersionId);
+        Assert.Equal("0.0.1", row.VersionNumber);
+        Assert.Equal("D", row.CreatedByName);
+        Assert.Null(row.RevokedAt);
+        Assert.Equal(0, row.ViewCount);
+
+        // The id read off the list drives the existing revoke route, end to end.
+        Assert.Equal(HttpStatusCode.NoContent, (await c.DeleteAsync($"/api/v1/share-links/{row.Id}")).StatusCode);
+
+        // A revoked link stays listed, flagged — "did I revoke that?" is a question the list must answer.
+        var after = (await c.GetFromJsonAsync<PagedShareLinks>($"/api/v1/documents/{docId}/share-links"))!;
+        Assert.NotNull(Assert.Single(after.Items).RevokedAt);
+    }
+
+    [Fact]
+    public async Task Listing_share_links_requires_document_membership()
+    {
+        var owner = await AuthedClientAsync();
+        var docId = await CreateDocAsync(owner);
+        await UploadAsync(owner, docId, new byte[] { 1 });
+
+        var stranger = await AuthedClientAsync();
+        var res = await stranger.GetAsync($"/api/v1/documents/{docId}/share-links");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode); // cross-org: no existence leak
+    }
+
+    private record ShareLinkRow(
+        Guid Id, Guid VersionId, string VersionNumber, Guid CreatedBy, string CreatedByName,
+        DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, int ViewCount);
+    private record PagedShareLinks(ShareLinkRow[] Items, string? NextCursor);
+
     [Fact]
     public async Task Create_requires_membership()
     {
