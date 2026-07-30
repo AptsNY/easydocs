@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using EasyDocs.Api.Auth;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using EasyDocs.Api.Tests;
@@ -81,6 +82,34 @@ public class ApiTokenTests : IClassFixture<ApiFactory>
         var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
         var row = await db.ApiTokens.SingleAsync(t => t.Id == created.Id);
         Assert.NotNull(row.RevokedAt);
+    }
+
+    // TokenHash is looked up on every `ed_` request, so it carries a unique index like the sibling
+    // token-hash columns on ShareLinks/Invitations (spec §11). Mint() can't collide, but the schema
+    // is what guarantees it — and the index is also what keeps PAT auth off a table scan.
+    [Fact]
+    public async Task Duplicate_token_hash_is_rejected_by_the_database()
+    {
+        var client = await AuthedClientAsync("DupOrg");
+        var created = await (await client.PostAsJsonAsync("/api/v1/tokens",
+            new { name = "first", scopes = new[] { "documents:read" } }))
+            .Content.ReadFromJsonAsync<CreateResponse>();
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var row = await db.ApiTokens.SingleAsync(t => t.Id == created!.Id);
+
+        db.ApiTokens.Add(new ApiToken
+        {
+            OrgId = row.OrgId,
+            UserId = row.UserId,
+            ServiceName = row.ServiceName,
+            TokenHash = row.TokenHash, // same hash as an existing row
+            Scopes = row.Scopes,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
 
     [Fact]
