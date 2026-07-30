@@ -5,7 +5,9 @@ using System.Text;
 namespace EasyDocs.Api.Auth;
 
 // `ed_` personal access tokens (spec §10). Stateless: mints a raw token + its SHA-256 hash; only the
-// hash is persisted. Task 2's auth handler reuses Hash() to look tokens up (constant-time compare there).
+// hash is persisted. ApiTokenAuthHandler reuses Hash() and looks the row up by hash equality in SQL —
+// NOT a constant-time compare, and it does not need to be: the compared value is a SHA-256 digest of a
+// 256-bit CSPRNG secret, so there is no low-entropy input for a timing oracle to walk (spec §11).
 public sealed class ApiTokenService
 {
     public (string Raw, string Hash) Mint()

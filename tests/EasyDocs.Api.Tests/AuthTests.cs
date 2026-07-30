@@ -46,6 +46,22 @@ public class AuthTests : IClassFixture<ApiFactory>
         Assert.Contains(res.Headers.GetValues("Set-Cookie"), c => c.StartsWith("ed_session="));
     }
 
+    // The session cookie's flags ARE the browser-side session security, and nothing asserted them:
+    // Secure=false or SameSite=None would have shipped silently green. HttpOnly keeps the JWT away from
+    // XSS, Secure keeps it off plaintext HTTP, Lax blunts CSRF on the cookie-authenticated endpoints.
+    // Secure is unconditional on purpose — see SECURITY.md on serving easydocs over plain HTTP.
+    [Fact]
+    public async Task Session_cookie_is_httponly_secure_and_samesite_lax()
+    {
+        var res = await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/register",
+            new { email = "cookie-flags@example.com", displayName = "C", password = "pw-at-least-12", orgName = "FlagsOrg" });
+        var cookie = res.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("ed_session=", StringComparison.Ordinal));
+
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", cookie, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Login_with_correct_password_sets_session_cookie()
     {

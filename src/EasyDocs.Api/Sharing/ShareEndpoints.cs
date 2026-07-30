@@ -27,8 +27,12 @@ public static class ShareEndpoints
         g.MapDelete("/api/v1/share-links/{id:guid}", Revoke).RequireAuthorization();
 
         // PUBLIC — no RequireAuthorization. Mapped in Program.cs before the SPA fallback, like /wopi.
-        g.MapGet("/s/{token}", PublicView);
-        g.MapGet("/s/{token}/download", PublicDownload);
+        // Rate-limited per client because the token IS the capability: unthrottled these are a
+        // token-enumeration oracle and a bandwidth amplifier (spec §11, see RateLimits).
+        // Separate policies on purpose: the download streams the whole file, so its cap is the egress
+        // cap and has no business being loosened to whatever page views need.
+        g.MapGet("/s/{token}", PublicView).RequireRateLimiting(RateLimits.AnonShare);
+        g.MapGet("/s/{token}/download", PublicDownload).RequireRateLimiting(RateLimits.AnonDownload);
     }
 
     private static string HashToken(string token) =>

@@ -104,6 +104,7 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddEasyDocsRateLimiter(builder.Configuration); // spec §11 — see RateLimits
 
 // OpenAPI 3.1 doc generated from minimal-API metadata (spec §10.1). Declare the `Bearer`
 // (ed_ token) security scheme via a document transformer; served at /openapi/v1.json below.
@@ -164,6 +165,13 @@ app.UseExceptionHandler(branch => branch.Run(async ctx =>
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Only endpoints that opt in with .RequireRateLimiting(<policy>) are metered — there is no global
+// limiter on purpose, so UseStaticFiles/MapFallbackToFile at the bottom of this file stay unthrottled:
+// serving index.html or a JS chunk is not abuse, and 429ing an asset looks like an outage. Placed
+// after UseAuthentication so the token-mint policy can partition on the caller's user id, and after
+// UseAuthorization so an unauthenticated request is rejected 401 without spending anyone's allowance.
+app.UseRateLimiter();
 
 app.MapOpenApi("/openapi/{documentName}.json");
 // Self-contained docs UI: Swagger UI ships its assets as embedded resources served same-origin

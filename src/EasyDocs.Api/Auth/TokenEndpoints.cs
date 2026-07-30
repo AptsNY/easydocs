@@ -15,7 +15,9 @@ public static class TokenEndpoints
     public static void MapTokenEndpoints(this WebApplication app)
     {
         var g = app.MapGroup("").WithTags("Tokens");
-        g.MapPost("/api/v1/tokens", Create).RequireAuthorization();
+        // Per-user rate limit (spec §11, see RateLimits): a stolen session should not be able to mint an
+        // unbounded pile of long-lived PATs that survive a password change.
+        g.MapPost("/api/v1/tokens", Create).RequireAuthorization().RequireRateLimiting(RateLimits.TokenMint);
         g.MapGet("/api/v1/tokens", List).RequireAuthorization();
         g.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization();
     }
