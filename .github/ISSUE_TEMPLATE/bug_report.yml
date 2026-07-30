@@ -1,0 +1,125 @@
+name: Bug report
+description: Something is broken. Please check it reproduces on a fresh stack first.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report a security vulnerability here.** Use
+        [private reporting](https://github.com/Robertzu43/easydocs/security/advisories/new) —
+        see [SECURITY.md](https://github.com/Robertzu43/easydocs/blob/main/SECURITY.md).
+
+        **Check the known v1 limitations before filing.** Several things that look like bugs are
+        documented ceilings — plain-HTTP logins silently failing (the `Secure` cookie), no org
+        switcher, move and format-change counts always reading zero, rate limits collapsing behind a
+        proxy. See
+        [Known v1 limitations](https://github.com/Robertzu43/easydocs/blob/main/SECURITY.md#known-v1-limitations-not-vulnerabilities).
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before filing
+      options:
+        - label: This is not a security vulnerability (those go through private reporting).
+          required: true
+        - label: I searched existing issues and this is not already reported.
+          required: true
+        - label: I read the known v1 limitations and this is not one of them.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        Expected: publishing 0.0.7 as minor produces 0.1.0 and a PDF.
+        Actual: the version becomes 0.1.0 but no PDF ever appears.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, from a clean state. An API repro (`curl`) is worth more than a UI one.
+      placeholder: |
+        1. Register a new account (creates the org).
+        2. Upload any .docx — becomes 0.0.1.
+        3. POST /api/v1/versions/{vid}/publish with {"kind":"minor"}
+        4. GET /api/v1/versions/{vid} — pdfBlobSha256 stays null forever.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fresh-compose
+    attributes:
+      label: Does it reproduce on a fresh `docker compose up`?
+      description: >-
+        The single most useful field in this form. A fresh stack means a new clone, a new `.env` from
+        `.env.example`, and empty volumes (`docker compose down -v`). If it only happens on your
+        existing install, it is probably configuration or data state, and knowing that saves everyone
+        a round trip.
+      options:
+        - "Yes — reproduces on a fresh compose stack with empty volumes"
+        - "No — only on my existing install (upgraded or long-running)"
+        - "I have not tried a fresh stack yet"
+        - "Not applicable (build/test/CI issue, not a running app)"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: easydocs version or commit
+      description: >-
+        A release tag, or `git rev-parse --short HEAD`. "latest" is not an answer — the image and the
+        repo move. There is no released version yet, so a commit SHA is expected.
+      placeholder: "e.g. a29849b, or main @ 2026-07-29"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy-method
+    attributes:
+      label: How did you deploy it?
+      options:
+        - "docker compose (deploy/compose, unmodified)"
+        - "docker compose with my own modifications"
+        - "dotnet run / dotnet watch (local development)"
+        - "Own container orchestration (Kubernetes, Nomad, Swarm, …)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: proxy
+    attributes:
+      label: Reverse proxy and TLS
+      description: >-
+        Which proxy, if any, and whether easydocs is reached over HTTPS. Also say whether
+        `ASPNETCORE_FORWARDEDHEADERS_ENABLED` is set. Plain HTTP on a LAN IP explains a whole class of
+        login and cookie reports.
+      placeholder: "e.g. Caddy, HTTPS, FORWARDEDHEADERS enabled — or: none, plain http://192.168.1.50:8080"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Host OS, Docker version, browser
+      placeholder: "e.g. Ubuntu 24.04, Docker 27.3, Chrome 140 — or: macOS 15, Firefox 141"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >-
+        `docker compose logs easydocs` around the failure, and the Collabora container's logs if it is
+        an editing bug. **Redact secrets** — and note that a WOPI `access_token` in a URL is a live
+        credential, so redact those too.
+      render: shell
+    validations:
+      required: false

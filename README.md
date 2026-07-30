@@ -16,20 +16,24 @@ conformance profile (E1–E12) runs green in CI against the real container image
 criteria — nothing in that suite is allowed to skip, because a silently-skipped criterion reads as
 coverage that does not exist.
 
-**Not released yet.** M5 is the release milestone — docs site, security pass, signed `v1.0.0` tag — and
-it has not happened. Treat `main` as pre-release: usable, self-hostable, not yet versioned.
+**Not released yet.** M5 is the release milestone. Its security pass and its documentation site are
+done; the signed `v1.0.0` tag is not. Treat `main` as pre-release: usable, self-hostable, not yet
+versioned.
 
 Also not built yet, so you do not go looking for them:
 
 - **No OIDC/SSO.** Local email + password only (Argon2id). SSO is v1.1.
+- **No MFA.** Password or `ed_` API token. Put an authenticating proxy in front if you need it.
 - **No desktop "Open in Word."** Editing is in the browser via Collabora. WebDAV + `ms-word:` is v1.1.
-- **No API rate limiting.** Put a reverse proxy in front of anything public.
-- **You cannot revoke a share link early.** `DELETE /api/v1/share-links/{id}` exists, but creating a link
-  returns only its token and URL — never its id — and nothing lists them, so no client can call it. Set
-  an expiry when you create the link; that path works. A listing endpoint is the fix, and it is not here
-  yet.
 - **No graphical revision graph** (history is an indented list), **no full-text content search**
   (names only), **no cloud export/import pickers**. All v1.1.
+- **No antivirus scanning on upload.** v1 trusts `.docx` from authenticated members.
+
+Rate limiting on the anonymous and credential routes **does** now exist, per-endpoint rather than
+global — but it is per client IP, so it collapses into one install-wide budget behind a reverse proxy
+unless you set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`. Read
+[SECURITY.md](SECURITY.md#known-v1-limitations-not-vulnerabilities) for that and the rest of the known
+v1 limitations before you expose easydocs to anyone.
 
 ## Run it
 
@@ -71,9 +75,9 @@ Terminate TLS at a reverse proxy in front of the app. That is the supported answ
 - **Client copies with push-back review.** Fork a version into an isolated copy with its own members and
   its own history. When the copy pushes work back, a member of the original reviews it: accept and it
   lands as a clearly-labelled incoming branch, reject and it never enters the history.
-- **Share links.** Version-scoped, expiring, audited — every anonymous read lands on the audit trail.
-  The recipient needs no account and sees a plain download page: no app chrome, no sign-up wall.
-  (Revoking one early is not reachable yet — see below.)
+- **Share links.** Version-scoped, expiring, revocable, and audited — an anonymous view lands on the
+  audit trail with a view count. The recipient needs no account and sees a plain download page: no app
+  chrome, no sign-up wall.
 - **Folders, members, revert, trash, and an audit trail** for every one of the above.
 
 The web UI covers all of it across eight screens: dashboard, document console, comparison view, Major
@@ -102,7 +106,39 @@ the app; the SPA is built into it and served from `wwwroot`.
 
 ## License & contributing
 
-- **Server:** GNU **AGPL-3.0** (see [LICENSE](LICENSE)).
-- **Future API clients / SDKs** (`packages/*`): **MIT** (zero-friction embedding).
-- Contributions are under the **Developer Certificate of Origin (DCO)** — sign off every commit with
-  `git commit -s`. No CLA. See [CONTRIBUTING.md](CONTRIBUTING.md).
+**Everything in this repository today is AGPL-3.0.** [`LICENSE`](LICENSE) is the GNU Affero General
+Public License v3.0, and it covers all of it: the ASP.NET Core server, the React SPA, the tests, the
+deployment files and the docs.
+
+A future MIT exception is already decided but **not yet applicable**, and the distinction matters if
+you are about to embed something:
+
+| Path | License | Exists today? |
+|---|---|---|
+| Everything in this repo | **AGPL-3.0** | Yes — this is the whole repository right now |
+| `packages/*` — future API client libraries and SDKs | **MIT** | **No.** There is no `packages/` directory. |
+
+The reasoning (spec [§14](docs/superpowers/specs/2026-07-24-easydocs-v1-design.md)): AGPL is the right
+licence for a self-hostable server, because it keeps modifications to a *hosted* easydocs available to
+its users. It is the wrong licence for a thin client library, because copyleft on an SDK would make
+easydocs' own API awkward to call from proprietary software — which defeats the point of publishing an
+API. So when SDKs are written they will live under `packages/*` and carry their own `LICENSE` file
+naming MIT, and the boundary will be a directory you can point at.
+
+**Until that directory exists, assume AGPL-3.0 for anything you take from here.** No file in this
+repository is MIT-licensed today, and this table is not a grant — the MIT terms apply to code that has
+not been written yet.
+
+Contributions are under the **Developer Certificate of Origin (DCO)** — sign off every commit with
+`git commit -s`. No CLA, and **you keep the copyright to your contributions**. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Project docs
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off, dev setup, workflow
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
+- [SECURITY.md](SECURITY.md) — private disclosure, and the **known v1 limitations** an operator should
+  read before exposing easydocs
+- [GOVERNANCE.md](GOVERNANCE.md) — how decisions get made, the RFC process, release versioning
+- [CHANGELOG.md](CHANGELOG.md) — grouped by milestone; nothing released yet
+- [Self-hosting guide](docs-site/docs/self-hosting.md) — TLS, `.env`, proxies, backups, upgrades

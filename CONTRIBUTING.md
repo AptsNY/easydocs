@@ -2,6 +2,15 @@
 
 Thanks for helping build easydocs. This guide covers the essentials.
 
+## Code of Conduct
+
+Participating here — issues, pull requests, reviews — means agreeing to the
+[Code of Conduct](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1). Report a concern through the private
+channel named in it.
+
+**Found a security vulnerability? Do not open an issue or a PR** — a public diff discloses it. See
+[SECURITY.md](SECURITY.md).
+
 ## Developer Certificate of Origin (DCO)
 
 easydocs uses the **DCO**, not a CLA. You keep the copyright to your contributions; you certify that you have the right to submit them under the project's license.
@@ -31,10 +40,13 @@ By making a contribution to this project, I certify that:
 
 ## Licensing
 
-- Server code is **AGPL-3.0**.
-- Future API clients / SDKs under `packages/*` are **MIT**.
+- **Everything in this repository today is AGPL-3.0.**
+- Future API clients / SDKs under `packages/*` will be **MIT** — but there is no `packages/` directory
+  yet, so nothing here is MIT-licensed at the moment.
 
 By contributing, you agree your contribution is licensed under the license of the directory it lands in.
+The full reasoning and the exact boundary are in the
+[README's licensing section](README.md#license--contributing).
 
 ## Development
 
@@ -63,3 +75,7 @@ npm --prefix web run build  # frontend build
 - Keep the build clean: warnings are errors (`TreatWarningsAsErrors`).
 - Open a PR against `main`; CI must be green and every commit signed off.
 - Design/plan docs live in `docs/superpowers/`.
+- **Schema changes, public-API changes, and new runtime dependencies need agreement in an issue first**
+  — migrations run automatically on every self-hoster's database at container start, and spec §10.1 is
+  the authoritative endpoint set. See [GOVERNANCE.md](GOVERNANCE.md#making-changes).
+- Behaviour changes get a `CHANGELOG.md` entry under `[Unreleased]`.
