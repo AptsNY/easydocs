@@ -1,0 +1,66 @@
+site_name: easydocs
+site_description: Git-style history for .docx — without asking anyone to learn Git.
+site_url: https://robertzu43.github.io/easydocs/
+repo_url: https://github.com/Robertzu43/easydocs
+repo_name: Robertzu43/easydocs
+edit_uri: edit/main/docs-site/docs/
+
+# MkDocs Material, deliberately not Docusaurus: four guide pages do not justify a React/node
+# toolchain in a repo that already builds one SPA. `pip install mkdocs-material` + this file is all
+# of it.
+theme:
+  name: material
+  # NO PHONE-HOME. Material's default is Google Fonts, fetched from fonts.gstatic.com on every page
+  # load; `font: false` makes it use the system font stack instead, so a built site fetches nothing
+  # off-origin. There is deliberately no `extra.analytics` block either. Do not add one: the docs for
+  # a self-hostable, AGPL tool must not track the people reading them.
+  font: false
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html   # required by the `grid cards` block on the home page
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Concepts: concepts.md
+  - Self-hosting: self-hosting.md
+  - Automation recipes: automation-recipes.md
+
+# `mkdocs build --strict` in CI turns a dead internal link into a failed build. Warn on absolute
+# links and unrecognised links too, so --strict actually catches them.
+validation:
+  links:
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
