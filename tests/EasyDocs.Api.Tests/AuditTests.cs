@@ -11,7 +11,8 @@ public class AuditTests : IClassFixture<ApiFactory>
     public AuditTests(ApiFactory f) => _f = f;
 
     private record AuditDto(AuditItem[] Items, string? NextCursor);
-    private record AuditItem(Guid Id, string Action, Guid? ActorUserId, string? TargetType, string? TargetId, DateTimeOffset CreatedAt);
+    private record AuditItem(Guid Id, string Action, Guid? ActorUserId, string? ActorName, string? TargetType, string? TargetId, DateTimeOffset CreatedAt);
+    private record ShareDto(string Token, string Url);
 
     private static async Task<AuditDto> TrailAsync(HttpClient c, Guid docId, int? limit = null, string? cursor = null)
     {
@@ -160,6 +161,32 @@ public class AuditTests : IClassFixture<ApiFactory>
             .Where(s => db.Versions.Any(v => v.Id == s.VersionId && v.DocumentId == docId))
             .Select(s => s.Id)
             .SingleAsync();
+    }
+
+    [Fact]
+    public async Task Audit_rows_name_their_actor_so_the_console_tab_is_readable()
+    {
+        var a = await _f.RegisterAsync();
+        var docId = await a.Client.CreateDocAsync();
+        var (v1, _) = await a.Client.UploadAsync(docId);
+
+        // A member action -> the actor resolves to a display name (TestAuth.RegisterAsync uses "U").
+        var trail = await TrailAsync(a.Client, docId);
+        var created = trail.Items.Single(e => e.Action == "version.created");
+        Assert.Equal(a.UserId, created.ActorUserId);
+        Assert.Equal("U", created.ActorName);
+
+        // An anonymous public share-link read -> actorUserId AND actorName both stay null: that row has
+        // no actor at all, and "(unknown)" there would be a lie (spec §11 audits public share reads).
+        var share = (await (await a.Client.PostAsJsonAsync($"/api/v1/versions/{v1}/share-links", new { }))
+            .Content.ReadFromJsonAsync<ShareDto>())!;
+        var anon = _f.CreateClient();
+        (await anon.GetAsync($"/s/{share.Token}")).EnsureSuccessStatusCode();
+
+        var trailAfter = await TrailAsync(a.Client, docId, limit: 100);
+        var viewed = trailAfter.Items.Single(e => e.Action == "share_link.viewed");
+        Assert.Null(viewed.ActorUserId);
+        Assert.Null(viewed.ActorName);
     }
 
     [Fact]

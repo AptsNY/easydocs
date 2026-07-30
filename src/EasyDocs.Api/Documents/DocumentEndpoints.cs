@@ -114,23 +114,27 @@ public static class DocumentEndpoints
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
-    // Dashboard list (spec §10): documents the caller is a member of, org-scoped, optional folderId/q
-    // filters, cursor-paginated on (CreatedAt, Id) ascending.
+    // Dashboard list (spec §9/§10): documents the caller is a member of, org-scoped, optional
+    // folderId/q filters, cursor-paginated. `trashed=true` swaps the DeletedAt filter so the SPA's
+    // trash view can reach :restore — membership scoping is identical either way (spec §11).
     private static async Task<IResult> ListDocuments(
-        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit)
+        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit, bool? trashed)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
 
-        var query = db.Documents.Where(d => d.OrgId == orgId && d.DeletedAt == null
+        var membership = db.Documents.Where(d => d.OrgId == orgId
             && db.DocumentMembers.Any(m => m.DocumentId == d.Id && m.UserId == userId));
+        var query = trashed is true
+            ? membership.Where(d => d.DeletedAt != null)
+            : membership.Where(d => d.DeletedAt == null);
         if (folderId is { } fid) query = query.Where(d => d.FolderId == fid);
         if (!string.IsNullOrWhiteSpace(q)) query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%"));
 
         var page = await Pagination.PageAsync(query, cursor, limit, descending: false, ctx.RequestAborted);
         return Results.Ok(new
         {
-            items = page.Items.Select(d => new { id = d.Id, name = d.Name, folderId = d.FolderId }),
+            items = await DocumentListProjection.BuildAsync(db, page.Items, ctx.RequestAborted),
             nextCursor = page.NextCursor,
         });
     }
@@ -224,16 +228,21 @@ public static class DocumentEndpoints
         return Results.Ok(new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
-    private static async Task<IResult> ListVersions(Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit)
+    // Console history (spec §9). `order=desc` is opt-in: the ascending default is load-bearing for the
+    // E-suite's oldest-first assertions, so the UI asks for desc rather than the default flipping.
+    private static async Task<IResult> ListVersions(
+        Guid id, HttpContext ctx, EasyDocsDbContext db, string? cursor, int? limit, string? order)
     {
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
         if (failure is not null) return failure;
 
+        var descending = Pagination.Descending(order);
         var page = await Pagination.PageAsync(
-            db.Versions.Where(v => v.DocumentId == id), cursor, limit, descending: false, ctx.RequestAborted);
+            db.Versions.Where(v => v.DocumentId == id), cursor, limit, descending, ctx.RequestAborted);
+
         return Results.Ok(new
         {
-            items = page.Items.Select(v => new { id = v.Id, major = v.Major, minor = v.Minor, revision = v.Revision, source = v.Source.ToString(), createdAt = v.CreatedAt, createdBy = v.CreatedBy }),
+            items = await VersionListProjection.BuildAsync(db, page.Items, ctx.RequestAborted),
             nextCursor = page.NextCursor,
         });
     }

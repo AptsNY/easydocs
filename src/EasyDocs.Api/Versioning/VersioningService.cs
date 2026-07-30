@@ -5,6 +5,7 @@ using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Events;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace EasyDocs.Api.Versioning;
 
@@ -27,11 +28,26 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
     public async Task<CommitResult> CommitSaveAsync(CommitInput input, CancellationToken ct)
     {
         // Blobs are content-addressed and immutable — insert only if this sha is new
-        // (caller already ran IBlobStore.PutAsync).
+        // (caller already ran IBlobStore.PutAsync). Check-then-insert is racy: two concurrent commits
+        // of the same new content both pass this AnyAsync check. That's fine per spec §5.2 — Blobs is
+        // keyed by Sha256, so the loser's row would be byte-identical to the winner's and the file was
+        // already written to disk by IBlobStore.PutAsync before either commit got here — so the loser
+        // swallows the unique-violation and carries on rather than 500ing an ordinary concurrent upload.
         if (!await db.Blobs.AnyAsync(bl => bl.Sha256 == input.BlobSha256, ct))
         {
-            db.Add(new Blob { Sha256 = input.BlobSha256, SizeBytes = input.SizeBytes, Mime = DocxMime, StorageKey = input.BlobSha256, CreatedAt = DateTimeOffset.UtcNow });
-            await db.SaveChangesAsync(ct);
+            var blob = new Blob { Sha256 = input.BlobSha256, SizeBytes = input.SizeBytes, Mime = DocxMime, StorageKey = input.BlobSha256, CreatedAt = DateTimeOffset.UtcNow };
+            db.Add(blob);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // Lost the race. Detach rather than just catching: SaveChangesAsync is called again
+                // later in this method (for the version + audit rows), and a tracked Added entity that
+                // failed to insert once would be retried — and fail — every time after.
+                db.Entry(blob).State = EntityState.Detached;
+            }
         }
 
         // Per-document row lock so the authoritative counter increment (spec §5.1) is race-safe.

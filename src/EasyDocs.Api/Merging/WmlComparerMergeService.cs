@@ -1,5 +1,6 @@
 using Clippit;
 using Clippit.Word;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Events;
@@ -82,8 +83,10 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
     private static WmlComparerSettings SettingsFor(string author) =>
         new() { AuthorForRevisions = author };
 
+    // Same fallback spelling as every other name-resolving read path (Common/AuthorNames.cs); this one
+    // just resolves a single id instead of a page, since a merge has exactly one incoming author.
     private async Task<string> AuthorNameAsync(Guid userId, CancellationToken ct) =>
-        await db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "Unknown";
+        (await AuthorNames.ForAsync(db, [userId], ct)).GetValueOrDefault(userId, AuthorNames.Unknown);
 
     private async Task<byte[]> ReadBytesAsync(string sha, CancellationToken ct)
     {

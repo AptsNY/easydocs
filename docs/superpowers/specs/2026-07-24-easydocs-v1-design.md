@@ -187,7 +187,11 @@ Copies/push is the last feature milestone (M4).
 
 Served as static assets by the app (Vite → `wwwroot`, SPA fallback — §3). Screens: dashboard (folder tree + document tiles + name search) · **document console** (version list with per-row change summary, per-version Actions menu, members panel) · **comparison/redline view** · **Major Versions tab** · copies management · approvals · public share landing · settings. Live updates via **SSE** (see §10.2).
 
+**M4.5 deviation:** the version-list row (§10.1) now carries **branch identity** — `branchId`, `branchKind`, `branchOrdinal`, `branchMergedIntoVersionId` — superseding the earlier decision to keep branch topology off the v1 surface. The console's grouped concurrent-branch history and its Merge button cannot be built without knowing which rows share a branch and which branch merged into which version.
+
 `ponytail: revision history renders as an indented list — main branch with grouped "concurrent branch" entries + a Merge button. The graphical DAG renderer is v1.1; most documents are linear until a concurrent edit happens.`
+
+The public share landing (`GET /s/{token}`, §10.1) content-negotiates: a browser (`Accept: text/html`) gets the SPA shell, which re-requests the same URL as JSON; any other client gets JSON directly.
 
 Dashboard search is name-based (`?q=` over document/folder/version names via Postgres). Content-text search and tile thumbnails are v1.1.
 
@@ -207,21 +211,23 @@ Design quality is handled with the frontend-design skill at build time.
 
 Auth: `POST /auth/register` (creates user + org), `POST /auth/login`, `POST /invitations/{token}:accept`.
 Folders: `GET/POST /folders`, `PATCH/DELETE /folders/{id}`.
-Documents: `GET /documents?folder_id=&q=`, `POST /documents`, `GET /documents/{id}`, `PATCH /documents/{id}`, `PUT /documents/{id}/version-counter`, `DELETE /documents/{id}`, `POST /documents/{id}:restore`.
-Versions: `POST /documents/{id}/versions` (multipart upload — §10.3), `POST /documents/{id}/versions:import` (multipart), `GET /documents/{id}/versions`, `GET /versions/{vid}`, `GET /versions/{vid}/download?format=docx|pdf`, `PATCH /versions/{vid}` (name), `POST /versions/{vid}/revert`, `GET /documents/{id}/compare?from=&to=&format=html|docx|summary`.
+Documents: `GET /documents?folder_id=&q=&trashed=true`, `POST /documents`, `GET /documents/{id}`, `PATCH /documents/{id}`, `PUT /documents/{id}/version-counter`, `DELETE /documents/{id}`, `POST /documents/{id}:restore`.
+Versions: `POST /documents/{id}/versions` (multipart upload — §10.3), `POST /documents/{id}/versions:import` (multipart), `GET /documents/{id}/versions?order=desc`, `GET /versions/{vid}`, `GET /versions/{vid}/download?format=docx|pdf`, `PATCH /versions/{vid}` (name), `POST /versions/{vid}/revert`, `GET /documents/{id}/compare?from=&to=&format=html|docx|summary`.
 Editing: `POST /versions/{vid}/sessions` (wopi only), `DELETE /sessions/{sid}`; WOPI host under `/wopi/*`.
 Publish/approvals: `POST /versions/{vid}/publish`, `GET /documents/{id}/publications`, `POST /versions/{vid}/approvals`, `POST /approvals/{id}:respond`, `POST /approvals/{id}:cancel`.
+Approvals (read): `GET /approvals?filter=assigned|requested&status=`, `GET /versions/{vid}/approvals`.
 Sharing: `POST /versions/{vid}/share-links`, `GET /s/{token}` (public), `DELETE /share-links/{id}`.
 Copies/push: `POST /versions/{vid}/copies`, `GET /documents/{id}/copies`, `POST /documents/{id}/pushes`, `GET /documents/{id}/push-requests`, `POST /push-requests/{id}:accept|reject`.
 Members/merge: `GET/POST /documents/{id}/members`, `PATCH/DELETE /documents/{id}/members/{uid}`, `POST /documents/{id}/merges`.
 Tokens: `GET/POST/DELETE /tokens`.
+Org: `GET/PATCH /org`, `GET/POST /org/members`, `PATCH/DELETE /org/members/{uid}`.
 Audit: `GET /documents/{id}/audit`.
 
 **Removed vs source §9:** exports, cloud-connections, tasks, `auth/sso`, `sessions {mode:webdav}`, `versions:initiate`/`:commit`, `WS /realtime`.
 
 ### 10.2 Live updates (SSE)
 
-`GET /api/v1/documents/{id}/events` — Server-Sent Events, authorized via the `httpOnly` session cookie (native `EventSource` cannot send a `Bearer` header) or a short-lived `?token=` capability param, then `resolve_role` on the document. v1 events: `version.created`, `version.published`, `merge.completed`, `diff.ready`, `member.added`, `push.requested`, `approval.responded`.
+`GET /api/v1/documents/{id}/events` — Server-Sent Events, authorized via the `httpOnly` session cookie (native `EventSource` cannot send a `Bearer` header) or a short-lived `?token=` capability param, then `resolve_role` on the document. v1 events: `version.created`, `version.published`, `merge.completed`, `diff.ready`, `member.added`, `push.requested`, `push.reviewed`, `approval.responded`, `pdf.ready`, `version.named`, `version.reverted`.
 
 ### 10.3 Ingest (filesystem, no pre-signed URLs)
 

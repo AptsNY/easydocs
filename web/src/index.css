@@ -1,26 +1,81 @@
+/* ============================================================================
+   easydocs — the visual system for the eight screens spec §9 names.
+   Spec §9 defers design quality to build time, so every screen until now was
+   deliberately built as plain semantic markup. This is that pass.
+
+   THE DIRECTION: "ledger". Ink on warm paper, because the product is a filing
+   room for documents — a history of contracts, minutes and drafts read by
+   lawyers and administrators, not a dashboard of metrics. Three rules carry it:
+
+     1. THREE TYPE REGISTERS, ONE JOB EACH.
+        serif = prose and headings. sans = UI furniture (labels, buttons, nav,
+        badges, meta). mono = identifiers (version numbers, tokens, audit
+        actions, slugs). Nothing borrows another register's job. So the eye
+        learns in one screen that a monospaced string is a THING THE SYSTEM
+        NAMED and a serif string is something a person wrote.
+
+     2. RULES, NOT BOXES. Structure is hairlines and one 2px accent rail.
+        Exactly two things carry a shadow, because exactly two things float:
+        the Actions menu and the modal. Everything else sits on the paper.
+
+     3. THE VERSION GUTTER. Every version number occupies the same
+        fixed-width mono column at the start of its row, so numbers align
+        down the page like a ledger column and scanning history is vertical.
+
+   The accent is a single desaturated teal ink, used for rails, current-state
+   marks and focus rings — never as a large fill. Red is reserved: it means
+   an error, and nothing else, so it never has to compete with a brand colour.
+   Both themes are first-class (prefers-color-scheme); dark is warm oil-lamp,
+   not grey chrome. Every text pair clears WCAG AA on its own background.
+   ============================================================================ */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
+  /* Paper and ink. --paper is the page, --paper-raised the column and the two
+     floating surfaces; the difference is what makes the column read as a sheet. */
+  --paper: #eeeae0;
+  --paper-raised: #f7f4ed;
+  --paper-tint: #fffdf8;
+  --ink: #191712;
+  --text: #4c463c;
+  --rule: #ded7c8;
+  --rule-strong: #c7bfad;
+
+  --accent: #0f5b57;
+  --accent-soft: rgb(15 91 87 / 9%);
+  --accent-rule: rgb(15 91 87 / 38%);
+  --danger: #96271c;
+  --danger-soft: rgb(150 39 28 / 7%);
+
   --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+    rgb(25 23 18 / 8%) 0 1px 2px, rgb(25 23 18 / 10%) 0 8px 20px -6px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Prose and headings. Iowan Old Style and Palatino ship with macOS and
+     Windows respectively; Georgia is the floor and is present nearly
+     everywhere. No webfont: the product ships as one self-contained image
+     with no CDN calls, so the type has to already be on the machine. */
+  --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia,
+    'Times New Roman', serif;
+  /* UI furniture. */
+  --sans: 'Avenir Next', Avenir, 'Segoe UI Variable Text', 'Segoe UI', Ubuntu, system-ui,
+    sans-serif;
+  /* Identifiers the system assigned, never prose. */
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
+  /* One 4px scale. Nothing in this file invents a spacing value off it. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  --gutter: 4.75rem; /* the version-number column */
+
+  font: 17px/1.55 var(--serif);
   color-scheme: light dark;
   color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
+  background: var(--paper);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -30,82 +85,985 @@
   }
 }
 
+/* Oil-lamp, not grey chrome: the same warm hue rotated dark, so paper stays
+   paper at night. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+    --paper: #0e0d0b;
+    --paper-raised: #14130f;
+    --paper-tint: #1c1a15;
+    --ink: #f2ece0;
+    --text: #b1a897;
+    --rule: #322e26;
+    --rule-strong: #4a453a;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
+    --accent: #6fc0b6;
+    --accent-soft: rgb(111 192 182 / 12%);
+    --accent-rule: rgb(111 192 182 / 40%);
+    --danger: #f0a9a0;
+    --danger-soft: rgb(240 169 160 / 8%);
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+    --shadow: rgb(0 0 0 / 50%) 0 2px 4px, rgb(0 0 0 / 45%) 0 12px 28px -8px;
+  }
 }
 
 body {
   margin: 0;
 }
 
+/* The column IS the sheet: raised paper between two hairlines, on darker
+   paper. */
+#root {
+  width: 1126px;
+  max-width: 100%;
+  min-height: 100svh;
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  text-align: start;
+  background: var(--paper-raised);
+  border-inline: 1px solid var(--rule);
+}
+
+/* ---------------------------------------------------------------- typography */
+
 h1,
-h2 {
-  font-family: var(--heading);
+h2,
+h3,
+h4 {
+  font-family: var(--serif);
   font-weight: 500;
-  color: var(--text-h);
+  color: var(--ink);
+  text-wrap: balance;
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.8px;
+  margin: var(--s6) 0 var(--s4);
   @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+    font-size: 32px;
   }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
 }
 
+h2 {
+  font-size: 27px;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  margin: 0 0 var(--s2);
+}
+
+h3 {
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.2px;
+  margin: 0 0 var(--s2);
+}
+
+h4 {
+  font-size: 17px;
+  margin: 0 0 var(--s1);
+}
+
+p {
+  margin: 0;
+  max-width: 62ch; /* a measure, so prose stays readable in a 1126px column */
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Register 3: an identifier the system assigned. Never prose. */
 code,
-.counter {
+time,
+.version-number,
+.audit-meta {
   font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
 }
 
 code {
+  display: inline-flex;
+  padding: 2px var(--s1);
+  border-radius: 3px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+
+time {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Register 2: UI furniture. One list, so nothing drifts back into the serif. */
+label,
+button,
+select,
+input,
+nav,
+.badge,
+.muted,
+.brand,
+.who,
+.share-brand {
+  font-family: var(--sans);
+}
+
+.muted {
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* Available to a screen reader, invisible on screen — for labels a sighted
+   reader gets from context. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- states */
+
+/* ONE focus rule for everything focusable. The most common casualty of a
+   design pass is the focus ring — either reset away or overridden per
+   component — so it is stated once, at the top, and never overridden below.
+   a11y.spec.ts fails if a restyle takes it out. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Colour only, and only on the things a pointer actually interrogates. */
+a,
+button,
+select,
+input,
+.rows > li,
+.tiles > li,
+.version-row {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* --------------------------------------------------------------- the masthead */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.shell > header {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  padding: var(--s3) var(--s5);
+  border-block-end: 1px solid var(--rule-strong);
+  flex-wrap: wrap;
+}
+
+/* The wordmark is the one place the serif does furniture's job — it is a name,
+   not a control. */
+.brand {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.shell > header [data-testid='org-name'] {
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  padding-inline-start: var(--s5);
+  border-inline-start: 1px solid var(--rule);
+}
+
+.shell > header nav {
+  display: flex;
+  gap: var(--s4);
+  margin-inline-end: auto;
+}
+
+.who {
+  font-size: 14px;
+  color: var(--text);
+}
+
+nav a {
+  color: var(--text);
   font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  text-decoration: none;
+  padding-block: 2px;
+  border-block-end: 2px solid transparent;
+}
+
+nav a:hover {
+  color: var(--ink);
+}
+
+/* The current destination is marked by a rule, not just a colour — so it reads
+   without relying on hue. */
+nav a[aria-current='page'] {
+  color: var(--ink);
+  border-block-end-color: var(--accent);
+}
+
+/* First stop in the tab order: the masthead nav is five links deep on every
+   screen, and a keyboard reader should not have to walk it to reach the work. */
+.skip-link {
+  position: absolute;
+  inset-block-start: var(--s2);
+  inset-inline-start: var(--s2);
+  z-index: 10;
+  padding: var(--s2) var(--s3);
+  border-radius: 4px;
+  background: var(--paper-tint);
+  border: 1px solid var(--accent-rule);
+  color: var(--ink);
+  text-decoration: none;
+  transform: translateY(-250%);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+.shell > main {
+  padding: var(--s5);
+  flex: 1;
+}
+
+/* ------------------------------------------------------------------- controls */
+
+input,
+select {
+  font: inherit;
+  font-family: var(--sans);
+  font-size: 15px;
+  padding: 7px var(--s2);
+  color: var(--ink);
+  background: var(--paper-tint);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+}
+
+input:hover,
+select:hover {
+  border-color: var(--accent-rule);
+}
+
+input[type='file'] {
+  padding: var(--s1);
+  background: none;
+  border-style: dashed;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  padding: 0;
+}
+
+button {
+  font-family: var(--sans);
+  font-size: 15px;
+  padding: 7px var(--s3);
+  border-radius: 4px;
+  border: 1px solid var(--accent-rule);
+  background: var(--accent-soft);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  /* Paper, not white: on the accent the text has to leave the ink ramp. */
+  color: var(--paper-raised);
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+button:disabled:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-rule);
+  color: var(--ink);
+}
+
+/* The tertiary register: a control that reads as text. Used for every
+   in-row action, so a row is a line of prose with verbs in it, not a
+   button bar. */
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.link:hover {
+  background: none;
+  color: var(--ink);
+  text-decoration-thickness: 2px;
+}
+
+/* An anchor acting as the primary control — same shape as a button, still a
+   link, because it downloads rather than does. */
+a.button {
+  display: inline-block;
+  padding: 7px var(--s3);
+  border-radius: 4px;
+  border: 1px solid var(--accent-rule);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  text-decoration: none;
+}
+
+a.button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper-raised);
+}
+
+/* A labelled column: label above its control, which is every form here. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: var(--s1);
+}
+
+.stack label {
+  margin-block-start: var(--s3);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.stack > button,
+.stack > input[type='submit'] {
+  margin-block-start: var(--s4);
+}
+
+.stack > button.link {
+  margin-block-start: var(--s2);
+}
+
+/* Errors are announced (role="alert" in the markup) AND marked three ways —
+   colour, a tinted band, and a heavy rule on the leading edge — so the alarm
+   does not depend on hue alone. */
+.error {
+  max-width: 62ch;
+  margin-block-start: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid transparent;
+  border-inline-start: 3px solid var(--danger);
+  border-radius: 0 4px 4px 0;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 15px;
+}
+
+/* One-shot secrets: a token, an invitation, a share URL. Deliberately looks
+   like something torn out and handed over. */
+.invitation {
+  max-width: 62ch;
+  margin-block-start: var(--s3);
+  padding: var(--s3);
+  border: 1px dashed var(--accent-rule);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  font-size: 14px;
+}
+
+.invitation code,
+.modal code {
+  margin-block-start: var(--s2);
+  background: var(--paper-tint);
+}
+
+/* --------------------------------------------------------------- one row shape */
+
+/* Four screens list things: history, the four console tabs, the tiles, the
+   roster. They were four near-identical rules; they are one shape now — a
+   hairline above, baseline-aligned inline content, the mono gutter first. */
+.rows,
+.tiles,
+.spine,
+.spine ol,
+.members ul,
+.folder-tree ul,
+.approvers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rows > li,
+.version-row,
+.members li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s3) var(--s2);
+  border-block-start: 1px solid var(--rule);
+  font-size: 15px;
+}
+
+.rows > li:hover,
+.version-row:hover {
+  background: var(--paper-tint);
+}
+
+.rows > li a,
+.members li a {
+  color: var(--ink);
+}
+
+/* THE GUTTER: every version number, publication number and audit action sits
+   in the same fixed mono column, so they stack into a scannable edge. */
+.version-number {
+  min-width: var(--gutter);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* A published version's standing. A rule and a shape, not a saturated pill. */
+.badge {
+  padding: 1px var(--s2);
+  border-radius: 2px;
+  border: 1px solid var(--accent-rule);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- sign-in */
+
+.auth {
+  max-width: 24rem;
+  margin: var(--s7) auto;
+  padding: var(--s5);
+}
+
+.auth h1 {
+  margin-block-start: 0;
+}
+
+.auth form {
+  width: 100%;
+}
+
+.auth input,
+.auth select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ----------------------------------------------------------------- dashboard */
+
+.dashboard {
+  display: flex;
+  align-items: start;
+  gap: var(--s7);
+  flex-wrap: wrap;
+}
+
+.dashboard .docs {
+  flex: 1;
+  min-width: 20rem;
+}
+
+/* The tree is the room's index: narrower measure, quieter type. */
+.folder-tree {
+  min-width: 14rem;
+  max-width: 18rem;
+  font-size: 15px;
+}
+
+.folder-tree ul ul {
+  margin-inline-start: var(--s3);
+  padding-inline-start: var(--s3);
+  border-inline-start: 1px solid var(--rule);
+}
+
+[data-testid='folder-row'],
+.tile-actions,
+.confirm {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+[data-testid='folder-row'] {
+  padding-block: var(--s1);
+}
+
+[data-testid='folder-row'] a {
+  margin-inline-end: auto;
+  color: var(--ink);
+  text-decoration: none;
+  border-block-end: 1px solid transparent;
+}
+
+[data-testid='folder-row'] a:hover {
+  border-block-end-color: var(--accent-rule);
+}
+
+[data-testid='folder-row'] a[aria-current='page'] {
+  color: var(--accent);
+  border-block-end-color: var(--accent);
+}
+
+/* A tile is a document: its name is the loudest thing on the row, in the
+   serif, and everything else is furniture underneath it. */
+.tiles > li {
+  padding: var(--s4) var(--s2);
+  border-block-start: 1px solid var(--rule);
+}
+
+.tiles > li:hover {
+  background: var(--paper-tint);
+}
+
+.tiles > li > a {
+  font-family: var(--serif);
+  font-size: 20px;
+  color: var(--ink);
+  text-decoration: none;
+  border-block-end: 1px solid var(--rule-strong);
+}
+
+.tiles > li > a:hover {
+  border-block-end-color: var(--accent);
+}
+
+.tiles [data-testid='tile-version'] {
+  font-family: var(--mono);
+  font-size: 13px;
+  margin-block-start: var(--s1);
+}
+
+.tiles [data-testid='tile-updated'],
+.tiles [data-testid='tile-author'] {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.tile-actions {
+  margin-block-start: var(--s3);
+  align-items: center;
+}
+
+.tile-actions label,
+.tile-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-size: 14px;
+}
+
+.tile-actions label > span:not(.visually-hidden) {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.confirm {
+  margin-block-start: var(--s2);
+}
+
+/* ----------------------------------------------------- the document console */
+
+.console {
+  display: flex;
+  align-items: start;
+  gap: var(--s7);
+  flex-wrap: wrap;
+}
+
+.console-main {
+  flex: 1;
+  min-width: 22rem;
+}
+
+.console-main > nav {
+  display: flex;
+  gap: var(--s5);
+  flex-wrap: wrap;
+  margin-block: var(--s4) var(--s5);
+  padding-block-end: var(--s1);
+  border-block-end: 1px solid var(--rule-strong);
+}
+
+/* THE BRANCH RAIL — the signature of the history screen. The indent IS the
+   branch: a concurrent branch hangs off the version it forked from, drawn as a
+   2px accent rail with a notch at the fork point, so a reader sees the shape
+   of the DAG without a DAG renderer. */
+.branch-group {
+  position: relative;
+  margin: var(--s2) 0 var(--s2) var(--s5);
+  padding-inline-start: var(--s4);
+  border-inline-start: 2px solid var(--accent-rule);
+}
+
+.branch-group::before {
+  content: '';
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: -5px;
+  width: var(--s2);
+  height: var(--s2);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.branch-group h4 {
+  margin-block: var(--s2) 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.branch-group > button {
+  margin-block-start: var(--s2);
+}
+
+/* A merged branch is history, not work: it recedes. */
+.branch-group[data-merged='true'] {
+  border-inline-start-color: var(--rule-strong);
+}
+
+.branch-group[data-merged='true']::before {
+  background: var(--rule-strong);
+}
+
+/* The roster: a sidebar, so it is set narrower and quieter than the history. */
+.members {
+  min-width: 18rem;
+  max-width: 22rem;
+  padding: var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.members h3 {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--sans);
+  color: var(--text);
+}
+
+.members li {
+  padding-inline: 0;
+  font-size: 14px;
+}
+
+.member-who {
+  margin-inline-end: auto;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------- the Actions menu */
+
+.actions {
+  position: relative;
+  margin-inline-start: auto;
+}
+
+.actions > button {
+  font-size: 14px;
+  padding: 4px var(--s2);
+}
+
+/* One of the two things that float. */
+.actions-menu {
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: 0;
+  min-width: 13rem;
+  margin: var(--s1) 0 0;
+  padding: var(--s1);
+  list-style: none;
+  text-align: start;
+  background: var(--paper-tint);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+}
+
+/* Each item fills its row, so the whole strip is the target rather than the
+   width of the word. */
+.actions-menu li {
+  padding: 0;
+}
+
+.actions-menu li button {
+  display: block;
+  width: 100%;
+  padding: var(--s1) var(--s2);
+  border-radius: 3px;
+  text-align: start;
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.actions-menu li button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* The other thing that floats. Native <dialog>, so the trap, the top layer and
+   Escape are the platform's; this is only its surface. */
+.modal {
+  min-width: min(28rem, 88vw);
+  max-width: min(34rem, 92vw);
+  padding: var(--s5);
+  color: var(--text);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.modal h3 {
+  margin-block-end: var(--s3);
+  padding-block-end: var(--s2);
+  border-block-end: 1px solid var(--rule);
+}
+
+.modal::backdrop {
+  background: rgb(25 23 18 / 45%);
+}
+
+.modal .stack {
+  width: 100%;
+}
+
+.modal > button.link {
+  margin-block-start: var(--s4);
+}
+
+/* ------------------------------------------------- console tabs and forms */
+
+/* An inline form that hangs below a list, on all four tabs that have one. */
+.push-back,
+.request-approval {
+  align-items: start;
+  margin-block-start: var(--s6);
+  padding-block-start: var(--s4);
+  border-block-start: 1px solid var(--rule-strong);
+}
+
+.push-back h4,
+.request-approval h4,
+.settings h3 {
+  margin: 0;
+}
+
+.approvers {
+  margin-block-start: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.approvers legend {
+  padding-inline: var(--s1);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.approvers label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: 2px 0;
+  font-size: 14px;
+  margin: 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.approval-decision {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.approval-decision label {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.approval-decision button {
+  font-size: 14px;
+  padding: 4px var(--s2);
+}
+
+.audit-meta {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Settings is three stacked sections; each keeps its own heading and list. */
+.settings > section {
+  margin-block-start: var(--s6);
+  padding-block-start: var(--s5);
+  border-block-start: 1px solid var(--rule-strong);
+}
+
+/* ------------------------------------------------ comparison and the editor */
+
+.compare-pickers {
+  display: flex;
+  gap: var(--s5);
+  flex-wrap: wrap;
+  margin-block: var(--s4) var(--s5);
+}
+
+.compare-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.compare-picker label {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+[data-testid='compare-summary'] {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* The redline and the Collabora frame are both a document on paper: white
+   inside, framed by a hairline, never tinted by the theme (the content is
+   somebody's contract, and we do not repaint it). */
+.editor-frame {
+  width: 100%;
+  height: 75svh;
+  margin-block-start: var(--s4);
+  background: #fff;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+}
+
+.compare > button {
+  margin-block-start: var(--s4);
+}
+
+/* ------------------------------------------------------ the share landing */
+
+/* The only screen with no app shell around it — the recipient is not a user of
+   this install — so it centres itself on the page and carries no navigation. */
+.share {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: var(--s7) var(--s5);
+}
+
+.share-brand {
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.share-card {
+  margin-block-start: var(--s4);
+  padding: var(--s6) var(--s5) var(--s5);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--paper-tint);
+  /* One accent rule along the top edge: the sheet has been stamped. */
+  border-block-start: 3px solid var(--accent);
+}
+
+.share-card h1 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.share-card > * + * {
+  margin-block-start: var(--s3);
+}
+
+.share-card .share-meta {
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.share-card .share-meta span {
+  font-family: var(--mono);
+  letter-spacing: normal;
+}
+
+.share-card a.button {
+  margin-block-start: var(--s5);
 }

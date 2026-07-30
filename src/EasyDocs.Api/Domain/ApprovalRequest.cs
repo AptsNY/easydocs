@@ -1,6 +1,8 @@
 namespace EasyDocs.Api.Domain;
 
-public class ApprovalRequest
+// IKeyed only declares (Id, CreatedAt), both of which already existed — it makes the row usable with
+// Pagination.PageAsync for the approvals inbox. No schema change.
+public class ApprovalRequest : IKeyed
 {
     public Guid Id { get; set; }
     public Guid VersionId { get; set; }

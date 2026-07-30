@@ -100,8 +100,31 @@ public static class ShareEndpoints
     }
 
     // PUBLIC viewer: version metadata + a download link. Increments the view count and audits the read.
-    private static async Task<IResult> PublicView(string token, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> PublicView(string token, HttpContext ctx, EasyDocsDbContext db, IWebHostEnvironment env)
     {
+        // One URL, two representations — so it MUST tell caches, or the browser replays the wrong one.
+        // Without these the shipped image failed for real: the HTML branch below is a static file, so it
+        // carries Last-Modified and no Cache-Control, Chromium heuristically cached it, and the SPA's
+        // Accept: application/json fetch of this same URL got the cached shell back (same Content-Length,
+        // same Date) instead of the JSON. `no-store` is the right answer independently: this GET counts a
+        // view and writes an audit row, so a cached response silently loses both. Vite's dev server sends
+        // no-cache on index.html, which is exactly why dev never saw this.
+        ctx.Response.Headers.Vary = "Accept";
+        ctx.Response.Headers.CacheControl = "no-store";
+
+        // A browser navigating here wants the landing page; the SPA then re-requests this same URL with
+        // Accept: application/json. Returned before any DB work so the shell hit neither audits nor
+        // counts a view, and so an unknown token is not distinguishable from a live one.
+        if (ctx.Request.GetTypedHeaders().Accept
+                .Any(a => a.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)))
+        {
+            var shell = env.WebRootFileProvider.GetFileInfo("index.html");
+            // ponytail: falls through to JSON when the SPA has not been built (dotnet run without a
+            // prior `npm run build`). Drop the fallback once the build always produces wwwroot.
+            if (shell.Exists && shell.PhysicalPath is not null)
+                return Results.File(shell.PhysicalPath, "text/html");
+        }
+
         var link = await ResolveLiveAsync(db, token, ctx.RequestAborted);
         if (link is null) return Problem.Of(404, "Not found", "Link not found.");
 
