@@ -14,8 +14,11 @@ public static partial class AuthEndpoints
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var g = app.MapGroup("").WithTags("Auth");
-        g.MapPost("/api/v1/auth/register", Register);
-        g.MapPost("/api/v1/auth/login", Login);
+        // Rate-limited (spec §11, see RateLimits.Auth): unthrottled, register is free org creation and
+        // login is free credential stuffing, and both burn an Argon2id hash per request. The policy
+        // keys on path as well as caller, so a register flood cannot exhaust the login budget.
+        g.MapPost("/api/v1/auth/register", Register).RequireRateLimiting(RateLimits.Auth);
+        g.MapPost("/api/v1/auth/login", Login).RequireRateLimiting(RateLimits.Auth);
         g.MapGet("/api/v1/me", Me).RequireAuthorization();
     }
 

@@ -48,6 +48,12 @@ public record SummaryDto(int Insertions, int Deletions, int Moves, int FormatCha
 public record SessionDto(Guid SessionId, string EditorUrl, string AccessToken, int AccessTokenTtlSeconds);
 public record ApprovalDto(Guid Id, Guid VersionId, Guid ApproverId, DateTimeOffset? DueAt);
 public record ShareLinkDto(string Token, string Url);
+// M5: one row of GET /documents/{id}/share-links — the list that makes the row id, and therefore
+// revocation, reachable without a database. Carries no token and no hash.
+public record ShareLinkRowDto(
+    Guid Id, Guid VersionId, string VersionNumber, Guid CreatedBy, string CreatedByName,
+    DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, int ViewCount);
+public record ShareLinkListDto(ShareLinkRowDto[] Items, string? NextCursor);
 public record MemberDto(Guid UserId, string Email, string DisplayName, string Role);
 public record AuditItemDto(Guid Id, string Action, Guid? ActorUserId, string? TargetType, string? TargetId, string? Metadata, DateTimeOffset CreatedAt);
 public record AuditListDto(AuditItemDto[] Items, string? NextCursor);
@@ -244,6 +250,9 @@ public sealed class EdApi
     // ---- Sharing (§10.1) ----
     public async Task<ShareLinkDto> CreateShareLinkAsync(Guid vid, DateTimeOffset? expiresAt = null) =>
         await ReadAsync<ShareLinkDto>(await Http.PostAsJsonAsync($"/api/v1/versions/{vid}/share-links", new { expiresAt }));
+
+    public async Task<ShareLinkListDto> ListShareLinksAsync(Guid docId) =>
+        await ReadAsync<ShareLinkListDto>(await Http.GetAsync($"/api/v1/documents/{docId}/share-links"));
 
     public Task<HttpResponseMessage> RevokeShareLinkRawAsync(Guid id) => Http.DeleteAsync($"/api/v1/share-links/{id}");
 

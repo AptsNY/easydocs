@@ -60,10 +60,10 @@ test('the recipient can download the file with no account', async ({ signedIn, b
 // 404 problem+json from ResolveLiveAsync, and the screen must not undo that by wording them differently
 // — "expired" versus "never existed" is an oracle for guessing tokens.
 //
-// ponytail: the dead link here is EXPIRED, not revoked. POST /share-links returns only {token, url} — the
-// row's id is never exposed — so no client, this test included, can call DELETE /api/v1/share-links/{id}.
-// Revoked and expired are the same branch of the same query (RevokedAt == null && ExpiresAt > now), so
-// this covers the revoked path as far as anything outside the database can reach it.
+// ponytail: the dead link here is EXPIRED, not revoked — revoked and expired are the same branch of the
+// same query (RevokedAt == null && ExpiresAt > now), so one of them covers this screen. The revoke path
+// itself is driven through the UI in actions.spec.ts ("3b"), now that GET /documents/{id}/share-links
+// makes the row id reachable.
 test('a dead link and an unknown token show the same human message', async ({ signedIn, browser }) => {
   const dead = await share(signedIn, 'Expired Draft', '2020-01-01T00:00:00Z')
 

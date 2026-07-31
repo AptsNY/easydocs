@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# MkDocs build output (docs-site/). `mkdocs build` regenerates it; CI builds it fresh.
+docs-site/site/

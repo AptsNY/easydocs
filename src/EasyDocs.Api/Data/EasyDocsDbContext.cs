@@ -154,6 +154,11 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
 
         b.Entity<ApiToken>(e =>
         {
+            // Backs every `ed_` PAT authentication: ApiTokenAuthHandler looks a token up by hash on
+            // each authenticated request, so without this it is the API's hottest table scan. Unique
+            // for the same reason as ShareLinks/Invitations — the hash is a 256-bit CSPRNG digest and
+            // nothing should ever collide, so let the schema guarantee it (spec §11).
+            e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrgId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(R);
         });

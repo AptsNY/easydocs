@@ -131,6 +131,30 @@ jobs:
         working-directory: deploy/compose
         run: docker compose down -v
 
+  # Prove the documentation site builds. --strict turns a warning into a failure, which is the whole
+  # point: mkdocs reports a dead internal link or a missing nav page as a warning and would otherwise
+  # exit 0, so the docs would rot silently between releases. `validation:` in mkdocs.yml promotes
+  # absolute and unrecognised links to warnings too, so --strict catches those as well.
+  #
+  # No Pages deploy: the build gate is the requirement, and publishing is a separate decision that
+  # needs the repo's Pages settings enabled first. Add a deploy job when someone wants the site hosted.
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install MkDocs Material
+        run: pip install mkdocs-material
+
+      - name: Build the docs site
+        working-directory: docs-site
+        run: mkdocs build --strict
+
   dco-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'

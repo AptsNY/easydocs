@@ -1,0 +1,95 @@
+name: Feature request
+description: Propose something easydocs should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Describe the problem, not the solution.** The most useful request explains what you were
+        trying to do and where easydocs got in the way. A proposal arriving as a large unsolicited pull
+        request is the slowest path to shipping — see
+        [GOVERNANCE.md](https://github.com/Robertzu43/easydocs/blob/main/GOVERNANCE.md#making-changes).
+
+        **A lot is already deferred to v1.1 by design** — OIDC/SSO, desktop "Open in Word", a graphical
+        revision graph, full-text content search, cloud export/import, MFA. Check
+        [Not in v1](https://github.com/Robertzu43/easydocs/blob/main/docs-site/docs/self-hosting.md#not-in-v1)
+        before filing; if your request is already on that list, a 👍 on an existing issue is more useful
+        than a new one.
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues and the v1.1 deferred list.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what stops you? Concrete beats abstract.
+      placeholder: |
+        Our legal team needs the approval history for an entire folder in one export for an audit. Today
+        the audit trail is per document, so someone assembles 40 CSVs by hand every quarter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. If you already have a shape in mind, sketch it — but the problem above matters more.
+    validations:
+      required: false
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead
+      description: >-
+        Including "nothing, we gave up". A workable workaround lowers the priority honestly; the absence
+        of one raises it.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface does this touch?
+      multiple: true
+      options:
+        - "Web UI"
+        - "REST API"
+        - "Editing / Collabora"
+        - "Versioning, branching or merging"
+        - "Publishing, PDF or approvals"
+        - "Copies and push-back"
+        - "Sharing"
+        - "Self-hosting, deployment or operations"
+        - "Documentation"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: rfc-scope
+    attributes:
+      label: Scope check
+      description: >-
+        Tick anything that applies. These need agreement in the issue before code — schema migrations
+        run automatically on every self-hoster's database on upgrade, and spec §10.1 calls itself the
+        authoritative endpoint set. See
+        [GOVERNANCE.md](https://github.com/Robertzu43/easydocs/blob/main/GOVERNANCE.md#making-changes).
+      options:
+        - label: Probably needs a database schema change.
+        - label: Probably adds or changes a public API endpoint.
+        - label: Probably needs a new service in the compose stack or a new runtime dependency.
+        - label: None of the above / I do not know.
+
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Would you be willing to implement it?
+      options:
+        - label: Yes, if a maintainer agrees on the approach first.

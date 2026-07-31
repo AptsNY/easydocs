@@ -1,7 +1,9 @@
 namespace EasyDocs.Api.Domain;
 
 // Public tokenized share of one version (E10). Only the token HASH is stored (spec §11).
-public class ShareLink
+// IKeyed only declares (Id, CreatedAt), both of which already existed — it makes the row usable with
+// Pagination.PageAsync for the per-document list.
+public class ShareLink : IKeyed
 {
     public Guid Id { get; set; }
     public Guid VersionId { get; set; }

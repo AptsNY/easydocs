@@ -142,6 +142,42 @@ test('3. Share shows the URL once, and the link resolves with no session', async
   await anonContext.close()
 })
 
+// M5 gap: DELETE /api/v1/share-links/{id} shipped in M2 and no client could call it, because the create
+// response carries only {token, url} and nothing listed links. A shared document could not be un-shared.
+test('3b. an existing share link can be revoked from the Share dialog', async ({
+  signedIn: page,
+  browser,
+}) => {
+  await seed(page, 'Revocable')
+
+  const menu = await openMenu(page, '0.0.1')
+  await menu.getByRole('button', { name: 'Share' }).click()
+  await dialog(page).getByRole('button', { name: 'Create link' }).click()
+  const shareUrl = (await page.getByTestId('share-url').textContent())!
+
+  // The new link is listed, live, and pointed at the version it was made from.
+  const link = dialog(page).getByTestId('share-link-row')
+  await expect(link).toHaveCount(1)
+  await expect(link).toHaveAttribute('data-state', 'Live')
+  await expect(link).toContainText('0.0.1')
+
+  // Still reachable by the recipient...
+  const anonContext = await browser.newContext()
+  const anonPage = await anonContext.newPage()
+  const live = await anonPage.request.get(shareUrl, { headers: { Accept: 'application/json' } })
+  expect(live.ok(), `share link should be live: ${live.status()}`).toBeTruthy()
+
+  await link.getByRole('button', { name: /^Revoke the share link/ }).click()
+
+  // ...and dead the moment it is revoked. The row stays, flagged, so "did I revoke that?" has an answer.
+  await expect(link).toHaveAttribute('data-state', 'Revoked')
+  await expect(link.getByRole('button', { name: /^Revoke the share link/ })).toHaveCount(0)
+  const dead = await anonPage.request.get(shareUrl, { headers: { Accept: 'application/json' } })
+  expect(dead.status()).toBe(404)
+
+  await anonContext.close()
+})
+
 test('4. Download streams the file under the R8 name', async ({ signedIn: page }) => {
   await seed(page, 'Down Load')
 

@@ -63,6 +63,39 @@ test('10. an API token’s raw value is shown exactly once, then revocable', asy
   await expect(tokenRow(page, 'ci-pipeline')).toHaveCount(0)
 })
 
+// M5 gap: GET /api/v1/tokens was `Where(t => t.OrgId == orgId)`, so this screen showed a Member every
+// colleague's token names, scopes and last-used times. Never a value — metadata, not credentials — but a
+// PAT is a per-user capability (spec §11) and enumerating someone else's is not part of holding your own.
+test('10b. a member sees only their own tokens on this screen', async ({
+  signedIn: page,
+  request,
+  browser,
+}) => {
+  await page.goto('/settings')
+  await page.getByLabel('Token name').fill('owners-ci')
+  await page.getByRole('button', { name: 'Create token' }).click()
+  await expect(tokenRow(page, 'owners-ci')).toHaveCount(1)
+
+  const { person, invitationToken } = await orgMember(page, request, 'Member')
+  const context = await browser.newContext()
+  const theirPage = await context.newPage()
+  await signIn(theirPage, person)
+  await accept(theirPage.request, invitationToken)
+
+  await theirPage.goto('/settings')
+  await theirPage.getByLabel('Token name').fill('members-laptop')
+  await theirPage.getByRole('button', { name: 'Create token' }).click()
+  await expect(tokenRow(theirPage, 'members-laptop')).toHaveCount(1)
+  await expect(tokenRow(theirPage, 'owners-ci')).toHaveCount(0)
+
+  // Symmetric — the owner does not get to read theirs either. Seniority is not ownership.
+  await page.reload()
+  await expect(tokenRow(page, 'owners-ci')).toHaveCount(1)
+  await expect(tokenRow(page, 'members-laptop')).toHaveCount(0)
+
+  await context.close()
+})
+
 test('11. renaming the org leaves the slug untouched', async ({ signedIn: page }) => {
   await page.goto('/settings')
   const before = await page.getByTestId('org-slug').textContent()
