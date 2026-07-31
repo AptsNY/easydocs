@@ -2,6 +2,7 @@ import type { APIRequestContext, Browser, BrowserContext, Page } from '@playwrig
 import {
   test,
   expect,
+  disclose,
   register,
   signIn,
   createDocument,
@@ -26,6 +27,11 @@ const concurrentGroup = (page: Page) =>
 const panel = (page: Page) => page.getByTestId('members-panel')
 const memberRow = (page: Page, email: string) =>
   page.locator(`[data-testid="member-row"][data-email="${email}"]`)
+
+// A row states its role ONCE. Where the caller may change it that one element is the <select> (its
+// selected option IS the statement, so this reads its value); where they may not, it is text. Both
+// carry data-testid="member-role", so "what does this row say the role is" still has one answer.
+const roleOf = (row: ReturnType<typeof memberRow>) => row.getByTestId('member-role')
 
 type Session = { sessionId: string; editorUrl: string; accessToken: string }
 
@@ -90,6 +96,7 @@ async function addSecondMember(
 ): Promise<{ other: Account; theirContext: BrowserContext; theirPage: Page }> {
   const other = await register(request)
 
+  await disclose(panel(page).getByTestId('add-member'))
   await panel(page).getByLabel('Email').fill(other.email)
   // Exact, or it also matches the per-row "Change role for …" labels.
   await panel(page).getByLabel('Role', { exact: true }).selectOption(role)
@@ -181,7 +188,7 @@ test('the members panel lists members with their roles', async ({ signedIn: page
   await page.goto(`/documents/${documentId}`)
 
   await expect(panel(page).getByTestId('member-row')).toHaveCount(1)
-  await expect(memberRow(page, account.email).getByTestId('member-role')).toHaveText('Owner')
+  await expect(roleOf(memberRow(page, account.email))).toHaveValue('Owner')
 })
 
 test('adding an email from outside the org shows the invitation token exactly once', async ({
@@ -190,6 +197,7 @@ test('adding an email from outside the org shows the invitation token exactly on
   const documentId = await createDocument(page, 'Invite')
   await page.goto(`/documents/${documentId}`)
 
+  await disclose(panel(page).getByTestId('add-member'))
   await panel(page).getByLabel('Email').fill(`outsider-${Date.now()}@example.com`)
   await panel(page).getByLabel('Role', { exact: true }).selectOption('Editor')
   await panel(page).getByRole('button', { name: 'Add member' }).click()
@@ -222,7 +230,9 @@ test('the last owner cannot be removed or demoted, and the API detail is surface
   await expect(panel(page).getByRole('alert')).toContainText(
     'A document must keep at least one owner.',
   )
-  await expect(me.getByTestId('member-role')).toHaveText('Owner')
+  // The refused demotion snapped back: the row still says Owner, and the control that says it is the
+  // same one the click went to.
+  await expect(roleOf(me)).toHaveValue('Owner')
 })
 
 test('an owner changes a second member’s role', async ({ signedIn: page, request, browser }) => {
@@ -234,12 +244,12 @@ test('an owner changes a second member’s role', async ({ signedIn: page, reque
   // No reload: InvitationEndpoints publishes member.added on accept (spec §10.2), so the owner's
   // roster learns about the new member over SSE. This asserting without a reload is the proof.
   const them = memberRow(page, other.email)
-  await expect(them.getByTestId('member-role')).toHaveText('Viewer')
+  await expect(roleOf(them)).toHaveValue('Viewer')
 
   await them.getByLabel(/Change role/).selectOption('Editor')
-  await expect(them.getByTestId('member-role')).toHaveText('Editor')
+  await expect(roleOf(them)).toHaveValue('Editor')
   await page.reload()
-  await expect(memberRow(page, other.email).getByTestId('member-role')).toHaveText('Editor')
+  await expect(roleOf(memberRow(page, other.email))).toHaveValue('Editor')
 })
 
 test('a Viewer sees the roster but no mutating member controls (E12)', async ({

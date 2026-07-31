@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NavLink, Outlet, useParams } from 'react-router'
-import { api, problemText, type DocRole, type DocumentDetail, type Member } from '../api'
+import { Link, NavLink, Outlet, useParams } from 'react-router'
+import {
+  api,
+  problemText,
+  type DocRole,
+  type DocumentDetail,
+  type Member,
+  type Paged,
+  type VersionRow,
+} from '../api'
 import { useSession } from '../auth'
 import MembersPanel from '../components/MembersPanel'
 import { useSse } from '../useSse'
@@ -16,6 +24,8 @@ export default function DocumentConsole() {
   const { me } = useSession()
   const [doc, setDoc] = useState<DocumentDetail | null>(null)
   const [myRole, setMyRole] = useState<DocRole | null>(null)
+  const [head, setHead] = useState<string | null>(null)
+  const [memberCount, setMemberCount] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [tick, setTick] = useState(0)
 
@@ -40,15 +50,63 @@ export default function DocumentConsole() {
   useEffect(() => {
     if (!id || !me) return
     api.get<Member[]>(`/api/v1/documents/${id}/members`).then(
-      (ms) => setMyRole(ms.find((m) => m.userId === me.id)?.role ?? null),
-      () => setMyRole(null),
+      (ms) => {
+        setMyRole(ms.find((m) => m.userId === me.id)?.role ?? null)
+        setMemberCount(ms.length)
+      },
+      () => {
+        setMyRole(null)
+        setMemberCount(null)
+      },
     )
   }, [id, me, tick])
+
+  // The header's one number: which version this document is AT. The detail projection deliberately
+  // carries no counts, so the head comes from the version list — limit=1 on an indexed, already-hot
+  // read.
+  //
+  // ponytail: no "N versions" beside it, because the paged versions endpoint answers no total and
+  // counting would mean walking every page. Upgrade path: versionCount on the document detail
+  // projection (the dashboard's Tile already has one), then this is a field, not a request.
+  useEffect(() => {
+    if (!id) return
+    api
+      .get<Paged<VersionRow>>(`/api/v1/documents/${id}/versions?order=desc&limit=1`)
+      .then((page) => setHead(page.items[0]?.number ?? null), () => setHead(null))
+  }, [id, tick])
 
   return (
     <section className="console" data-testid="document-console">
       <div className="console-main">
+        {/* Where am I. Two levels is the whole hierarchy this product has.
+
+            ponytail: the middle crumb is called "Folder" rather than its name — there is no
+            GET /folders/{id}, and the console holds no folder tree to look one up in. Upgrade path:
+            a single-folder read, or folderName on the document detail projection. */}
+        <nav className="crumbs" aria-label="Breadcrumb">
+          <Link to="/">Documents</Link>
+          {doc?.folderId ? (
+            <>
+              <span aria-hidden="true">/</span>
+              <Link to={`/folders/${doc.folderId}`}>Folder</Link>
+            </>
+          ) : null}
+        </nav>
+
         <h2>{doc?.name ?? 'Document'}</h2>
+
+        <p className="doc-meta">
+          <span className="version-number" data-testid="doc-head-version">
+            {head ?? '—'}
+          </span>
+          <span>{head ? 'current version' : 'no versions yet'}</span>
+          {memberCount === null ? null : (
+            <span data-testid="doc-member-count">
+              {memberCount} {memberCount === 1 ? 'member' : 'members'}
+            </span>
+          )}
+        </p>
+
         {error && (
           <p role="alert" className="error">
             {error}

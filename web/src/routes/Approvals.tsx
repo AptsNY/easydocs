@@ -173,44 +173,49 @@ export default function Approvals({ inbox = false }: { inbox?: boolean }) {
 
       {/* E7: absent, not disabled, until something is published. */}
       {!inbox && canEdit && published.length > 0 && (
-        <form className="stack request-approval" data-testid="request-approval" onSubmit={request}>
-          <h4>Request approval</h4>
-
-          <label htmlFor={`${fieldId}-version`}>Version</label>
-          {/* Published only. The API refuses a draft, and it is right to: an approval names a version people
-              outside the editing loop are meant to read. No defaultValue — the list arrives after mount and
-              a select with nothing selected takes its first option, the newest publication. */}
-          <select id={`${fieldId}-version`} name="versionId">
-            {published.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.number}
-              </option>
-            ))}
-          </select>
-
-          <fieldset className="approvers">
-            <legend>Approvers</legend>
-            {/* Document members only. The API rejects an approverId that is not a member of this document —
-                being named approver is a decision right, and handing one over a document the person cannot
-                read is the §11 hole Phase A closed. Listing the org roster here would make that 400 reachable
-                by clicking; listing members makes it unreachable. */}
-            <ul>
-              {members.map((m) => (
-                <li key={m.userId} data-testid="approver-option" data-email={m.email}>
-                  <label>
-                    <input type="checkbox" name="approverIds" value={m.userId} />{' '}
-                    {m.displayName} <span className="muted">{m.email}</span>
-                  </label>
-                </li>
+        <details className="disclose request-approval" data-testid="request-approval">
+          {/* Deliberately NOT the words on the submit button: a <summary> is exposed as a button, so a
+              summary reading "Request approval" would make getByRole('button', { name: 'Request
+              approval' }) ambiguous for a test and for a screen-reader user alike. */}
+          <summary>Ask for approval</summary>
+          <form className="stack" onSubmit={request}>
+            <label htmlFor={`${fieldId}-version`}>Version</label>
+            {/* Published only. The API refuses a draft, and it is right to: an approval names a version
+                people outside the editing loop are meant to read. No defaultValue — the list arrives
+                after mount and a select with nothing selected takes its first option, the newest
+                publication. */}
+            <select id={`${fieldId}-version`} name="versionId">
+              {published.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.number}
+                </option>
               ))}
-            </ul>
-          </fieldset>
+            </select>
 
-          <label htmlFor={`${fieldId}-due`}>Due date</label>
-          <input id={`${fieldId}-due`} name="dueAt" type="date" />
+            <fieldset className="approvers">
+              <legend>Approvers</legend>
+              {/* Document members only. The API rejects an approverId that is not a member of this
+                  document — being named approver is a decision right, and handing one over a document
+                  the person cannot read is the §11 hole Phase A closed. Listing the org roster here
+                  would make that 400 reachable by clicking; listing members makes it unreachable. */}
+              <ul>
+                {members.map((m) => (
+                  <li key={m.userId} data-testid="approver-option" data-email={m.email}>
+                    <label>
+                      <input type="checkbox" name="approverIds" value={m.userId} />{' '}
+                      {m.displayName} <span className="muted">{m.email}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
 
-          <button type="submit">Request approval</button>
-        </form>
+            <label htmlFor={`${fieldId}-due`}>Due date</label>
+            <input id={`${fieldId}-due`} name="dueAt" type="date" />
+
+            <button type="submit">Request approval</button>
+          </form>
+        </details>
       )}
 
       <ul className="rows">

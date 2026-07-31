@@ -1,5 +1,5 @@
 import type { APIRequestContext, Browser, Page } from '@playwright/test'
-import { test, expect, register, signIn, createDocument, uploadVersion } from './fixtures'
+import { test, expect, disclose, register, signIn, createDocument, uploadVersion } from './fixtures'
 
 // Major Versions, copies management and the audit trail (spec §9), plus conformance E9 driven entirely
 // through the UI: fork → push back → accept/reject on the target → an accepted push shows up as an
@@ -131,6 +131,8 @@ test('4. E9 round trip: an external reviewer pushes back and the target accepts 
   // The reviewer edits the copy and sends it back through the UI.
   await uploadVersion(theirPage, copyId, 'edited.docx')
   await theirPage.goto(`/documents/${copyId}/copies`)
+  // Send-back is disclosed on the Copies tab now, so the reviewer opens it first.
+  await disclose(theirPage.getByTestId('push-back'))
   await theirPage.getByLabel('Version to send back').selectOption({ label: '0.0.2' })
   await theirPage.getByRole('button', { name: 'Send back' }).click()
   await expect(theirPage.getByTestId('push-request-row')).toHaveAttribute('data-status', 'pending')
@@ -166,6 +168,8 @@ test('5. a rejected push never enters the target’s history', async ({
 
   await uploadVersion(theirPage, copyId, 'edited.docx')
   await theirPage.goto(`/documents/${copyId}/copies`)
+  // Send-back is disclosed on the Copies tab now, so the reviewer opens it first.
+  await disclose(theirPage.getByTestId('push-back'))
   await theirPage.getByLabel('Version to send back').selectOption({ label: '0.0.2' })
   await theirPage.getByRole('button', { name: 'Send back' }).click()
 

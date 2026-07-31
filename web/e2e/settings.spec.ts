@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from '@playwright/test'
-import { test, expect, register, signIn, type Account } from './fixtures'
+import { test, expect, disclose, register, signIn, type Account } from './fixtures'
 
 // The settings screen (spec §9): profile, `ed_` API tokens, and org management. None of this existed before
 // M4.5 — there were no org endpoints at all, so the only way to get a second person anywhere near the
@@ -10,6 +10,13 @@ const tokenRow = (page: Page, name: string) =>
   page.locator(`[data-testid="token-row"][data-name="${name}"]`)
 const memberRow = (page: Page, email: string) =>
   page.locator(`[data-testid="org-member-row"][data-email="${email}"]`)
+
+// Same fold as the document roster (console.spec): one element per row states the role — the <select>
+// where the caller may change it, plain text where they may not. Both are data-testid="org-member-role".
+const roleOf = (row: ReturnType<typeof memberRow>) => row.getByTestId('org-member-role')
+
+// The writes on this screen sit behind their own disclosures now, so each test opens the one it uses.
+const newToken = (page: Page) => page.getByTestId('new-token')
 
 // A second real person in the OWNER's org. The accept re-issues ed_session bound to the inviting org, so it
 // has to be made from the context that will use it: headless (the isolated `request`, which register() just
@@ -46,6 +53,7 @@ test('10. an API token’s raw value is shown exactly once, then revocable', asy
   signedIn: page,
 }) => {
   await page.goto('/settings')
+  await disclose(newToken(page))
   await page.getByLabel('Token name').fill('ci-pipeline')
   await page.getByRole('button', { name: 'Create token' }).click()
 
@@ -72,6 +80,7 @@ test('10b. a member sees only their own tokens on this screen', async ({
   browser,
 }) => {
   await page.goto('/settings')
+  await disclose(newToken(page))
   await page.getByLabel('Token name').fill('owners-ci')
   await page.getByRole('button', { name: 'Create token' }).click()
   await expect(tokenRow(page, 'owners-ci')).toHaveCount(1)
@@ -83,6 +92,7 @@ test('10b. a member sees only their own tokens on this screen', async ({
   await accept(theirPage.request, invitationToken)
 
   await theirPage.goto('/settings')
+  await disclose(newToken(theirPage))
   await theirPage.getByLabel('Token name').fill('members-laptop')
   await theirPage.getByRole('button', { name: 'Create token' }).click()
   await expect(tokenRow(theirPage, 'members-laptop')).toHaveCount(1)
@@ -101,6 +111,7 @@ test('11. renaming the org leaves the slug untouched', async ({ signedIn: page }
   const before = await page.getByTestId('org-slug').textContent()
   expect(before?.trim()).toBeTruthy()
 
+  await disclose(page.getByTestId('org-rename'))
   await page.getByLabel('Organization name').fill('Renamed Holdings')
   await page.getByRole('button', { name: 'Rename' }).click()
   // The shell header carries the org name, so a successful rename is visible outside this screen too.
@@ -118,8 +129,9 @@ test('12. the org member list renders, and an invitation token is shown once', a
 }) => {
   await page.goto('/settings')
   await expect(memberRow(page, account.email)).toHaveCount(1)
-  await expect(memberRow(page, account.email).getByTestId('org-member-role')).toHaveText('Owner')
+  await expect(roleOf(memberRow(page, account.email))).toHaveValue('Owner')
 
+  await disclose(page.getByTestId('org-invite'))
   await page.getByLabel('Invite by email').fill('newcomer@example.com')
   await page.getByRole('button', { name: 'Invite' }).click()
   await expect(page.getByTestId('org-invitation-token')).toContainText(/\S{16,}/)
@@ -131,18 +143,19 @@ test('13. an owner can change another member’s org role', async ({ signedIn: p
 
   await page.goto('/settings')
   const row = memberRow(page, person.email)
-  await expect(row.getByTestId('org-member-role')).toHaveText('Member')
-  await row.getByTestId('org-member-role-select').selectOption('Admin')
-  await expect(row.getByTestId('org-member-role')).toHaveText('Admin')
+  await expect(roleOf(row)).toHaveValue('Member')
+  await roleOf(row).selectOption('Admin')
+  await expect(roleOf(row)).toHaveValue('Admin')
 })
 
 test('14. the last owner cannot be demoted or removed', async ({ signedIn: page, account }) => {
   await page.goto('/settings')
   const mine = memberRow(page, account.email)
 
-  await mine.getByTestId('org-member-role-select').selectOption('Member')
+  await roleOf(mine).selectOption('Member')
   await expect(page.getByRole('alert')).toContainText('An organization must keep at least one owner.')
-  await expect(mine.getByTestId('org-member-role')).toHaveText('Owner')
+  // The refused demotion snapped back: the row still says Owner, on the one control that says it.
+  await expect(roleOf(mine)).toHaveValue('Owner')
 
   await mine.getByRole('button', { name: 'Remove' }).click()
   await expect(page.getByRole('alert')).toContainText('An organization must keep at least one owner.')
@@ -164,10 +177,11 @@ test('15. a plain member gets no org-management controls but still reads the ros
   await theirPage.goto('/settings')
   // The roster read is deliberately open to any member: the SPA's person pickers depend on it.
   await expect(memberRow(theirPage, account.email)).toHaveCount(1)
-  await expect(memberRow(theirPage, person.email).getByTestId('org-member-role')).toHaveText('Member')
+  await expect(roleOf(memberRow(theirPage, person.email))).toHaveText('Member')
 
-  // Everything sharp is Owner/Admin-only in the API; hiding it is courtesy, not the enforcement.
-  await expect(theirPage.getByTestId('org-member-role-select')).toHaveCount(0)
+  // Everything sharp is Owner/Admin-only in the API; hiding it is courtesy, not the enforcement. A
+  // plain member's roster states the role as text and offers no select anywhere on the screen.
+  await expect(theirPage.locator('select[data-testid="org-member-role"]')).toHaveCount(0)
   await expect(theirPage.getByRole('button', { name: 'Remove' })).toHaveCount(0)
   await expect(theirPage.getByLabel('Invite by email')).toHaveCount(0)
   await expect(theirPage.getByLabel('Organization name')).toHaveCount(0)

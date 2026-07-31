@@ -24,20 +24,33 @@ export default function VersionRow({
       data-branch-kind={version.branchKind}
       data-source={version.source}
     >
+      {/* THE ROW IS A GRID, not a flex line: gutter | body | actions, so the number, the wrap point
+          and the Actions button land on the same three columns down the whole list. As flex, a row
+          with a name and a publish badge wrapped and orphaned its Actions button onto a second line
+          while its neighbours stayed on one. What wraps now is the body's own second line, which is
+          where the quiet metadata already lives. */}
       <span className="version-number" data-testid="version-number">
         {version.number}
       </span>
-      {version.name && <span data-testid="version-name">{version.name}</span>}
-      {version.publishedKind && (
-        <span className="badge" data-testid="version-badge">
-          {version.publishedKind}
-          {version.publishName ? ` · ${version.publishName}` : ''}
+
+      <div className="version-body">
+        <span className="version-title">
+          {version.name && <span data-testid="version-name">{version.name}</span>}
+          {version.publishedKind && (
+            <span className="badge" data-testid="version-badge">
+              {version.publishedKind}
+              {version.publishName ? ` · ${version.publishName}` : ''}
+            </span>
+          )}
         </span>
-      )}
-      <span data-testid="version-author">{version.createdByName}</span>
-      {/* The API sends UTC; <time> keeps the machine-readable instant while the reader sees their clock. */}
-      <time dateTime={version.createdAt}>{new Date(version.createdAt).toLocaleString()}</time>
-      <span data-testid="version-summary">{summaryText(version.summary)}</span>
+
+        <span className="version-meta">
+          <span data-testid="version-author">{version.createdByName}</span>
+          {/* The API sends UTC; <time> keeps the machine-readable instant while the reader sees their clock. */}
+          <time dateTime={version.createdAt}>{new Date(version.createdAt).toLocaleString()}</time>
+          <span data-testid="version-summary">{summaryText(version.summary)}</span>
+        </span>
+      </div>
 
       {role && (
         <ActionsMenu version={version} documentId={documentId} role={role} onDone={onDone} />

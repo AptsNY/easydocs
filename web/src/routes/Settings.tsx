@@ -130,11 +130,18 @@ export default function Settings() {
           A token acts as you, in this organization. The value is shown once, at creation.
         </p>
 
-        <form className="stack" onSubmit={createToken}>
-          <label htmlFor="token-name">Token name</label>
-          <input id="token-name" name="name" required />
-          <button type="submit">Create token</button>
-        </form>
+        {/* Every write on this screen is folded behind its own verb (native <details>, no JS): at rest
+            Settings is what it says it is — a profile, a list of tokens, a roster. */}
+        <details className="disclose" data-testid="new-token">
+          <summary>New token</summary>
+          <form className="stack" onSubmit={createToken}>
+            <label className="visually-hidden" htmlFor="token-name">
+              Token name
+            </label>
+            <input id="token-name" name="name" placeholder="Token name" required />
+            <button type="submit">Create token</button>
+          </form>
+        </details>
 
         {minted && (
           <div className="invitation" role="status">
@@ -156,7 +163,7 @@ export default function Settings() {
               </span>
               <button
                 type="button"
-                className="link"
+                className="link danger"
                 aria-label={`Revoke ${t.serviceName}`}
                 onClick={() => void act(() => api.del(`/api/v1/tokens/${t.id}`))}
               >
@@ -181,11 +188,24 @@ export default function Settings() {
         </p>
 
         {canAdmin && (
-          <form className="stack" data-testid="org-rename" onSubmit={rename}>
-            <label htmlFor="org-name-input">Organization name</label>
-            <input id="org-name-input" name="name" defaultValue={org?.name ?? ''} />
-            <button type="submit">Rename</button>
-          </form>
+          <details className="disclose" data-testid="org-rename">
+            {/* Not "Rename …": a <summary> is exposed as a button, and a summary containing the
+                submit button's words would make getByRole('button', { name: 'Rename' }) ambiguous —
+                for a test and for anyone tabbing through with a screen reader. */}
+            <summary>Change name</summary>
+            <form className="stack" onSubmit={rename}>
+              <label className="visually-hidden" htmlFor="org-name-input">
+                Organization name
+              </label>
+              <input
+                id="org-name-input"
+                name="name"
+                placeholder="Organization name"
+                defaultValue={org?.name ?? ''}
+              />
+              <button type="submit">Rename</button>
+            </form>
+          </details>
         )}
       </section>
 
@@ -199,62 +219,75 @@ export default function Settings() {
 
         <ul className="rows">
           {members.map((m) => (
-            <li key={m.userId} data-testid="org-member-row" data-email={m.email}>
-              <span>
+            <li key={m.userId} className="member-row" data-testid="org-member-row" data-email={m.email}>
+              <span className="member-who">
                 {m.displayName} <span className="muted">{m.email}</span>
               </span>
-              <span data-testid="org-member-role">{m.role}</span>
+
+              {/* One role element per row, exactly as the document roster does it: the select IS the
+                  statement of the role where the caller may change it, plain text where they may not.
+                  Stating it twice made an owner's row read "Owner Owner". */}
+              {isOwner ? (
+                <label className="member-role">
+                  <span className="visually-hidden">Change organization role for {m.email}</span>
+                  <select
+                    data-testid="org-member-role"
+                    value={m.role}
+                    onChange={(e) => {
+                      const role = e.target.value
+                      void act(() => api.patch(`/api/v1/org/members/${m.userId}`, { role }))
+                    }}
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <span className="member-role" data-testid="org-member-role">
+                  {m.role}
+                </span>
+              )}
 
               {isOwner && (
-                <>
-                  <label>
-                    <span className="visually-hidden">Change organization role for {m.email}</span>
-                    <select
-                      data-testid="org-member-role-select"
-                      value={m.role}
-                      onChange={(e) => {
-                        const role = e.target.value
-                        void act(() => api.patch(`/api/v1/org/members/${m.userId}`, { role }))
-                      }}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <button
-                    type="button"
-                    className="link"
-                    aria-label={`Remove ${m.email} from the organization`}
-                    onClick={() => void act(() => api.del(`/api/v1/org/members/${m.userId}`))}
-                  >
-                    Remove
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="link danger"
+                  aria-label={`Remove ${m.email} from the organization`}
+                  onClick={() => void act(() => api.del(`/api/v1/org/members/${m.userId}`))}
+                >
+                  Remove
+                </button>
               )}
             </li>
           ))}
         </ul>
 
         {canAdmin && (
-          <form className="stack" data-testid="org-invite" onSubmit={invite}>
-            <label htmlFor="invite-email">Invite by email</label>
-            <input id="invite-email" name="email" type="email" />
+          <details className="disclose" data-testid="org-invite">
+            {/* "Add someone", not "Invite …", for the same reason as above: the submit button is
+                called Invite. */}
+            <summary>Add someone</summary>
+            <form className="stack" onSubmit={invite}>
+              <label className="visually-hidden" htmlFor="invite-email">
+                Invite by email
+              </label>
+              <input id="invite-email" name="email" type="email" placeholder="Email" />
 
-            <label htmlFor="invite-role">Role</label>
-            <select id="invite-role" name="role" defaultValue="Member">
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+              <label htmlFor="invite-role">Role</label>
+              <select id="invite-role" name="role" defaultValue="Member">
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
 
-            <button type="submit">Invite</button>
-          </form>
+              <button type="submit">Invite</button>
+            </form>
+          </details>
         )}
 
         {invitation && (

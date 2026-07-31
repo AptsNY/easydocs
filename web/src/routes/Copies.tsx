@@ -107,24 +107,28 @@ export default function Copies() {
       )}
 
       {isCopy && canEdit && (
-        <form className="stack push-back" onSubmit={sendBack}>
-          <h4>Send a version back to the original</h4>
-          <p className="muted">
-            The original’s editors review what you send; until they accept it, nothing of yours reaches
-            their history.
-          </p>
-          <label htmlFor={`${fieldId}-version`}>Version to send back</label>
-          {/* No defaultValue: the versions arrive after mount, and a select with no selected option takes
-              its first one — which is the newest version, the one a reviewer means. */}
-          <select id={`${fieldId}-version`} name="versionId">
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.number}
-              </option>
-            ))}
-          </select>
-          <button type="submit">Send back</button>
-        </form>
+        // Disclosed, like every other write in the app: this tab's job is to show what came and went,
+        // and a permanently open form under the list buried that.
+        <details className="disclose push-back" data-testid="push-back">
+          <summary>Send a version back to the original</summary>
+          <form className="stack" onSubmit={sendBack}>
+            <p className="muted">
+              The original’s editors review what you send; until they accept it, nothing of yours
+              reaches their history.
+            </p>
+            <label htmlFor={`${fieldId}-version`}>Version to send back</label>
+            {/* No defaultValue: the versions arrive after mount, and a select with no selected option
+                takes its first one — which is the newest version, the one a reviewer means. */}
+            <select id={`${fieldId}-version`} name="versionId">
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.number}
+                </option>
+              ))}
+            </select>
+            <button type="submit">Send back</button>
+          </form>
+        </details>
       )}
 
       {requests.length > 0 && <h4>Pushes</h4>}

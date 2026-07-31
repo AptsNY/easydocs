@@ -595,13 +595,17 @@ a.button:hover {
 .rows > li,
 .version-row,
 .members li {
+  padding: var(--s3) var(--s2);
+  border-block-start: 1px solid var(--rule);
+  font-size: 15px;
+}
+
+.rows > li,
+.members li {
   display: flex;
   align-items: baseline;
   gap: var(--s3);
   flex-wrap: wrap;
-  padding: var(--s3) var(--s2);
-  border-block-start: 1px solid var(--rule);
-  font-size: 15px;
 }
 
 /* Hover is how a reader confirms which line they are on in a ledger, so it is on every list row and
@@ -623,6 +627,105 @@ a.button:hover {
   min-width: var(--gutter);
   color: var(--ink);
   font-size: 14px;
+}
+
+/* ------------------------------------------------------------ a version row */
+
+/* A REAL GRID, three columns: gutter | body | actions. As a flex line this row wrapped
+   unpredictably — 0.1.1 fitted on one line while 0.1.0, which carries a name and a publish badge,
+   wrapped and orphaned its Actions button onto a second row, so no two rows agreed on where
+   anything was. Now the number, the name and the Actions button hold their columns down the whole
+   list, and the only thing that wraps is the body's own metadata line. */
+.version-row {
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr) auto;
+  grid-template-areas: 'number body actions';
+  align-items: baseline;
+  column-gap: var(--s3);
+  row-gap: var(--s2);
+}
+
+.version-row > .version-number {
+  grid-area: number;
+  min-width: 0;
+}
+
+.version-body {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.version-row > .actions {
+  grid-area: actions;
+  margin: 0;
+}
+
+/* Line one: what a person called this version. Absent on most rows, and an empty line would put a
+   row-gap where nothing is. */
+.version-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  color: var(--ink);
+}
+
+.version-title:empty {
+  display: none;
+}
+
+/* Line two: who, when, and what changed — quiet, in one order, every row. */
+.version-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0 var(--s3);
+  flex-wrap: wrap;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.version-meta > * + *::before {
+  content: '·';
+  margin-inline-end: var(--s3);
+}
+
+/* On a phone the third column has nowhere to go, so Actions drops under the body and stays inside
+   the same body column — the gutter is never given up, because it is the alignment. */
+@media (max-width: 620px) {
+  .version-row {
+    grid-template-columns: var(--gutter) minmax(0, 1fr);
+    grid-template-areas:
+      'number body'
+      '.      actions';
+    justify-items: start;
+  }
+
+  /* A separator that wraps to the start of the next line reads as a bullet, so on a phone the meta
+     line separates by space alone. */
+  .version-meta {
+    row-gap: var(--s1);
+  }
+
+  .version-meta > * + *::before {
+    content: none;
+  }
+}
+
+/* A published version's standing. A rule and a shape, not a saturated pill. */
+.badge {
+  padding: 1px var(--s2);
+  border-radius: 2px;
+  border: 1px solid var(--accent-rule);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------- sign-in */
@@ -943,16 +1046,79 @@ a.button:hover {
 
 /* ----------------------------------------------------- the document console */
 
+/* History and the roster, on a grid for the same reason the dashboard is: two flex children with
+   min-widths guessed at where they would wrap. */
 .console {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  gap: var(--s5) var(--s7);
   align-items: start;
-  gap: var(--s7);
-  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .console {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .console-main {
-  flex: 1;
-  min-width: 22rem;
+  min-width: 0;
+}
+
+/* Where am I: a quiet sans trail above the document's name, not a heading and not a tab. */
+.crumbs {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-block-start: var(--s2);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.crumbs a {
+  color: var(--text);
+  text-decoration: none;
+  border-block-end: 1px solid transparent;
+}
+
+.crumbs a:hover {
+  color: var(--ink);
+  border-block-end-color: var(--accent);
+}
+
+.console-main > h2 {
+  margin-block-start: var(--s1);
+}
+
+/* The header's standing line: what version this document is at, in the gutter's mono, and how many
+   people can see it. Facts the console already holds and used to keep to itself. */
+.doc-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.doc-meta .version-number {
+  min-width: 0;
+  font-size: 15px;
+}
+
+.doc-meta > span + span::before {
+  content: '·';
+  margin-inline-end: var(--s3);
+}
+
+.doc-meta > .version-number + span::before {
+  content: none;
 }
 
 .console-main > nav {
@@ -1009,9 +1175,11 @@ a.button:hover {
 }
 
 /* The roster: a sidebar, so it is set narrower and quieter than the history. */
+/* min-width: 0, not a rem floor: this is a grid column now, and a floor wider than a phone is how a
+   page ends up scrolling sideways. */
 .members {
-  min-width: 18rem;
-  max-width: 22rem;
+  min-width: 0;
+  max-width: 24rem;
   padding: var(--s4);
   border: 1px solid var(--rule);
   border-radius: 4px;
@@ -1029,6 +1197,75 @@ a.button:hover {
 .members li {
   padding-inline: 0;
   font-size: 14px;
+}
+
+/* Name and email take the line; the role control and Remove sit on the end of it, aligned down the
+   roster. The same shape serves the org roster in Settings, which is the same list of the same
+   people wearing a different kind of role. */
+li.member-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--s3);
+  row-gap: var(--s1);
+}
+
+.member-who {
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.member-row .member-who {
+  margin-inline-end: 0;
+}
+
+/* Text or a select, the role occupies the same slot either way — it is stated once per row now. */
+.member-role {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.member-role select {
+  font-size: 13px;
+  padding: 3px var(--s1);
+}
+
+/* In the 19rem sidebar there is no room for a name, an email, a role and a Remove on one line — the
+   email was breaking mid-word to make space. So in the panel the person takes the line and the two
+   controls take the next one, role left, Remove on the end. In Settings' wide column the same row
+   stays on one line, roles and Removes aligned down the roster. */
+.members li.member-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.members li.member-row > .member-who {
+  grid-column: 1 / -1;
+}
+
+/* A destructive control that no longer reads as navigation: still text-weight, but hairlined so it
+   is plainly a control, and it takes the danger ink only when the pointer or the keyboard is
+   actually on it — red stays the colour of something being wrong, not a permanent decoration. */
+button.link.danger,
+button.danger {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  padding: 3px var(--s2);
+  background: none;
+  font-size: 13px;
+}
+
+button.link.danger:hover,
+button.link.danger:focus-visible,
+button.danger:hover,
+button.danger:focus-visible {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  text-decoration: none;
 }
 
 /* ------------------------------------------------------- the Actions menu */
@@ -1284,7 +1521,21 @@ a.button:hover {
 }
 
 .share-card a.button {
+  display: block;
+  width: fit-content;
   margin-block-start: var(--s5);
+  padding: var(--s3) var(--s5);
+  font-size: 16px;
+}
+
+/* The recipient's paragraph is the one place in the app where prose is the interface, so it gets a
+   measure and a little more air than a UI line would. */
+.share-card p {
+  max-width: 46ch;
+}
+
+.share-card .muted {
+  font-size: 14px;
 }
 
 /* ------------------------------------------------------------------- phones */

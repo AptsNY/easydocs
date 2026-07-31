@@ -1,5 +1,14 @@
 import type { APIRequestContext, Browser, Page } from '@playwright/test'
-import { test, expect, register, signIn, createDocument, uploadVersion, type Account } from './fixtures'
+import {
+  test,
+  expect,
+  disclose,
+  register,
+  signIn,
+  createDocument,
+  uploadVersion,
+  type Account,
+} from './fixtures'
 
 // The approvals screen (spec §9) and conformance E7: an approval can only be requested on a PUBLISHED
 // version, a decision is single and immutable, and cancel closes the request.
@@ -10,6 +19,8 @@ import { test, expect, register, signIn, createDocument, uploadVersion, type Acc
 // refusing an approverId that is not a member of the document. The UI half of that fix is the picker: it
 // lists document members only, so the 400 is unreachable by clicking (test 2).
 
+// The request form is disclosed now (its <summary> reads "Ask for approval", deliberately not the
+// submit button's words), so a test opens it exactly as a requester does.
 const requestForm = (page: Page) => page.getByTestId('request-approval')
 const approvalRows = (page: Page) => page.getByTestId('approval-row')
 const approverOption = (page: Page, email: string) =>
@@ -90,6 +101,7 @@ test('1. E7: no request control on a draft, one on a published version', async (
   await page.reload()
   await expect(requestForm(page)).toHaveCount(1)
   // The version picker offers the published version only — the same reason.
+  await disclose(requestForm(page))
   await expect(requestForm(page).getByLabel('Version').locator('option')).toHaveText(['0.1.0'])
 })
 
@@ -127,6 +139,7 @@ test('3. requesting approval with a due date shows on the document’s Approvals
   await publish(page, v1, 'For review')
 
   await page.goto(`/documents/${documentId}/approvals`)
+  await disclose(requestForm(page))
   await approverOption(page, (await me(page)).email).getByRole('checkbox').check()
   await requestForm(page).getByLabel('Due date').fill(DUE)
   await requestForm(page).getByRole('button', { name: 'Request approval' }).click()
@@ -233,6 +246,7 @@ test('7. E7: cancel closes an open request', async ({ signedIn: page }) => {
   await publish(page, v1, 'For review')
 
   await page.goto(`/documents/${documentId}/approvals`)
+  await disclose(requestForm(page))
   await approverOption(page, (await me(page)).email).getByRole('checkbox').check()
   await requestForm(page).getByRole('button', { name: 'Request approval' }).click()
   await expect(approvalRows(page)).toHaveAttribute('data-status', 'open')
@@ -300,6 +314,7 @@ async function requestApprovalOf(
   versionNumber?: string,
 ) {
   await page.goto(`/documents/${documentId}/approvals`)
+  await disclose(requestForm(page))
   if (versionNumber) {
     await requestForm(page).getByLabel('Version').selectOption({ label: versionNumber })
   }
