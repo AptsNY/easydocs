@@ -17,8 +17,6 @@ namespace EasyDocs.Api.Sharing;
 // returned once. The public /s/{token} route is anonymous and audited (spec §11).
 public static class ShareEndpoints
 {
-    private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
     public record CreateRequest(DateTimeOffset? ExpiresAt);
 
     public static void MapShareEndpoints(this WebApplication app)
@@ -206,7 +204,7 @@ public static class ShareEndpoints
         });
     }
 
-    // PUBLIC download: stream the docx blob with the R8 filename.
+    // PUBLIC download: stream the version blob with the R8 filename.
     private static async Task<IResult> PublicDownload(string token, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
     {
         var link = await ResolveLiveAsync(db, token, ctx.RequestAborted);
@@ -216,7 +214,10 @@ public static class ShareEndpoints
         var doc = await db.Documents.FirstAsync(d => d.Id == version.DocumentId, ctx.RequestAborted);
         var slug = await db.Organizations.Where(o => o.Id == doc.OrgId).Select(o => o.Slug).FirstAsync(ctx.RequestAborted);
 
-        var name = Numbering.DownloadFileName(slug, doc.Name, (version.Major, version.Minor, version.Revision), "docx");
-        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), DocxMime, name);
+        // Same labelling rule as the authenticated download (R8): the bytes decide the content type and
+        // the extension, never the client that uploaded them.
+        var (mime, ext) = await BlobMime.SniffAsync(blobs, version.BlobSha256, ctx.RequestAborted);
+        var name = Numbering.DownloadFileName(slug, doc.Name, (version.Major, version.Minor, version.Revision), ext);
+        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), mime, name);
     }
 }

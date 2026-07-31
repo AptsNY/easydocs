@@ -12,8 +12,6 @@ namespace EasyDocs.Api.Documents;
 
 public static class DocumentEndpoints
 {
-    private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
     public record CreateRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
     public record VersionCounterRequest(int Major, int Minor, int Rev);
@@ -87,8 +85,13 @@ public static class DocumentEndpoints
             return Results.Stream(await blobs.OpenReadAsync(version.PdfBlobSha256, ctx.RequestAborted), "application/pdf", name);
         }
 
-        var docxName = Numbering.DownloadFileName(slug, doc!.Name, counter, "docx");
-        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), DocxMime, docxName);
+        // The stored bytes, labelled as what they ARE (spec §5.3 / R8). Most are .docx; the corpus also
+        // holds PDFs and legacy .doc files, and serving those as docx made Word refuse a file whose bytes
+        // were perfectly good. Sniffed rather than read from Blobs.Mime so rows written before this fix
+        // (all hardcoded docx) serve correctly too.
+        var (mime, ext) = await BlobMime.SniffAsync(blobs, version.BlobSha256, ctx.RequestAborted);
+        var fileName = Numbering.DownloadFileName(slug, doc!.Name, counter, ext);
+        return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), mime, fileName);
     }
 
     // R5 manual override: set the authoritative counter under the same per-document FOR UPDATE lock as
@@ -284,8 +287,12 @@ public static class DocumentEndpoints
         await using (var upload = file.OpenReadStream())
             stored = await blobs.PutAsync(upload, ctx.RequestAborted);
 
+        // Blobs.Mime must record what was actually stored, not "docx" by assumption (spec §5.2). Sniffed
+        // from the stored bytes: file.ContentType and file.FileName are both attacker-controlled.
+        var (mime, _) = await BlobMime.SniffAsync(blobs, stored.Sha256, ctx.RequestAborted);
+
         var result = await versioning.CommitSaveAsync(
-            new CommitInput(id, stored.Sha256, stored.SizeBytes, source, userId), ctx.RequestAborted);
+            new CommitInput(id, stored.Sha256, stored.SizeBytes, source, userId, Mime: mime), ctx.RequestAborted);
 
         return Results.Created($"/api/v1/documents/{id}/versions/{result.VersionId}",
             new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision });
@@ -321,7 +328,7 @@ public static class DocumentEndpoints
                     .Select(x => x.RedlineBlobSha256).FirstOrDefaultAsync();
                 if (redline is null)
                     return Problem.Of(422, "Comparison unavailable", "A redline document could not be produced.");
-                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), DocxMime);
+                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), BlobMime.Docx);
             }
             default:
             {

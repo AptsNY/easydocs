@@ -12,7 +12,10 @@ namespace EasyDocs.Api.Versioning;
 public sealed record CommitInput(
     Guid DocumentId, string BlobSha256, long SizeBytes, VersionSource Source, Guid ActorUserId,
     Guid? SessionId = null, Guid? BaseVersionId = null, Guid? ExplicitBranchId = null,
-    Guid? MergeParentVersionId = null);
+    Guid? MergeParentVersionId = null,
+    // What the stored bytes actually are (Storage.BlobMime.Sniff). Null = docx, which is what every
+    // in-process caller commits: WOPI PutFile, revert, merge and copy all write OOXML by construction.
+    string? Mime = null);
 
 public sealed record CommitResult(Guid VersionId, int Major, int Minor, int Revision, Guid BranchId, bool Deduped);
 
@@ -23,8 +26,6 @@ public sealed record CommitResult(Guid VersionId, int Major, int Minor, int Revi
 /// </summary>
 public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, ChannelWriter<DiffJob> diffQueue)
 {
-    private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
     public async Task<CommitResult> CommitSaveAsync(CommitInput input, CancellationToken ct)
     {
         // Blobs are content-addressed and immutable — insert only if this sha is new
@@ -35,7 +36,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         // swallows the unique-violation and carries on rather than 500ing an ordinary concurrent upload.
         if (!await db.Blobs.AnyAsync(bl => bl.Sha256 == input.BlobSha256, ct))
         {
-            var blob = new Blob { Sha256 = input.BlobSha256, SizeBytes = input.SizeBytes, Mime = DocxMime, StorageKey = input.BlobSha256, CreatedAt = DateTimeOffset.UtcNow };
+            var blob = new Blob { Sha256 = input.BlobSha256, SizeBytes = input.SizeBytes, Mime = input.Mime ?? Storage.BlobMime.Docx, StorageKey = input.BlobSha256, CreatedAt = DateTimeOffset.UtcNow };
             db.Add(blob);
             try
             {

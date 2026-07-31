@@ -72,6 +72,47 @@ public class DownloadTests : IClassFixture<ApiFactory>
         Assert.Equal(bytes, body);
     }
 
+    // The real corpus contains 9 PDFs and some legacy .doc files ingested through this endpoint. The bytes
+    // were always stored faithfully; only the LABEL was wrong — Blobs.Mime and the download headers were
+    // hardcoded docx, so Word refused the file and R8 named it "X.pdf-v0.0.1.docx".
+    //
+    // The multipart part built by Docx() deliberately LIES here: docx content type, "d.docx" filename.
+    // Both are untrusted input (spec §10.3) and neither may reach a response header; the type is sniffed
+    // from the stored bytes and mapped through a server-side allowlist (BlobMime).
+    [Fact]
+    public async Task Download_serves_pdf_bytes_as_pdf_with_an_R8_pdf_name()
+    {
+        var (c, slug) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Laundry Agreement.pdf");
+        var pdf = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\nlease body\n%%EOF");
+        var v = await UploadAsync(c, docId, pdf);
+
+        var resp = await c.GetAsync($"/api/v1/versions/{v.VersionId}/download");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("application/pdf", resp.Content.Headers.ContentType!.MediaType);
+        // R8: the document name already ends in .pdf, so the extension is not repeated.
+        Assert.Equal($"{slug}__Laundry_Agreement-v0.0.1.pdf", resp.Content.Headers.ContentDisposition!.FileName!.Trim('"'));
+        Assert.Equal(pdf, await resp.Content.ReadAsByteArrayAsync());
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var ver = await db.Versions.FirstAsync(x => x.Id == v.VersionId);
+        Assert.Equal("application/pdf", (await db.Blobs.FirstAsync(b => b.Sha256 == ver.BlobSha256)).Mime);
+    }
+
+    // Legacy .doc (OLE2 compound file) is the other real non-docx in the corpus.
+    [Fact]
+    public async Task Download_serves_legacy_doc_bytes_as_msword()
+    {
+        var (c, slug) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Old Lease.doc");
+        var v = await UploadAsync(c, docId, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 1, 2, 3]);
+
+        var resp = await c.GetAsync($"/api/v1/versions/{v.VersionId}/download");
+        Assert.Equal("application/msword", resp.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"{slug}__Old_Lease-v0.0.1.doc", resp.Content.Headers.ContentDisposition!.FileName!.Trim('"'));
+    }
+
     [Fact]
     public async Task Download_pdf_unpublished_returns_409()
     {

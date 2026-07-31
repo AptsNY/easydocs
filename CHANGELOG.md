@@ -45,6 +45,21 @@ signed `v1.0.0` tag that does not exist yet.
   and last-used times. One predicate now governs both the list and the delete; org-level service-account
   tokens (no owning user) remain visible to Owner/Admin.
 
+#### Fixed
+
+Both found by importing a real 133-document / 668-version corpus of commercial leases; both were
+invisible against the synthetic test fixtures.
+
+- **A stored file is served as what it actually is.** Every blob was recorded (`Blobs.Mime`) and served
+  as a `.docx` regardless of its bytes, so the corpus' 9 PDFs and its legacy `.doc` files downloaded with
+  a Word content type and an R8 name like `…Agreement.pdf-v0.0.1.docx` — bytes intact, label wrong, and
+  Word refuses the file. The content type and the R8 extension are now derived from the stored bytes
+  (magic-byte allowlist: PDF, OLE2 `.doc`, else `.docx`), never from the client's multipart
+  `Content-Type` or filename. R8's `{Sanitized_Name}` also stops repeating an extension the document
+  name already carries. Non-`.docx` files stay second-class — not editable in Collabora, not diffable —
+  but honest: versioned, downloadable, and correctly labelled. No migration: the bytes are re-sniffed at
+  serve time, so the rows written before this fix serve correctly with no data change.
+
 #### Documentation
 
 - **MkDocs Material documentation site** under `docs-site/`: getting started, concepts, a user guide,

@@ -112,6 +112,26 @@ public class ShareLinkTests : IClassFixture<ApiFactory>
         Assert.True(audited);
     }
 
+    // The public download is the SECOND R8 download path and had the same hardcoded docx label. A
+    // recipient outside the org must get a file their computer can open (spec §8, R8).
+    [Fact]
+    public async Task Public_download_serves_pdf_bytes_as_pdf()
+    {
+        var c = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Laundry Agreement.pdf");
+        var pdf = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\nlease body\n%%EOF");
+        var v = await UploadAsync(c, docId, pdf);
+
+        var share = (await (await c.PostAsJsonAsync($"/api/v1/versions/{v.VersionId}/share-links", new { }))
+            .Content.ReadFromJsonAsync<ShareDto>())!;
+
+        var dl = await _f.CreateClient().GetAsync($"/s/{share.Token}/download");
+        Assert.Equal(HttpStatusCode.OK, dl.StatusCode);
+        Assert.Equal("application/pdf", dl.Content.Headers.ContentType!.MediaType);
+        Assert.EndsWith("__Laundry_Agreement-v0.0.1.pdf", dl.Content.Headers.ContentDisposition!.FileName!.Trim('"'));
+        Assert.Equal(pdf, await dl.Content.ReadAsByteArrayAsync());
+    }
+
     [Fact]
     public async Task Revoked_or_expired_token_404()
     {
