@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import {
   api,
+  ApiError,
   getRaw,
   problemText,
   type ChangeSummary,
@@ -60,7 +61,14 @@ export default function Compare() {
     const pair = `/api/v1/documents/${id}/compare?from=${from}&to=${to}`
     setBusy(true)
     Promise.all([
-      api.get<ChangeSummary>(pair),
+      // 422 = this pair cannot be compared, the same answer ?format=docx gives. Not an error to shout
+      // about: the html leg below carries the explanation this screen shows, so the counts are simply
+      // absent rather than a fabricated 0/0.
+      api
+        .get<ChangeSummary>(pair)
+        .catch((e: unknown) =>
+          e instanceof ApiError && e.status === 422 ? null : Promise.reject(e),
+        ),
       getRaw(`${pair}&format=html`).then((r) => r.text()),
     ])
       .then(

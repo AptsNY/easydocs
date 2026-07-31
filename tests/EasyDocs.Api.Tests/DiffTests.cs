@@ -40,6 +40,14 @@ public class DiffTests : IClassFixture<ApiFactory>
     private record DocDto(Guid Id);
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
     private record SummaryDto(int Insertions, int Deletions, int Moves, int FormatChanges);
+    private record ProblemDto(string Title, string Detail);
+
+    private static async Task<Guid> UploadAsync(HttpClient c, Guid docId, byte[] bytes)
+    {
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(bytes));
+        up.EnsureSuccessStatusCode();
+        return (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+    }
 
     // Base @ 0.0.1, Edited @ 0.0.2 (import = fast-forward on main -> parent is the base version).
     private async Task<(Guid docId, Guid v1, Guid v2)> BaseAndEditedAsync(HttpClient c)
@@ -110,6 +118,49 @@ public class DiffTests : IClassFixture<ApiFactory>
             var row = await db.VersionDiffs.FirstAsync(d => d.HtmlBlobSha256 != null);
             Assert.Equal(htmlSha, row.HtmlBlobSha256);
         }
+    }
+
+    // The three compare formats have to agree about WHETHER a comparison exists (spec §7). summary used to
+    // swallow DiffSummary.Available == false and answer 0/0/0/0, which is indistinguishable from "these
+    // two versions are identical" — the real corpus has both cases (a legacy .doc that cannot be compared,
+    // and leases re-saved with no wording change).
+    [Fact]
+    public async Task Summary_of_an_uncomparable_pair_is_422_like_the_other_formats()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Uncomparable" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+
+        // Bytes that are not OOXML at all. The ingest route is content-addressed storage, not a validator,
+        // so this is the honest way to reach "cannot compare" — no stubbing.
+        var v1 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 1"));
+        var v2 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 2"));
+
+        var pair = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}";
+        var summary = await c.GetAsync($"{pair}&format=summary");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, summary.StatusCode);
+        Assert.Equal("Comparison unavailable", (await summary.Content.ReadFromJsonAsync<ProblemDto>())!.Title);
+
+        // Unchanged: html still degrades to the graceful 200 message the SPA renders, docx still 422.
+        var html = await c.GetAsync($"{pair}&format=html");
+        Assert.Equal(HttpStatusCode.OK, html.StatusCode);
+        Assert.Equal("<p>Comparison unavailable.</p>", await html.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await c.GetAsync($"{pair}&format=docx")).StatusCode);
+    }
+
+    // ...and a REAL zero stays a 200 with zeros: two versions whose text is identical are compared
+    // successfully and have no changes. 0/0 is not the failure signal.
+    [Fact]
+    public async Task Summary_of_an_unchanged_pair_is_a_200_with_zeros()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, v1, _) = await BaseAndEditedAsync(c);
+
+        var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v1}&format=summary");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var summary = (await res.Content.ReadFromJsonAsync<SummaryDto>())!;
+        Assert.Equal(0, summary.Insertions);
+        Assert.Equal(0, summary.Deletions);
     }
 
     [Fact]

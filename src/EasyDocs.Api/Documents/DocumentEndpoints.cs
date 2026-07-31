@@ -299,8 +299,9 @@ public static class DocumentEndpoints
     }
 
     // Compare two versions (spec §7). Viewer+ suffices. summary = numeric counts (eager cache, else
-    // computed inline); html = on-demand cached redline (200 text/html, graceful message if unavailable);
-    // docx = the compared redline docx blob. Every WmlComparer call is guarded inside the diff service.
+    // computed inline; 422 if the pair cannot be compared); html = on-demand cached redline (200 text/html,
+    // graceful message if unavailable — it is rendered, not parsed); docx = the compared redline docx blob,
+    // 422 if unavailable. Every WmlComparer call is guarded inside the diff service.
     private static async Task<IResult> Compare(
         Guid id, Guid from, Guid to, string? format,
         HttpContext ctx, EasyDocsDbContext db, WmlComparerDiffService diff, IBlobStore blobs)
@@ -332,20 +333,32 @@ public static class DocumentEndpoints
             }
             default:
             {
+                // A cached row with a non-null Insertions is a comparison that SUCCEEDED. Null means the
+                // eager worker has not drained the job (or it degraded), so compute inline — the same
+                // "null = no computed diff" convention VersionListProjection.SummariesAsync reads.
                 var cached = await db.VersionDiffs.FirstOrDefaultAsync(x => x.FromSha256 == fromSha && x.ToSha256 == toSha);
-                var (ins, del, mov, fmt) = cached?.Insertions is not null
-                    ? (cached.Insertions.Value, cached.Deletions ?? 0, cached.Moves ?? 0, cached.FormatChanges ?? 0)
-                    : await ComputeSummaryAsync(diff, fromSha, toSha, ctx.RequestAborted);
-                return Results.Ok(new { insertions = ins, deletions = del, moves = mov, formatChanges = fmt });
+                if (cached?.Insertions is not null)
+                    return Results.Ok(new
+                    {
+                        insertions = cached.Insertions.Value, deletions = cached.Deletions ?? 0,
+                        moves = cached.Moves ?? 0, formatChanges = cached.FormatChanges ?? 0,
+                    });
+
+                var s = await diff.SummaryAsync(fromSha, toSha, ctx.RequestAborted);
+                // spec §7: WmlComparer degrading to Available=false means "these two cannot be compared",
+                // which is NOT "they are identical". Reporting its zeros made a failure indistinguishable
+                // from a genuine 0/0 — and a genuine 0/0 is real and common (a re-save with no wording
+                // change), so it must stay a 200. 422 is the answer ?format=docx already gives for exactly
+                // this condition; the three formats now agree on WHETHER a comparison exists.
+                if (!s.Available)
+                    return Problem.Of(422, "Comparison unavailable", "These two versions could not be compared.");
+                return Results.Ok(new
+                {
+                    insertions = s.Insertions, deletions = s.Deletions,
+                    moves = s.Moves, formatChanges = s.FormatChanges,
+                });
             }
         }
-    }
-
-    private static async Task<(int, int, int, int)> ComputeSummaryAsync(
-        WmlComparerDiffService diff, string fromSha, string toSha, CancellationToken ct)
-    {
-        var s = await diff.SummaryAsync(fromSha, toSha, ct);
-        return (s.Insertions, s.Deletions, s.Moves, s.FormatChanges);
     }
 
     // Single authorization chokepoint (spec §10/§11). Resolves the caller's document role with no org-role

@@ -59,6 +59,14 @@ invisible against the synthetic test fixtures.
   name already carries. Non-`.docx` files stay second-class — not editable in Collabora, not diffable —
   but honest: versioned, downloadable, and correctly labelled. No migration: the bytes are re-sniffed at
   serve time, so the rows written before this fix serve correctly with no data change.
+- **`compare?format=summary` no longer reports `0/0/0/0` for a comparison that failed.** A pair
+  WmlComparer cannot read (a legacy `.doc`, a corrupt package) degraded to zeros, which is exactly what a
+  genuine "no changes" pair reports — so "we could not compare these" and "these are identical" were the
+  same answer. The summary format now answers `422 Comparison unavailable`, the same status
+  `?format=docx` already gave for the same condition; `?format=html` still degrades to its graceful
+  rendered message, because that response is displayed rather than parsed. A genuine `0/0` stays a `200`
+  with zeros and a rendered redline — re-saving a lease without changing its wording is common and is not
+  a failure.
 
 #### Documentation
 

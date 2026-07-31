@@ -149,8 +149,14 @@ curl -sS -H "$AUTH" \
   "$BASE/api/v1/documents/$DOC/compare?from=$V1&to=$V2&format=docx" -o redline.docx
 ```
 
-`format` defaults to `summary`. If the comparison engine cannot handle the documents, `html` returns a
-plain "Comparison unavailable." message and `docx` returns `422` — never a 500.
+`format` defaults to `summary`. If the comparison engine cannot handle the documents, `summary` and
+`docx` return `422 Comparison unavailable` and `html` returns a plain "Comparison unavailable." message
+(it is meant to be displayed, not parsed) — never a 500.
+
+!!! warning "`0/0` means no changes, and only that"
+    A `200` with `{"insertions":0,"deletions":0,…}` means the two versions were compared successfully and
+    their text is identical — a common result when a file is re-saved without an edit. A comparison that
+    *failed* is the `422` above, never zeros. Check the status code, not the counts.
 
 ### 4. Publish
 
