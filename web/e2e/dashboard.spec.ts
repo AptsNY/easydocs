@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect } from './fixtures'
+import { test, expect, disclose } from './fixtures'
 
 // The dashboard against the real API: folder tree (E1 nesting/move), tiles (E2 first version is
 // 0.0.1), server-side search, and the trash round trip that only became reachable in M4.5 — before
@@ -26,8 +26,15 @@ const row = (page: Page, name: string) =>
 const tile = (page: Page, name: string) =>
   page.locator(`[data-testid="document-tile"][data-name="${name}"]`)
 
+// The dashboard's writes live behind disclosures now, so each of these opens the panel it needs first
+// — one click, exactly where a person clicks. The assertions below are unchanged.
+const newFolderForm = (page: Page) => tree(page).getByTestId('new-folder-form')
+const newDocumentForm = (page: Page) => page.getByTestId('new-document')
+const tileActions = (page: Page, name: string) => tile(page, name).getByTestId('tile-more')
+
 // "New folder" creates inside whatever folder you are looking at, so nesting is just navigate-then-create.
 async function newFolder(page: Page, name: string) {
+  await disclose(newFolderForm(page))
   await tree(page).getByLabel('Folder name').fill(name)
   await tree(page).getByRole('button', { name: 'Create folder' }).click()
   await expect(node(page, name)).toBeVisible()
@@ -42,7 +49,8 @@ async function openFolder(page: Page, name: string) {
 }
 
 async function newDocument(page: Page, name: string) {
-  const form = page.getByTestId('new-document')
+  const form = newDocumentForm(page)
+  await disclose(form)
   await form.getByLabel('Document name').fill(name)
   await form.getByRole('button', { name: 'Create document' }).click()
   await expect(tile(page, name)).toBeVisible()
@@ -77,6 +85,7 @@ test('a folder can be renamed', async ({ signedIn: page }) => {
 
 test('a duplicate folder name surfaces the API problem detail', async ({ signedIn: page }) => {
   await newFolder(page, 'Alpha')
+  await disclose(newFolderForm(page))
   await tree(page).getByLabel('Folder name').fill('Alpha')
   await tree(page).getByRole('button', { name: 'Create folder' }).click()
   await expect(page.getByRole('alert')).toContainText(/already exists/i)
@@ -107,6 +116,7 @@ test('deleting a folder can promote its children or bury them (E1 promote-vs-tra
 
 test('an uploaded first version numbers 0.0.1 (E2)', async ({ signedIn: page }) => {
   await newDocument(page, 'Contract')
+  await disclose(tileActions(page, 'Contract'))
   await tile(page, 'Contract').getByLabel('Upload version').setInputFiles(DOCX)
   await expect(tile(page, 'Contract').getByTestId('tile-version')).toHaveText(/0\.0\.1/)
 })
@@ -123,8 +133,10 @@ test('a tile shows its version number, modified time and last author', async ({
 }) => {
   await newDocument(page, 'Handbook')
   const t = tile(page, 'Handbook')
+  await disclose(tileActions(page, 'Handbook'))
   await t.getByLabel('Upload version').setInputFiles(DOCX_EDITED)
   await expect(t.getByTestId('tile-version')).toHaveText(/0\.0\.1 · 1 version/)
+  await disclose(tileActions(page, 'Handbook'))
   await t.getByLabel('Upload version').setInputFiles(DOCX_ECHO)
   await expect(t.getByTestId('tile-version')).toHaveText(/0\.0\.2 · 2 versions/)
 
@@ -154,6 +166,7 @@ test('a document moves between folders (E1)', async ({ signedIn: page }) => {
   await openFolder(page, 'Alpha')
   await newDocument(page, 'Lease')
 
+  await disclose(tileActions(page, 'Lease'))
   await tile(page, 'Lease').getByLabel('Move to').selectOption({ label: 'Bravo' })
   await expect(tile(page, 'Lease')).toBeHidden()
 
@@ -163,6 +176,7 @@ test('a document moves between folders (E1)', async ({ signedIn: page }) => {
 
 test('a trashed document is recoverable from the trash view', async ({ signedIn: page }) => {
   await newDocument(page, 'Minutes')
+  await disclose(tileActions(page, 'Minutes'))
   await tile(page, 'Minutes').getByRole('button', { name: 'Move to trash' }).click()
   await expect(tile(page, 'Minutes')).toBeHidden()
 

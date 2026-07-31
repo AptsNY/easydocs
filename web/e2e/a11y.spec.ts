@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect, createDocument, uploadVersion } from './fixtures'
+import { test, expect, createDocument, disclose, uploadVersion } from './fixtures'
 
 // The accessibility FLOOR, as tests rather than as good intentions. Task 17 restyled all eight screens,
 // and the three things a design pass reliably destroys are the focus ring, the keyboard path through a
@@ -41,7 +41,15 @@ test('keyboard focus stays visible after the restyle, on a link, a button and a 
   await page.getByLabel('Search documents').focus()
   expectVisibleRing(await focusRing(page))
 
-  // A primary button.
+  // A disclosure summary, which is now the tab stop that reveals every form on the screen. It has to
+  // wear the ring like anything else focusable, or the whole progressive-disclosure pass is invisible
+  // to a keyboard.
+  const newDocument = page.getByTestId('new-document')
+  await newDocument.locator('summary').focus()
+  expectVisibleRing(await focusRing(page))
+
+  // A primary button, inside that disclosure.
+  await disclose(newDocument)
   await page.getByRole('button', { name: 'Create document' }).focus()
   expectVisibleRing(await focusRing(page))
 

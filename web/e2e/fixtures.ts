@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { test as base, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { test as base, expect, type Locator, type Page, type APIRequestContext } from '@playwright/test'
 
 export type Account = { email: string; password: string; orgName: string }
 
@@ -23,6 +23,15 @@ export async function signIn(page: Page, account: Account) {
   await page.getByLabel('Password').fill(account.password)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByTestId('dashboard')).toBeVisible()
+}
+
+// Every form that WRITES now lives behind a native <details> disclosure (M5.5), so a test opens the
+// one it is about to use — the same click a person makes to reach it. Idempotent on purpose: a test
+// may drive the same panel several times, and clicking an open summary would close it.
+export async function disclose(details: Locator) {
+  const open = await details.evaluate((d) => (d as HTMLDetailsElement).open)
+  if (!open) await details.locator('summary').first().click()
+  await expect(details).toHaveAttribute('open', '')
 }
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'

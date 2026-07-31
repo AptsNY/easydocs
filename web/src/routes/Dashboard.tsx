@@ -57,7 +57,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const folderName = tree.known.find((f) => f.id === folderId)?.name
 
   return (
-    <section className="dashboard" data-testid="dashboard">
+    <section className={trashed ? 'dashboard trash' : 'dashboard'} data-testid="dashboard">
       {!trashed && <FolderTree tree={tree} currentId={folderId ?? null} />}
 
       <div className="docs">
@@ -67,53 +67,71 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
             from whatever the tree has loaded, so a cold deep link to /folders/{id} reads "Folder"
             until you expand to it — there is no GET /folders/{id}. Upgrade path: a folderId=none
             sentinel in ListDocuments, and a single-folder GET. */}
-        <h2>{trashed ? 'Trash' : (folderName ?? (folderId ? 'Folder' : 'All documents'))}</h2>
+        <header className="docs-head">
+          <h2>{trashed ? 'Trash' : (folderName ?? (folderId ? 'Folder' : 'All documents'))}</h2>
 
-        {trashed ? (
-          <p>Trashed documents keep their history. Restoring one puts it back where it was.</p>
-        ) : (
-          <>
-            <Link to="/trash" data-testid="trash-link">
-              Trash
-            </Link>
+          {trashed ? (
+            <p className="muted">
+              Trashed documents keep their history. Restoring one puts it back where it was.
+            </p>
+          ) : (
+            // Navigation and one primary action, not a form dump: the search field is always here
+            // because it is how you get around a library, and everything that WRITES is folded away
+            // behind its own verb. Native <details>, so the disclosure costs no JavaScript and its
+            // summary is focusable and Enter-operable for free.
+            <div className="docs-tools">
+              <form className="search" role="search" onSubmit={(e) => e.preventDefault()}>
+                <label className="visually-hidden" htmlFor="search">
+                  Search documents
+                </label>
+                <input
+                  id="search"
+                  data-testid="search"
+                  type="search"
+                  placeholder="Search documents"
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                />
+              </form>
 
-            <form className="stack" role="search" onSubmit={(e) => e.preventDefault()}>
-              <label htmlFor="search">Search documents</label>
-              <input
-                id="search"
-                data-testid="search"
-                type="search"
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-              />
-            </form>
+              <details className="disclose" data-testid="new-document">
+                <summary>New document</summary>
+                <form
+                  className="stack"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!docName.trim()) return
+                    void act(() =>
+                      api
+                        .post('/api/v1/documents', {
+                          name: docName.trim(),
+                          folderId: folderId ?? null,
+                        })
+                        .then(() => setDocName('')),
+                    )
+                  }}
+                >
+                  {/* Hidden, not removed: one field under a summary that already says "New
+                      document" needs no second shouted label, but it still has to be nameable. */}
+                  <label className="visually-hidden" htmlFor="doc-name">
+                    Document name
+                  </label>
+                  <input
+                    id="doc-name"
+                    placeholder="Document name"
+                    value={docName}
+                    onChange={(e) => setDocName(e.target.value)}
+                  />
+                  <button type="submit">Create document</button>
+                </form>
+              </details>
 
-            <form
-              className="stack"
-              data-testid="new-document"
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (!docName.trim()) return
-                void act(() =>
-                  api
-                    .post('/api/v1/documents', {
-                      name: docName.trim(),
-                      folderId: folderId ?? null,
-                    })
-                    .then(() => setDocName('')),
-                )
-              }}
-            >
-              <label htmlFor="doc-name">Document name</label>
-              <input
-                id="doc-name"
-                value={docName}
-                onChange={(e) => setDocName(e.target.value)}
-              />
-              <button type="submit">Create document</button>
-            </form>
-          </>
-        )}
+              <Link to="/trash" className="quiet" data-testid="trash-link">
+                Trash
+              </Link>
+            </div>
+          )}
+        </header>
 
         {error && (
           <p role="alert" className="error">
@@ -123,16 +141,33 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
 
         <ul className="tiles">
           {tiles.map((t) => (
-            <li key={t.id} data-testid="document-tile" data-name={t.name}>
-              <Link to={`/documents/${t.id}`}>{t.name}</Link>
+            <li key={t.id} className="tile" data-testid="document-tile" data-name={t.name}>
+              {/* THE WHOLE TILE IS THE TARGET, and it is still one real <a href>: .tile-open::after is
+                  stretched over the card, so the hit area is the anchor's own box — middle-click and
+                  open-in-new-tab keep working, and nothing interactive is nested inside an anchor
+                  (which would be invalid HTML and unreadable to a screen reader). The controls below
+                  sit on a higher layer so they receive their own clicks.
 
-              <p data-testid="tile-version">
+                  ponytail: the overlay also swallows text selection on the card's meta lines. The
+                  known cost of this pattern; the upgrade path is a click handler that ignores events
+                  whose target is inside a control, which is more code and one more way to be wrong. */}
+              <h3 className="tile-name">
+                <Link className="tile-open" to={`/documents/${t.id}`}>
+                  {t.name}
+                </Link>
+              </h3>
+
+              <p className="tile-version" data-testid="tile-version">
                 {t.currentNumber
                   ? `${t.currentNumber} · ${t.versionCount} version${t.versionCount === 1 ? '' : 's'}`
                   : 'No versions yet'}
               </p>
-              <p data-testid="tile-updated">{t.updatedAt ? whenLocal(t.updatedAt) : ''}</p>
-              <p data-testid="tile-author">{t.lastAuthorName ?? ''}</p>
+              <p className="tile-when">
+                {t.updatedAt ? <span data-testid="tile-updated">{whenLocal(t.updatedAt)}</span> : null}
+                {t.lastAuthorName ? (
+                  <span data-testid="tile-author">{t.lastAuthorName}</span>
+                ) : null}
+              </p>
 
               {trashed ? (
                 // Every one of these controls exists once per tile, so each has to say WHICH document it
@@ -147,66 +182,93 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                   <span className="visually-hidden"> {t.name}</span>
                 </button>
               ) : (
-                <div className="tile-actions">
-                  <label>
-                    <span>Upload version</span>
-                    <span className="visually-hidden"> of {t.name}</span>
-                    <input
-                      type="file"
-                      data-testid="upload-input"
-                      accept=".docx"
-                      onChange={(e) => {
-                        const input = e.currentTarget
-                        const file = input.files?.[0]
-                        if (!file) return
-                        const body = new FormData()
-                        body.append('file', file)
-                        input.value = '' // so re-picking the same file fires change again
-                        void act(() => api.post(`/api/v1/documents/${t.id}/versions`, body))
-                      }}
-                    />
-                  </label>
+                <details className="disclose tile-more" data-testid="tile-more">
+                  <summary>
+                    Manage
+                    <span className="visually-hidden"> {t.name}</span>
+                  </summary>
+                  <div className="tile-actions">
+                    {/* The OS "Choose File" button is the one control in the product nobody designed,
+                        so the input is clipped to a screen-reader-only box and its own <label> is the
+                        button. Still label-associated and still settable — .visually-hidden clips, it
+                        does not display:none — and :focus-within paints the ring on the label, so a
+                        keyboard reader sees where they are. */}
+                    <label className="filebutton">
+                      <span>Upload version</span>
+                      <span className="visually-hidden"> of {t.name}</span>
+                      <input
+                        type="file"
+                        className="visually-hidden"
+                        data-testid="upload-input"
+                        accept=".docx"
+                        onChange={(e) => {
+                          const input = e.currentTarget
+                          const file = input.files?.[0]
+                          if (!file) return
+                          const body = new FormData()
+                          body.append('file', file)
+                          input.value = '' // so re-picking the same file fires change again
+                          void act(() => api.post(`/api/v1/documents/${t.id}/versions`, body))
+                        }}
+                      />
+                    </label>
 
-                  {/* PATCH folderId is the move (E1: history and members come along). The API cannot
-                      set folderId back to null, so there is no "move to top level" option. */}
-                  <label>
-                    <span>Move to</span>
-                    <span className="visually-hidden"> folder, for {t.name}</span>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const target = e.target.value
-                        if (!target) return
-                        void act(() =>
-                          api.patch(`/api/v1/documents/${t.id}`, { folderId: target }),
-                        )
-                      }}
+                    {/* PATCH folderId is the move (E1: history and members come along). The API cannot
+                        set folderId back to null, so there is no "move to top level" option. */}
+                    <label className="inline-field">
+                      <span>Move to</span>
+                      <span className="visually-hidden"> folder, for {t.name}</span>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const target = e.target.value
+                          if (!target) return
+                          void act(() =>
+                            api.patch(`/api/v1/documents/${t.id}`, { folderId: target }),
+                          )
+                        }}
+                      >
+                        <option value="">Choose a folder…</option>
+                        {tree.known
+                          .filter((f) => f.id !== t.folderId)
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void act(() => api.del(`/api/v1/documents/${t.id}`))}
                     >
-                      <option value="">Choose a folder…</option>
-                      {tree.known
-                        .filter((f) => f.id !== t.folderId)
-                        .map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => void act(() => api.del(`/api/v1/documents/${t.id}`))}
-                  >
-                    Move to trash
-                    <span className="visually-hidden"> — {t.name}</span>
-                  </button>
-                </div>
+                      Move to trash
+                      <span className="visually-hidden"> — {t.name}</span>
+                    </button>
+                  </div>
+                </details>
               )}
             </li>
           ))}
         </ul>
 
-        {tiles.length === 0 && <p>{trashed ? 'The trash is empty.' : 'No documents here yet.'}</p>}
+        {/* An empty column is not an answer. "No results" and "nothing here yet" are different
+            situations and get different words — one is a dead end, the other is a first step. */}
+        {tiles.length === 0 &&
+          (trashed ? (
+            <p className="empty">The trash is empty.</p>
+          ) : q ? (
+            <p className="empty">
+              Nothing matches “{q}”. Try a shorter word, or clear the search to see everything.
+            </p>
+          ) : (
+            <p className="empty">
+              No documents {folderId ? 'in this folder' : 'yet'}. Create one with{' '}
+              <b>New document</b>, then upload a .docx to start its history.
+            </p>
+          ))}
         {/* Appends rather than going through act(), which reloads from the first page. */}
         {nextCursor && (
           <button

@@ -107,19 +107,31 @@ export default function FolderTree({
         ))}
       </ul>
 
-      {/* Creates inside the folder you are looking at, so there is one form instead of one per node. */}
-      <form
-        className="stack"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!name.trim()) return
-          void tree.create(name.trim(), currentId).then((ok) => ok && setName(''))
-        }}
-      >
-        <label htmlFor="new-folder">Folder name</label>
-        <input id="new-folder" value={name} onChange={(e) => setName(e.target.value)} />
-        <button type="submit">Create folder</button>
-      </form>
+      {/* Creates inside the folder you are looking at, so there is one form instead of one per node.
+          Folded away behind its own verb: the tree is an index, and an index that is half a form does
+          not read as navigation. */}
+      <details className="disclose" data-testid="new-folder-form">
+        <summary>New folder</summary>
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!name.trim()) return
+            void tree.create(name.trim(), currentId).then((ok) => ok && setName(''))
+          }}
+        >
+          <label className="visually-hidden" htmlFor="new-folder">
+            Folder name
+          </label>
+          <input
+            id="new-folder"
+            placeholder="Folder name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button type="submit">Create folder</button>
+        </form>
+      </details>
 
       {tree.error && (
         <p role="alert" className="error">
@@ -172,19 +184,24 @@ function Node({
         >
           {folder.name}
         </Link>
-        <button
-          type="button"
-          className="link"
-          onClick={() => {
-            setName(folder.name)
-            setMode('rename')
-          }}
-        >
-          Rename
-        </button>
-        <button type="button" className="link" onClick={() => setMode('confirm')}>
-          Delete
-        </button>
+        {/* Quiet by default (CSS reveals them on hover or focus, and always on a touch screen): a row
+            in an index is a name first, and two verbs sitting next to every name is what made this
+            read as a form. */}
+        <span className="row-verbs">
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setName(folder.name)
+              setMode('rename')
+            }}
+          >
+            Rename
+          </button>
+          <button type="button" className="link danger" onClick={() => setMode('confirm')}>
+            Delete
+          </button>
+        </span>
       </div>
 
       {mode === 'rename' && (
