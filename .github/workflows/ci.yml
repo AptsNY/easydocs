@@ -34,9 +34,24 @@ jobs:
           npm --prefix web ci
           npm --prefix web run build
 
+      # Without this the two PDF tests SKIP here, and a skip reads as coverage that does not exist. The
+      # release gate installs LibreOffice, so the first environment ever to execute them was the v1.0.0
+      # tag — where one of them failed on an assertion that had been wrong since it was written. A test
+      # whose only runtime is the release gate is a test that fails at the worst possible moment.
+      - name: Install LibreOffice (so the PDF tests run instead of skipping)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice
+
       # ubuntu-latest runners ship Docker, so Testcontainers can start Postgres.
+      # With LibreOffice installed above, nothing here is allowed to skip: a silent skip is how the
+      # wrong PDF assertion survived all the way to the release gate. One run, both checks.
       - name: Test
-        run: dotnet test --no-build -c Release
+        run: |
+          set -o pipefail
+          dotnet test --no-build -c Release 2>&1 | tee /tmp/test.log
+          if grep -qE "Skipped: +[1-9]" /tmp/test.log; then
+            echo "::error::a test skipped in an environment where every dependency is installed"
+            exit 1
+          fi
 
   # The Playwright suite against the SHIPPED IMAGE, not the Vite dev server. That is the whole point:
   # only the container exercises MapFallbackToFile, static assets out of wwwroot, and the /s/{token}

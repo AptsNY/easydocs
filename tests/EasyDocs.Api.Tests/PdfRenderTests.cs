@@ -88,14 +88,33 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(header));
     }
 
+    // Spec §12.2 robustness: garbage in must not take the renderer down. The contract is the method
+    // NAME — it returns rather than throwing or hanging — and that whatever comes back is honest.
+    //
+    // This used to assert the result was null, which was a guess about LibreOffice rather than an
+    // observation of it, and the guess was wrong: soffice treats `01 02 03` as a plain text file and
+    // renders a perfectly valid one-page PDF of it. Nothing caught that, because the test only runs
+    // where soffice exists — it skips on a dev machine, and ci.yml's build-test job does not install
+    // LibreOffice. The first environment ever to execute it was the release gate.
+    //
+    // Producing a PDF from junk is harmless here: the ingest path sniffs magic bytes, so a non-.docx
+    // blob is never treated as a document in the first place. What would NOT be harmless is registering
+    // something that is not a PDF as one, so that is what is asserted.
     [Fact]
     public async Task Malformed_docx_does_not_crash_renderer()
     {
         var root = Directory.CreateTempSubdirectory().FullName;
-        var renderer = new LibreOfficePdfRenderer(new FileSystemBlobStore(root), NullLogger<LibreOfficePdfRenderer>.Instance);
+        var store = new FileSystemBlobStore(root);
+        var renderer = new LibreOfficePdfRenderer(store, NullLogger<LibreOfficePdfRenderer>.Instance);
 
-        var sha = await renderer.RenderToBlobAsync(new MemoryStream(new byte[] { 1, 2, 3 }), CancellationToken.None);
+        // No exception, no hang. Either outcome is acceptable; crashing is not.
+        var result = await renderer.RenderToBlobAsync(new MemoryStream([1, 2, 3]), CancellationToken.None);
 
-        Assert.Null(sha);
+        if (result is null) return; // refused outright — also fine
+
+        await using var pdf = await store.OpenReadAsync(result.Value.Sha256);
+        var header = new byte[4];
+        await pdf.ReadExactlyAsync(header);
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(header));
     }
 }
