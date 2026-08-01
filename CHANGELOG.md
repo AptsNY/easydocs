@@ -15,6 +15,21 @@ this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers tha
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
+## [1.0.1] - 2026-08-01
+
+### Fixed
+
+- **The container image is now multi-arch (`linux/amd64` + `linux/arm64`).** `1.0.0` was amd64-only,
+  so `docker compose up` failed with "no matching manifest for linux/arm64/v8" on every Apple Silicon
+  Mac and ARM server (Graviton, Raspberry Pi) — the quickstart's first command, dead on arrival for
+  that whole audience. The application is unchanged; if `1.0.0` runs for you, so does this.
+
+### Changed
+
+- The documentation site now deploys to <https://robertzu43.github.io/easydocs/> on every push to
+  `main`, the README leads with the quickstart instead of internal milestone history, and the
+  planned-work lists were gathered into [ROADMAP.md](ROADMAP.md) with a matching GitHub milestone.
+
 ## [1.0.0] - 2026-08-01
 
 The first release. Everything in easydocs: milestones M0 through M5.
