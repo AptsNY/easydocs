@@ -28,12 +28,11 @@ API for developers. One process, `docker compose up`.
 
 </div>
 
-## Not released yet
+## Status
 
-There is **no `v1.0.0` tag**. Milestones M0–M4.5 are complete — the REST API and the full web UI both
-work end to end, and the v1 conformance profile (E1–E12) runs green in CI against the real container
-image. M5, the release milestone, is in progress. Treat `main` as pre-release: usable, self-hostable,
-not yet versioned.
+**`v1.0.0` is released** (2026-08-01). Install from the compose bundle attached to the
+[latest release](https://github.com/Robertzu43/easydocs/releases/latest) rather than building `main`
+from source — `main` is where development happens.
 
 ## Not built in v1
 
@@ -45,7 +44,6 @@ Listed so you do not go looking for them. All are v1.1 or later.
 - **No desktop "Open in Word."** Editing is in the browser via Collabora. WebDAV + `ms-word:` is v1.1.
 - **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization
   members.
-- **No org switcher.** A session carries exactly one organization.
 - **No graphical revision graph** (history is an indented list) and **no full-text content search**
   (names only).
 
@@ -62,6 +60,7 @@ document is currently misleading.
 
 ## License
 
-The server is **AGPL-3.0**. Future API clients and SDKs under `packages/*` will be **MIT** — see
-`LICENSING.md` in the repository. Contributions are under the **Developer Certificate of Origin**
-(`git commit -s`), with no CLA.
+The server is **AGPL-3.0**. Future API clients and SDKs under `packages/*` will be **MIT** — that
+directory does not exist yet, so assume AGPL-3.0 for anything you take today; the full reasoning is in
+the repository README's licensing section. Contributions are under the **Developer Certificate of
+Origin** (`git commit -s`), with no CLA.

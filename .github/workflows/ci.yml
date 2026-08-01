@@ -152,8 +152,9 @@ jobs:
   # exit 0, so the docs would rot silently between releases. `validation:` in mkdocs.yml promotes
   # absolute and unrecognised links to warnings too, so --strict catches those as well.
   #
-  # No Pages deploy: the build gate is the requirement, and publishing is a separate decision that
-  # needs the repo's Pages settings enabled first. Add a deploy job when someone wants the site hosted.
+  # On PRs this job is only the build gate; on a push to main the built site is also published to
+  # GitHub Pages by docs-deploy below. Same build both times — what the gate validated is exactly
+  # what gets deployed.
   docs-build:
     runs-on: ubuntu-latest
     steps:
@@ -170,6 +171,27 @@ jobs:
       - name: Build the docs site
         working-directory: docs-site
         run: mkdocs build --strict
+
+      - name: Upload the site as a Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/site
+
+  docs-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs-build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write      # deploy to Pages
+      id-token: write   # OIDC token that authenticates the deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
 
   dco-check:
     runs-on: ubuntu-latest
