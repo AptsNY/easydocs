@@ -20,6 +20,17 @@ public static class DocxFixtures
     // Not a zip => WmlComparer must degrade, never throw.
     public static byte[] Malformed() => new byte[] { 1, 2, 3 };
 
+    // Blobs are content-addressed and version_diffs is keyed by (from_sha, to_sha), so EVERY test that
+    // compares Base() to Edited() shares one row. That is fine while they only read it, and a trap for a
+    // test that needs to own the row — it would be racing every other diff test in the assembly. This
+    // mints a pair no other test can collide with.
+    public static (byte[] From, byte[] To) UniquePair()
+    {
+        var marker = Guid.NewGuid().ToString("N");
+        return (Build("Alpha", marker, "Charlie"),
+                Build("Alpha", marker + " EDITED", "Charlie", "Delta " + marker));
+    }
+
     private static byte[] Build(params string[] paragraphs)
     {
         using var ms = new MemoryStream();

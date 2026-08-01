@@ -49,6 +49,18 @@ public class DiffTests : IClassFixture<ApiFactory>
         return (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
     }
 
+    // version_diffs is keyed by content hash, so a query like "any row with an HTML blob" answers for the
+    // WHOLE assembly, not for the pair under test — it passed only because these were the only writers.
+    // Scope every assertion to the two versions the test actually created.
+    private async Task<(string From, string To)> ShasAsync(Guid v1, Guid v2)
+    {
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var from = await db.Versions.Where(v => v.Id == v1).Select(v => v.BlobSha256).SingleAsync();
+        var to = await db.Versions.Where(v => v.Id == v2).Select(v => v.BlobSha256).SingleAsync();
+        return (from, to);
+    }
+
     // Base @ 0.0.1, Edited @ 0.0.2 (import = fast-forward on main -> parent is the base version).
     private async Task<(Guid docId, Guid v1, Guid v2)> BaseAndEditedAsync(HttpClient c)
     {
@@ -68,6 +80,7 @@ public class DiffTests : IClassFixture<ApiFactory>
     {
         var c = await AuthedClientAsync();
         var (docId, v1, v2) = await BaseAndEditedAsync(c);
+        var shas = await ShasAsync(v1, v2);
 
         // Eager BackgroundService populates the numeric summary; poll the row until it lands.
         var populated = false;
@@ -76,7 +89,9 @@ public class DiffTests : IClassFixture<ApiFactory>
         {
             using var scope = _f.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-            populated = await db.VersionDiffs.AnyAsync(d => d.Insertions != null || d.Deletions != null);
+            populated = await db.VersionDiffs.AnyAsync(
+                d => d.FromSha256 == shas.From && d.ToSha256 == shas.To
+                     && (d.Insertions != null || d.Deletions != null));
             if (populated) break;
             await Task.Delay(250);
         }
@@ -92,6 +107,7 @@ public class DiffTests : IClassFixture<ApiFactory>
     {
         var c = await AuthedClientAsync();
         var (docId, v1, v2) = await BaseAndEditedAsync(c);
+        var shas = await ShasAsync(v1, v2);
 
         var url = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=html";
         var first = await c.GetAsync(url);
@@ -103,7 +119,8 @@ public class DiffTests : IClassFixture<ApiFactory>
         using (var scope = _f.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-            var row = await db.VersionDiffs.FirstAsync(d => d.HtmlBlobSha256 != null);
+            var row = await db.VersionDiffs.SingleAsync(
+                d => d.FromSha256 == shas.From && d.ToSha256 == shas.To);
             htmlSha = row.HtmlBlobSha256;
             Assert.NotNull(htmlSha);
         }
@@ -115,7 +132,8 @@ public class DiffTests : IClassFixture<ApiFactory>
         using (var scope = _f.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-            var row = await db.VersionDiffs.FirstAsync(d => d.HtmlBlobSha256 != null);
+            var row = await db.VersionDiffs.SingleAsync(
+                d => d.FromSha256 == shas.From && d.ToSha256 == shas.To);
             Assert.Equal(htmlSha, row.HtmlBlobSha256);
         }
     }
@@ -183,28 +201,31 @@ public class DiffTests : IClassFixture<ApiFactory>
     // not be compared. The compare endpoint turns that into a 422, so two perfectly comparable versions
     // reported "Comparison unavailable" — intermittently, which is the worst way to learn about it.
     //
-    // Separate scopes because each needs its own DbContext: one shared context would serialise the writes
-    // and never reproduce the race.
+    // Driven through the API, not the service directly: uploading is what creates the `blobs` rows that
+    // version_diffs' foreign keys require, so a service-level test using IBlobStore.PutAsync (which only
+    // writes the file) would fail on the FK long before reaching the primary-key race it means to test.
+    // A unique fixture pair keeps this row out of every other diff test's way.
     [Fact]
-    public async Task Concurrent_summaries_of_the_same_pair_both_succeed()
+    public async Task Concurrent_compares_of_the_same_pair_never_report_uncomparable()
     {
-        var blobs = _f.Services.GetRequiredService<IBlobStore>();
-        var from = await blobs.PutAsync(new MemoryStream(DocxFixtures.Base()));
-        var to = await blobs.PutAsync(new MemoryStream(DocxFixtures.Edited()));
+        var c = await AuthedClientAsync();
+        var (fromBytes, toBytes) = DocxFixtures.UniquePair();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Race" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var v1 = await UploadAsync(c, docId, fromBytes);
+        var v2 = await UploadAsync(c, docId, toBytes);
 
-        async Task<WmlComparerDiffService.DiffSummary> ComputeAsync()
-        {
-            using var scope = _f.Services.CreateScope();
-            var svc = scope.ServiceProvider.GetRequiredService<WmlComparerDiffService>();
-            return await svc.SummaryAsync(from.Sha256, to.Sha256, default);
-        }
+        // Six callers, one pair. The eager worker is already computing this same pair off the upload, so
+        // the field is larger than six — which is the point.
+        var url = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=summary";
+        var responses = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => c.GetAsync(url)));
 
-        var results = await Task.WhenAll(ComputeAsync(), ComputeAsync(), ComputeAsync());
+        // 422 here means "these two versions could not be compared" — the answer a lost cache-row insert
+        // used to produce for two documents that compare perfectly well.
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
 
-        // Every caller computed the comparison successfully. Losing the cache-row insert is bookkeeping,
-        // not a failed comparison, and must never reach the caller as one.
-        Assert.All(results, r => Assert.True(r.Available, "a concurrent writer reported the pair as uncomparable"));
-        Assert.All(results, r => Assert.Equal(results[0].Insertions, r.Insertions));
-        Assert.All(results, r => Assert.Equal(results[0].Deletions, r.Deletions));
+        var summaries = await Task.WhenAll(responses.Select(r => r.Content.ReadFromJsonAsync<SummaryDto>()));
+        Assert.All(summaries, s => Assert.Equal(summaries[0]!.Insertions, s!.Insertions));
+        Assert.All(summaries, s => Assert.Equal(summaries[0]!.Deletions, s!.Deletions));
     }
 }
