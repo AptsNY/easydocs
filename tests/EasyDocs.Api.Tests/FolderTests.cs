@@ -94,6 +94,62 @@ public class FolderTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
     }
 
+    // A folder made its own descendant is unrecoverable: GET /folders walks DOWN from the root, so the
+    // whole cycle vanishes from every listing and no request can reach it to move it back (spec §4).
+    [Fact]
+    public async Task Cannot_move_a_folder_under_its_own_descendant()
+    {
+        var c = await AuthedClientAsync();
+        var a = await CreateAsync(c, "A");
+        var b = await CreateAsync(c, "B", a);
+        var deep = await CreateAsync(c, "C", b);
+
+        foreach (var newParent in new[] { b, deep })
+        {
+            var res = await c.PatchAsJsonAsync($"/api/v1/folders/{a}", new { parentId = newParent });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            Assert.Equal("application/problem+json", res.Content.Headers.ContentType?.MediaType);
+        }
+
+        // Still reachable from the root, which is the point.
+        var root = await c.GetFromJsonAsync<List<FolderDto>>("/api/v1/folders");
+        Assert.Contains(root!, f => f.Id == a);
+    }
+
+    // `parentId: null` used to be indistinguishable from "parentId not supplied", so a folder could be
+    // nested but never un-nested. Null now means the root; absent still means "leave the parent alone".
+    [Fact]
+    public async Task Explicit_null_parent_moves_to_root_and_an_absent_one_leaves_it_alone()
+    {
+        var c = await AuthedClientAsync();
+        var a = await CreateAsync(c, "A");
+        var b = await CreateAsync(c, "B", a);
+
+        var renamed = await c.PatchAsJsonAsync($"/api/v1/folders/{b}", new { name = "B renamed" });
+        renamed.EnsureSuccessStatusCode();
+        Assert.Equal(a, (await renamed.Content.ReadFromJsonAsync<FolderDto>())!.ParentId);
+
+        var moved = await c.PatchAsJsonAsync($"/api/v1/folders/{b}", new { parentId = (Guid?)null });
+        moved.EnsureSuccessStatusCode();
+        Assert.Null((await moved.Content.ReadFromJsonAsync<FolderDto>())!.ParentId);
+
+        var root = await c.GetFromJsonAsync<List<FolderDto>>("/api/v1/folders");
+        Assert.Contains(root!, f => f.Id == b);
+    }
+
+    // The unique index treats a NULL parent as distinct, so moving to the root has to pre-check names
+    // the way Create does — otherwise it is the one route to two same-named folders side by side.
+    [Fact]
+    public async Task Moving_to_root_over_an_existing_name_returns_409()
+    {
+        var c = await AuthedClientAsync();
+        var a = await CreateAsync(c, "Leases");
+        var nested = await CreateAsync(c, "Leases", a);
+
+        var res = await c.PatchAsJsonAsync($"/api/v1/folders/{nested}", new { parentId = (Guid?)null });
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+    }
+
     [Fact]
     public async Task Folders_endpoints_require_auth()
         => Assert.Equal(HttpStatusCode.Unauthorized,
