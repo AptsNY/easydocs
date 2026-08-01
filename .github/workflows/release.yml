@@ -88,16 +88,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # QEMU is what makes the arm64 half of the build possible on an amd64 runner. v1.0.0 shipped
+      # amd64-only, which fails `docker compose up` on every Apple Silicon Mac and ARM server
+      # (Graviton, Raspberry Pi) with "no matching manifest for linux/arm64/v8" — the quickstart's
+      # first command, dead on arrival for that whole audience.
+      - name: Set up QEMU (for the arm64 build)
+        uses: docker/setup-qemu-action@v3
+
       # The existing multi-stage Dockerfile: node builds the SPA into wwwroot, the dotnet runtime stage
       # bundles LibreOffice for PDF rendering. One Dockerfile, used by dev, CI and release alike.
+      # All three base images (node, dotnet/sdk, dotnet/aspnet) are multi-arch, so the same Dockerfile
+      # builds both platforms.
       #
       # `digest` is what gets signed. Signing a mutable tag would be signing a pointer, not an artifact:
       # `latest` moves on the next release and the signature would then attest to the wrong image.
+      # With two platforms the digest is the manifest list's — one signature covers both.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ steps.v.outputs.ref }}
