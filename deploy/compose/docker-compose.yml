@@ -34,6 +34,9 @@ services:
       WOPI_HOST_URL: ${WOPI_HOST_URL}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       COLLABORA_URL: ${COLLABORA_URL}
+      # The browser-facing one. COLLABORA_URL is the compose-internal name the APP uses;
+      # this is the origin a person's browser must load the editor from.
+      COLLABORA_PUBLIC_URL: ${COLLABORA_PUBLIC_URL}
       ASPNETCORE_HTTP_PORTS: "8080"
     ports:
       - "8080:8080"

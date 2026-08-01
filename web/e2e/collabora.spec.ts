@@ -12,13 +12,20 @@ import { test, expect, createDocument, uploadVersion } from './fixtures'
 // loads in the iframe, fetches CheckFileInfo/GetFile back off the WOPI host, renders the document ->
 // type -> save -> assert easydocs recorded a new version with source EditWopi.
 //
-// The hostname problem. The editorUrl the API issues is correct FOR THE DEPLOYMENT and must stay that
-// way: WOPISrc=http://easydocs:8080 is fetched by the coolwsd process inside the collabora container, so
-// it has to be the compose-internal name, and Collabora's own /hosting/discovery advertises itself under
-// the host it was asked on. A browser running on the host cannot resolve either. Rather than weaken the
-// deployment config, this spec rewrites only the ONE URL the browser itself must load — the iframe src —
-// swapping the editor origin for the published localhost:9980 port. WOPISrc is left untouched, so the
-// WOPI conversation this test is actually about runs exactly as it does in production.
+// The hostname problem, and why this spec no longer papers over it.
+//
+// There are two audiences for a Collabora URL. WOPISrc=http://easydocs:8080 is fetched by the coolwsd
+// process INSIDE the compose network, so it must be the internal name. The editor page, by contrast, is
+// loaded by a person's browser, which cannot resolve `collabora` at all.
+//
+// This spec used to rewrite the editor origin before navigating — and that intercept hid a total failure
+// of the flagship feature for exactly the same reason the camelCase bug above survived four milestones:
+// the test repaired the product's output and then asserted the repaired version worked. The API really
+// was handing browsers `http://collabora:9980/...`, and the editor pane really did fail to load, while
+// this test stayed green. Twice now, the substitution WAS the bug.
+//
+// So the rewrite is gone. The app resolves the browser-facing origin itself from COLLABORA_PUBLIC_URL,
+// and the first assertion below is that it did — because a URL the browser cannot fetch is the failure.
 const COLLABORA_ORIGIN = process.env.E2E_COLLABORA_URL ?? 'http://localhost:9980'
 
 // Collabora CODE cold-starts a document process per file and streams a large SPA before it draws
@@ -34,13 +41,16 @@ test.describe('Collabora editing (spec §6, §12.3 E3)', () => {
     const documentId = await createDocument(page, 'Collabora Round Trip')
     const versionId = await uploadVersion(page, documentId, 'base.docx')
 
-    // Point the iframe at the published Collabora port; leave WOPISrc alone (see note above).
-    await page.route('**/api/v1/versions/*/sessions', async (route) => {
-      const response = await route.fetch()
-      const body = (await response.json()) as { editorUrl: string }
-      body.editorUrl = body.editorUrl.replace(/^https?:\/\/[^/]+/, COLLABORA_ORIGIN)
-      await route.fulfill({ response, json: body })
-    })
+    // The API must hand the browser an origin the browser can actually reach. Asserted before the
+    // navigation so the failure names the cause — an unreachable editor host — rather than surfacing
+    // two minutes later as "the canvas never appeared".
+    const minted = await page.request.post(`/api/v1/versions/${versionId}/sessions`)
+    expect(minted.ok(), `mint failed: ${minted.status()}`).toBeTruthy()
+    const { editorUrl } = (await minted.json()) as { editorUrl: string }
+    expect(new URL(editorUrl).origin, 'editorUrl must be browser-reachable, not the compose-internal host')
+      .toBe(COLLABORA_ORIGIN)
+    // WOPISrc stays internal: coolwsd fetches it from inside the network, so that is correct as-is.
+    expect(decodeURIComponent(new URL(editorUrl).searchParams.get('WOPISrc') ?? '')).toContain('easydocs:8080')
 
     await page.goto(`/versions/${versionId}/edit`)
     await expect(page.getByTestId('editor-frame')).toBeVisible()
