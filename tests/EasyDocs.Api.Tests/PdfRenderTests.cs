@@ -44,6 +44,52 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         return new MultipartFormDataContent { { part, "file", "f.docx" } };
     }
 
+    // Publishing a version that is ALREADY a PDF must hand back the user's own bytes, not a conversion
+    // of them. soffice does not pass a PDF through: it imports it into Draw and re-lays it out, so a
+    // 69-byte upload came back as a 1556-byte %PDF-1.7 with a different producer — on a real scanned
+    // lease that means reflowed or rasterised text. The corpus that exposed the mislabelling bug has
+    // nine PDFs in it, so this is a path real documents take.
+    //
+    // No Skip.IfNot here on purpose: the passthrough short-circuits BEFORE the renderer, so unlike the
+    // other tests in this file it must hold on a host with no soffice at all — and a test that runs
+    // everywhere is the one that will actually catch a regression.
+    [Fact]
+    public async Task Publishing_a_pdf_version_serves_the_original_bytes_not_a_re_render()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Scan.pdf" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+
+        // A real (minimal) PDF. Uploaded through the normal route with a docx content type, because the
+        // client's declared type is untrusted input — the bytes are what decide.
+        var pdfBytes = System.Text.Encoding.ASCII.GetBytes(
+            "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(pdfBytes));
+        Assert.Equal(HttpStatusCode.Created, up.StatusCode);
+        var vid = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+
+        (await c.PostAsJsonAsync($"/api/v1/versions/{vid}/publish", new { kind = "minor" })).EnsureSuccessStatusCode();
+
+        string? pdfSha = null, sourceSha = null;
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            using var scope = _f.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var v = await db.Versions.AsNoTracking().FirstAsync(x => x.Id == vid);
+            (pdfSha, sourceSha) = (v.PdfBlobSha256, v.BlobSha256);
+            if (pdfSha is not null) break;
+            await Task.Delay(250);
+        }
+
+        // Content-addressed storage makes this the whole assertion: the same sha IS the same bytes.
+        Assert.NotNull(pdfSha);
+        Assert.Equal(sourceSha, pdfSha);
+
+        var served = await c.GetByteArrayAsync($"/api/v1/versions/{vid}/download?format=pdf");
+        Assert.Equal(pdfBytes, served);
+    }
+
     [SkippableFact]
     public async Task Publish_renders_pdf_when_soffice_available()
     {

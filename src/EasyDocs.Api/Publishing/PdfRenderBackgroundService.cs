@@ -28,6 +28,24 @@ public sealed class PdfRenderBackgroundService(
                 var blobs = scope.ServiceProvider.GetRequiredService<IBlobStore>();
                 var renderer = scope.ServiceProvider.GetRequiredService<LibreOfficePdfRenderer>();
 
+                // A version whose bytes are ALREADY a PDF must not be converted. soffice does not pass a
+                // PDF through — it imports it into Draw and re-lays it out, so publishing a scanned lease
+                // handed the user back a different document: different size, different producer, text
+                // reflowed or rasterised. The published PDF has to BE the file they uploaded.
+                //
+                // Sniffed from the bytes for the same reason downloads are (spec §10.3): the client's
+                // multipart Content-Type is untrusted, and Blobs.Mime can predate the sniffing fix.
+                // The blobs row already exists for this sha, so pointing the FK at it is safe.
+                var (mime, _) = await BlobMime.SniffAsync(blobs, version.BlobSha256, stoppingToken);
+                if (mime == BlobMime.Pdf)
+                {
+                    version.PdfBlobSha256 = version.BlobSha256;
+                    await db.SaveChangesAsync(stoppingToken);
+                    bus.Publish(version.DocumentId, "pdf.ready",
+                        new { versionId, pdfSha = version.BlobSha256 });
+                    continue;
+                }
+
                 await using var docx = await blobs.OpenReadAsync(version.BlobSha256, stoppingToken);
                 var pdf = await renderer.RenderToBlobAsync(docx, stoppingToken);
                 if (pdf is null) continue; // guard: soffice absent/failed — leave PdfBlobSha256 null
