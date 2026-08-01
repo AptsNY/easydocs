@@ -175,4 +175,36 @@ public class DiffTests : IClassFixture<ApiFactory>
         var result = await svc.SummaryAsync(stored.Sha256, stored.Sha256, default);
         Assert.False(result.Available);
     }
+
+    // The eager DiffSummaryWorker and a user's inline compare routinely target the same pair — uploading
+    // a version enqueues the job, and clicking Compare straight afterwards computes it again. version_diffs
+    // is keyed by (from_sha, to_sha), so the loser of that insert race used to throw DbUpdateException
+    // inside the same try that guards the comparison itself, and the caller was told the documents could
+    // not be compared. The compare endpoint turns that into a 422, so two perfectly comparable versions
+    // reported "Comparison unavailable" — intermittently, which is the worst way to learn about it.
+    //
+    // Separate scopes because each needs its own DbContext: one shared context would serialise the writes
+    // and never reproduce the race.
+    [Fact]
+    public async Task Concurrent_summaries_of_the_same_pair_both_succeed()
+    {
+        var blobs = _f.Services.GetRequiredService<IBlobStore>();
+        var from = await blobs.PutAsync(new MemoryStream(DocxFixtures.Base()));
+        var to = await blobs.PutAsync(new MemoryStream(DocxFixtures.Edited()));
+
+        async Task<WmlComparerDiffService.DiffSummary> ComputeAsync()
+        {
+            using var scope = _f.Services.CreateScope();
+            var svc = scope.ServiceProvider.GetRequiredService<WmlComparerDiffService>();
+            return await svc.SummaryAsync(from.Sha256, to.Sha256, default);
+        }
+
+        var results = await Task.WhenAll(ComputeAsync(), ComputeAsync(), ComputeAsync());
+
+        // Every caller computed the comparison successfully. Losing the cache-row insert is bookkeeping,
+        // not a failed comparison, and must never reach the caller as one.
+        Assert.All(results, r => Assert.True(r.Available, "a concurrent writer reported the pair as uncomparable"));
+        Assert.All(results, r => Assert.Equal(results[0].Insertions, r.Insertions));
+        Assert.All(results, r => Assert.Equal(results[0].Deletions, r.Deletions));
+    }
 }

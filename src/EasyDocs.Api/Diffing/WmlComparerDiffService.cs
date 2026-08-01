@@ -23,29 +23,49 @@ public sealed class WmlComparerDiffService(IBlobStore blobs, EasyDocsDbContext d
 
     public async Task<DiffSummary> SummaryAsync(string fromSha, string toSha, CancellationToken ct)
     {
+        int insertions, deletions;
+
+        // Only the COMPARISON is allowed to degrade to Available=false. Persisting the cache row used to
+        // sit inside this same try, so a failure to write the cache was reported to the caller as "these
+        // two versions cannot be compared" — and the compare endpoint turns that into a 422. The race is
+        // routine, not exotic: uploading a version enqueues a diff job, and a user who clicks Compare
+        // straight away computes the identical pair inline. version_diffs is keyed by
+        // (from_sha, to_sha), so whichever writer lost inserted a duplicate primary key and told the user
+        // their perfectly comparable documents could not be compared.
         try
         {
             var compared = await CompareAsync(fromSha, toSha, ct);
             var revisions = WmlComparer.GetRevisions(compared, new WmlComparerSettings());
-            var insertions = revisions.Count(r => r.RevisionType == WmlComparer.WmlComparerRevisionType.Inserted);
-            var deletions = revisions.Count(r => r.RevisionType == WmlComparer.WmlComparerRevisionType.Deleted);
-
-            // ponytail: WmlComparer.GetRevisions only classifies Inserted/Deleted, so Moves/FormatChanges
-            // stay 0 for M1 (upgrade path: derive from w:moveFrom/w:moveTo and w:rPrChange when needed).
-            var row = await UpsertAsync(fromSha, toSha, ct);
-            row.Insertions = insertions;
-            row.Deletions = deletions;
-            row.Moves = 0;
-            row.FormatChanges = 0;
-            await db.SaveChangesAsync(ct);
-
-            return new DiffSummary(true, insertions, deletions, 0, 0);
+            insertions = revisions.Count(r => r.RevisionType == WmlComparer.WmlComparerRevisionType.Inserted);
+            deletions = revisions.Count(r => r.RevisionType == WmlComparer.WmlComparerRevisionType.Deleted);
         }
         catch (Exception ex)
         {
             log.LogWarning(ex, "WmlComparer summary failed for {From}->{To}; degrading to unavailable", fromSha, toSha);
             return new DiffSummary(false, 0, 0, 0, 0);
         }
+
+        // ponytail: WmlComparer.GetRevisions only classifies Inserted/Deleted, so Moves/FormatChanges
+        // stay 0 for M1 (upgrade path: derive from w:moveFrom/w:moveTo and w:rPrChange when needed).
+        try
+        {
+            var row = await UpsertAsync(fromSha, toSha, ct);
+            row.Insertions = insertions;
+            row.Deletions = deletions;
+            row.Moves = 0;
+            row.FormatChanges = 0;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            // Lost the insert race. The comparison is deterministic for a (from_sha, to_sha) pair, so the
+            // winner wrote the same numbers we just computed — there is nothing to reconcile and nothing
+            // the caller needs to know. Clear the tracker so this scoped context stays usable.
+            db.ChangeTracker.Clear();
+            log.LogDebug(ex, "version_diffs row for {From}->{To} was written concurrently; keeping it", fromSha, toSha);
+        }
+
+        return new DiffSummary(true, insertions, deletions, 0, 0);
     }
 
     public async Task<DiffRender> RedlineHtmlAsync(string fromSha, string toSha, CancellationToken ct)
@@ -55,26 +75,38 @@ public sealed class WmlComparerDiffService(IBlobStore blobs, EasyDocsDbContext d
         if (existing?.HtmlBlobSha256 is { } cachedSha)
             return new DiffRender(true, await ReadTextAsync(cachedSha, ct));
 
+        string html;
+        BlobResult htmlBlob, docxBlob;
         try
         {
             var compared = await CompareAsync(fromSha, toSha, ct);
-            var html = RenderHtml(compared);
+            html = RenderHtml(compared);
 
-            var htmlBlob = await blobs.PutAsync(new MemoryStream(Encoding.UTF8.GetBytes(html)), ct);
-            var docxBlob = await blobs.PutAsync(new MemoryStream(compared.DocumentByteArray), ct);
-
-            var row = existing ?? await UpsertAsync(fromSha, toSha, ct);
-            row.HtmlBlobSha256 = htmlBlob.Sha256;
-            row.RedlineBlobSha256 = docxBlob.Sha256;
-            await db.SaveChangesAsync(ct);
-
-            return new DiffRender(true, html);
+            htmlBlob = await blobs.PutAsync(new MemoryStream(Encoding.UTF8.GetBytes(html)), ct);
+            docxBlob = await blobs.PutAsync(new MemoryStream(compared.DocumentByteArray), ct);
         }
         catch (Exception ex)
         {
             log.LogWarning(ex, "WmlComparer redline failed for {From}->{To}; degrading to unavailable", fromSha, toSha);
             return new DiffRender(false, null);
         }
+
+        // Same split as SummaryAsync: the redline exists and is in the blob store by this point, so a
+        // failure to cache the pointers must not be reported as a redline that could not be produced.
+        try
+        {
+            var row = existing ?? await UpsertAsync(fromSha, toSha, ct);
+            row.HtmlBlobSha256 = htmlBlob.Sha256;
+            row.RedlineBlobSha256 = docxBlob.Sha256;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            db.ChangeTracker.Clear();
+            log.LogDebug(ex, "version_diffs row for {From}->{To} was written concurrently; keeping it", fromSha, toSha);
+        }
+
+        return new DiffRender(true, html);
     }
 
     private async Task<WmlDocument> CompareAsync(string fromSha, string toSha, CancellationToken ct)
