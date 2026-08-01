@@ -11,14 +11,11 @@ API for developers. One process, `docker compose up`.
 
 ## Status
 
-**Milestones M0–M4.5 are complete: the REST API and the full web UI both work end to end.** The v1
+**Milestones M0–M5 are complete: the REST API and the full web UI both work end to end.** The v1
 conformance profile (E1–E12) runs green in CI against the real container image, with zero skipped
 criteria — nothing in that suite is allowed to skip, because a silently-skipped criterion reads as
-coverage that does not exist.
-
-**Not released yet.** M5 is the release milestone. Its security pass and its documentation site are
-done; the signed `v1.0.0` tag is not. Treat `main` as pre-release: usable, self-hostable, not yet
-versioned.
+coverage that does not exist. Behind it sit 346 API tests and 90 browser tests, the latter driven
+against the shipped image rather than a dev server.
 
 Also not built yet, so you do not go looking for them:
 
@@ -45,6 +42,15 @@ docker compose up --build
 
 Then open **<http://localhost:8080>** and register. The first account you create also creates your
 organization, and you are its owner.
+
+`Jwt__Secret` in `.env.example` is deliberately too short to boot — the app fails fast under 32 bytes.
+Generate a real one with `openssl rand -base64 48`. A placeholder that *worked* would mean every
+install that took the quickstart literally signed its sessions with a secret published in this
+repository.
+
+To bring in a colleague, invite them from **Settings → Organization** (or from a document's Members
+panel, which also grants access to that document) and send them the invitation link. They sign in and
+open it. Someone who belongs to more than one organization gets a switcher in the header.
 
 The stack is three containers: the app (with LibreOffice bundled for PDF rendering), PostgreSQL 16, and
 Collabora Online for in-browser editing.

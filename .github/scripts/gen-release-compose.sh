@@ -42,9 +42,17 @@ while i < len(lines):
                 break
             i += 1
         continue
-    # env_file points at a sibling .env; the bundle ships one, but compose already reads ./.env for
-    # ${VAR} interpolation, so the directive is redundant and fails hard if the file is absent.
+    # env_file is kept, but made optional. Dropping it entirely was wrong: compose reads ./.env for
+    # ${VAR} interpolation, which only covers the handful of keys `environment:` names explicitly —
+    # everything else a self-hoster is told to set in .env (RateLimit__*, and
+    # ASPNETCORE_FORWARDEDHEADERS_ENABLED, which SECURITY.md tells them they need behind a proxy)
+    # never reached the container. They would edit .env, restart, and nothing would happen. The
+    # long-form `required: false` (Compose 2.24+) keeps the original reason for removing it — a bundle
+    # unpacked without a .env must still start — without silently discarding the tunables.
     if re.match(r'^\s{4}env_file:', line):
+        indent = len(line) - len(line.lstrip())
+        pad = ' ' * indent
+        out.append(f'{pad}env_file:\n{pad}  - path: .env\n{pad}    required: false\n')
         i += 1
         continue
     out.append(line)

@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16
+    # A self-hosted install has to survive a host reboot without someone SSHing in to start it again.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -14,6 +16,7 @@ services:
       retries: 10
 
   easydocs:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -39,6 +42,7 @@ services:
 
   collabora:
     image: collabora/code
+    restart: unless-stopped
     environment:
       # Collabora vets the host it is asked to call, and that host comes out of WOPISrc — which is
       # WOPI_HOST_URL, not PUBLIC_BASE_URL. Allowlisting only the browser-facing name made coolwsd

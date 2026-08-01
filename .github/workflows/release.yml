@@ -17,7 +17,11 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/easydocs
+  # Hardcoded lowercase, NOT ${{ github.repository_owner }}: the owner is `Robertzu43`, and a registry
+  # reference must be lowercase — `ghcr.io/Robertzu43/easydocs` is rejected outright with "invalid
+  # reference format", which would fail the push, the cosign sign, and the bundle pin. A workflow-level
+  # `env:` cannot call `toLower()`, so the literal is the fix.
+  IMAGE: ghcr.io/robertzu43/easydocs
 
 jobs:
   # Gate the release on the same suites that guard main. A tag must not be able to publish an image
@@ -129,9 +133,14 @@ jobs:
             bundle/docker-compose.yml
           cp deploy/compose/.env.example bundle/.env.example
           cp LICENSE bundle/LICENSE
-          # Fail loudly rather than shipping a bundle that still builds from source.
+          # Fail loudly rather than shipping a bundle that still builds from source. Written as an
+          # explicit `if`, not `! grep -q`: errexit does not apply to a negated pipeline, so the
+          # negated form is a guard that can never fire — it passed a deliberately matching file.
           grep -q "image: ${{ steps.v.outputs.ref }}" bundle/docker-compose.yml
-          ! grep -q "build:" bundle/docker-compose.yml
+          if grep -q "build:" bundle/docker-compose.yml; then
+            echo "::error::the release bundle still builds from source"
+            exit 1
+          fi
           tar -czf "easydocs-${{ steps.v.outputs.version }}-compose.tar.gz" -C bundle .
 
       # Notes come from CHANGELOG.md, which is curated by milestone, rather than from raw commit

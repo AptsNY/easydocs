@@ -5,25 +5,59 @@ All notable changes to easydocs are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and easydocs aims to
 follow [Semantic Versioning](https://semver.org/) from `v1.0.0` onward.
 
-**Nothing has been released yet.** There is no `v1.0.0` tag. Everything below is grouped by the
-development milestone that produced it (M0–M5, spec §13) rather than by release, and it is all
-`[Unreleased]`. Milestones are summaries — the substantive per-milestone record, including what each
-plan got *wrong* about the code, is in [`docs/superpowers/plans/`](docs/superpowers/plans/).
+`1.0.0` is the first release. Everything in it is grouped by the development milestone that produced
+it (M0–M5, spec §13) rather than by change type, because the milestones are how the work actually
+happened. Milestones are summaries — the substantive per-milestone record, including what each plan
+got *wrong* about the code, is in [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 A note on the two numbering schemes, because this project is about version numbers: the versions in
 this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers that appear in feature
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
-## [Unreleased]
+## [1.0.0] - 2026-08-01
 
-Everything in easydocs. Milestones M0 through M4.5 are merged; M5 is in progress and ends in the
-signed `v1.0.0` tag that does not exist yet.
+The first release. Everything in easydocs: milestones M0 through M5.
 
-### M5 — release hygiene *(in progress)*
+### M5 — release hygiene
+
+#### The invited colleague can now actually join
+
+Three defects that only show up with a *second* person, which is why the single-user test suites were
+green throughout. Together they meant the collaborative half of the product — shared documents,
+approvals, concurrent branches, push-back review — was reachable from an HTTP client but not from a
+browser.
+
+- **There was no screen that redeemed an invitation.** Both places that mint one (the document Members
+  panel and Settings → Organization) showed the raw token exactly once and told the inviter to send it
+  on; `POST /invitations/{token}:accept` was live and no part of the SPA ever called it, so there was
+  nowhere to send it *to*. Added the `/invitations/:token` route, and both dialogs now hand out a link
+  rather than a bare token.
+- **An invited colleague was rebound to the inviting org for exactly one session.** Accepting re-issues
+  the session cookie against that org, but `login` deterministically picks the caller's *oldest*
+  membership — which, for anyone who registered before being invited, is the organization their own
+  registration created. Their next sign-in put them back there with no way across. Added
+  `GET /orgs` and `POST /auth/switch-org` (membership re-verified server-side; `404`, not `403`, for an
+  org you do not belong to) and an organization dropdown that appears only for someone who belongs to
+  more than one. This is the `ponytail:` ceiling recorded in `InvitationEndpoints` — "add
+  `POST /auth/switch-org` when multi-org membership is a real workflow" — coming due: it is not merely
+  *a* workflow, it is the only one an invited user has.
+- **A deep link did not survive the sign-in.** `RequireAuth` redirected to `/login` and discarded where
+  you were going, so every bookmark landed on the dashboard — and an invitation link, whose entire
+  payload is in the path, was lost. The destination is now carried through and returned to, rejecting
+  anything that is not a same-origin path so it cannot become an open redirect.
 
 #### Security
 
+- **Signing out now ends the session.** `signOut` only dropped the client's in-memory copy of `/me`:
+  the `httpOnly` `ed_session` cookie stayed in the browser and valid on the server, so a reload or the
+  Back button restored the session — on a shared machine, the button did nothing that mattered. Added
+  `POST /auth/logout`, which clears the cookie and is deliberately *not* behind `RequireAuthorization`
+  so it still works when the cookie is expired or corrupt. The cookie's attributes now come from one
+  shared definition used by every route that writes it, because a `Delete` whose `Path`/flags differ
+  from the `Append` is silently ignored by the browser — the same class of bug wearing a different hat.
+  Known ceiling, documented: the JWT itself is not revoked, so a token already copied out of the
+  browser stays valid until it expires.
 - **Rate limiting on the anonymous and credential surfaces** (spec §11). Four named policies applied
   per endpoint, never globally, so static assets and the SPA shell stay unmetered: the public share
   viewer and the public download are limited per client IP and separately from each other (a page view
