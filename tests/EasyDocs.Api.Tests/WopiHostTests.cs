@@ -64,6 +64,30 @@ public class WopiHostTests : IClassFixture<ApiFactory>
         Assert.False(string.IsNullOrEmpty(info.Version));
     }
 
+    // The DTO test above proves nothing about casing: GetFromJsonAsync is case-insensitive, so it passed
+    // happily while the shipped host emitted `baseFileName` and Collabora answered "Unauthorized WOPI
+    // host". WOPI property names are protocol constants (spec §6), not house style, so assert the RAW
+    // BYTES — this is the test that fails if anyone re-points these at the app's camelCase JSON policy.
+    [Fact]
+    public async Task CheckFileInfo_wire_json_is_WOPI_PascalCase_not_the_app_naming_policy()
+    {
+        var c = await AuthedClientAsync();
+        var (sid, token) = await MintSessionAsync(c);
+
+        var raw = await _f.CreateClient().GetStringAsync($"/wopi/files/{sid}?access_token={token}");
+
+        string[] wopiNames =
+        [
+            "BaseFileName", "Size", "OwnerId", "UserId", "UserFriendlyName", "UserCanWrite",
+            "Version", "SupportsLocks", "SupportsUpdate", "SupportsGetLock",
+        ];
+        foreach (var name in wopiNames)
+        {
+            Assert.Contains($"\"{name}\"", raw);
+            Assert.DoesNotContain($"\"{char.ToLowerInvariant(name[0])}{name[1..]}\"", raw);
+        }
+    }
+
     [Fact]
     public async Task GetFile_streams_base_version_bytes()
     {

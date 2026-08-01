@@ -40,8 +40,18 @@ services:
   collabora:
     image: collabora/code
     environment:
-      aliasgroup1: ${PUBLIC_BASE_URL}          # allowlist the app host (spec §6.1)
-      extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+      # Collabora vets the host it is asked to call, and that host comes out of WOPISrc — which is
+      # WOPI_HOST_URL, not PUBLIC_BASE_URL. Allowlisting only the browser-facing name made coolwsd
+      # refuse every session with "No authorized hosts found matching the target host [easydocs]",
+      # surfacing in the editor as "Unauthorized WOPI host" (spec §6.1). Both names, aliased.
+      aliasgroup1: ${WOPI_HOST_URL},${PUBLIC_BASE_URL}
+      # ssl.termination tells coolwsd whether something in front of it terminates TLS; it is what the
+      # editor page uses to build its own wss:// vs ws:// socket URL. Hard-coded true, it handed every
+      # browser a wss:// URL for a coolwsd that speaks plain HTTP ("Looks like SSL/TLS traffic on plain
+      # http port"), so the editor never finished loading on the default stack. It now follows
+      # PUBLIC_BASE_URL's scheme: false for the plain-http default, true for a real https deployment
+      # behind the edge proxy (spec §11) — set both together in .env.
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=${COLLABORA_SSL_TERMINATION:-false}"
     ports: [ "9980:9980" ]
     cap_add: [ MKNOD ]
 

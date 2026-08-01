@@ -23,10 +23,10 @@ name: Conformance
 #   WOPI protocol round trip (xUnit suite plays Collabora's side: LOCK + PutFile)
 #     E3  Edit/version     save creates a version, unchanged re-save does not, author/time/summary
 #     E4  Branch/merge     two sessions on one head -> two branches, merge attributes the incoming author
-#     §12.3 allows a headless-browser driver here instead. We drive the WOPI contract directly: it is
-#     the exact HTTP conversation Collabora has with the host, and it keeps a browser out of CI. The
-#     browser-rendered editor UI itself is therefore NOT covered by this job — see the compose leg,
-#     which asserts Collabora discovery and a real editor URL, and issue-tracked manual QA for the UI.
+#     This is the protocol's branch coverage, NOT a substitute for §12.3's headless-browser driver.
+#     Treating it as one hid a total failure of browser editing for four milestones (CheckFileInfo went
+#     out camelCase; every assertion here deserialises case-insensitively). The browser driver is
+#     web/e2e/collabora.spec.ts and runs in ci.yml's web-e2e job, which already boots Collabora.
 #
 #   Compose stack (conformance-smoke.sh, against the published image over HTTP)
 #     E6's PDF leg          bundled LibreOffice actually renders (%PDF verified)

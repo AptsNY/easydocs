@@ -62,7 +62,10 @@ public class EditSessionTests : IClassFixture<ApiFactory>
         Assert.NotEqual(Guid.Empty, mint.SessionId);
         Assert.False(string.IsNullOrEmpty(mint.AccessToken));
         Assert.Equal(1800, mint.AccessTokenTtlSeconds);
-        Assert.Contains($"WOPISrc=http://localhost/wopi/files/{mint.SessionId}", mint.EditorUrl);
+        // URI-encoded, as WOPI requires (coolwsd rejects an unencoded WOPISrc as "highly problematic").
+        Assert.Contains(
+            $"WOPISrc={Uri.EscapeDataString($"http://localhost/wopi/files/{mint.SessionId}")}",
+            mint.EditorUrl);
 
         using var scope = _f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();

@@ -50,8 +50,11 @@ public static class EditingEndpoints
         var actionUrl = await discovery.ActionUrlForDocxAsync(ctx.RequestAborted);
         var token = wopiToken.Issue(session.Id, userId, "w");
         var wopiHost = cfg["WOPI_HOST_URL"] ?? throw new InvalidOperationException("WOPI_HOST_URL not configured");
-        // Unescaped WOPISrc per WOPI convention (Collabora appends it as a query arg it re-parses).
-        var editorUrl = $"{actionUrl}WOPISrc={wopiHost}/wopi/files/{session.Id}&access_token={token}";
+        // WOPISrc is URI-encoded, as the WOPI spec requires and as coolwsd insists on: unencoded it logs
+        // "WOPISrc must be URI-encoded. This is highly problematic with proxies, load balancers, and when
+        // tunneling" and re-parses the tail of the URL by hand (spec §6).
+        var wopiSrc = Uri.EscapeDataString($"{wopiHost}/wopi/files/{session.Id}");
+        var editorUrl = $"{actionUrl}WOPISrc={wopiSrc}&access_token={token}";
 
         return Results.Created($"/api/v1/sessions/{session.Id}", new
         {

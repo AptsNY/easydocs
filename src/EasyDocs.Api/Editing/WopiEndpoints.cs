@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Storage;
@@ -33,19 +34,39 @@ public static class WopiEndpoints
         var baseVersion = await db.Versions.FirstAsync(v => v.Id == session.BaseVersionId, ctx.RequestAborted);
         var blob = await db.Blobs.FirstAsync(bl => bl.Sha256 == baseVersion.BlobSha256, ctx.RequestAborted);
 
-        return Results.Ok(new
-        {
-            BaseFileName = $"{doc.Name}.docx",
-            Size = blob.SizeBytes,
-            OwnerId = doc.CreatedBy.ToString(),
-            UserId = auth.Uid.ToString(),
-            UserFriendlyName = "EasyDocs user",
-            UserCanWrite = auth.Perms == "w",
-            Version = baseVersion.Id.ToString(),
-            SupportsLocks = true,
-            SupportsUpdate = true,
-            SupportsGetLock = true,
-        });
+        return Results.Ok(new CheckFileInfoResponse(
+            $"{doc.Name}.docx",
+            blob.SizeBytes,
+            doc.CreatedBy.ToString(),
+            auth.Uid.ToString(),
+            "EasyDocs user",
+            auth.Perms == "w",
+            baseVersion.Id.ToString()));
+    }
+
+    /// <summary>
+    /// The CheckFileInfo body (WOPI spec §6). Every name carries an explicit
+    /// <see cref="JsonPropertyNameAttribute"/> because these are PROTOCOL CONSTANTS, not house style:
+    /// Program.cs installs ASP.NET's default camelCase PropertyNamingPolicy app-wide, which silently
+    /// rewrote the anonymous object this used to be into `baseFileName` — and Collabora answers a
+    /// non-conforming CheckFileInfo with "Unauthorized WOPI host", i.e. no document opens at all.
+    /// The attribute beats any PropertyNamingPolicy, so this stays correct however the app's JSON
+    /// options are configured later; scoped serializer options would only hold until the next
+    /// `Results.Ok`. WopiHostTests asserts the raw wire bytes, not a (case-insensitive) DTO.
+    /// </summary>
+    private sealed record CheckFileInfoResponse(
+        [property: JsonPropertyName("BaseFileName")] string BaseFileName,
+        [property: JsonPropertyName("Size")] long Size,
+        [property: JsonPropertyName("OwnerId")] string OwnerId,
+        [property: JsonPropertyName("UserId")] string UserId,
+        [property: JsonPropertyName("UserFriendlyName")] string UserFriendlyName,
+        [property: JsonPropertyName("UserCanWrite")] bool UserCanWrite,
+        [property: JsonPropertyName("Version")] string Version)
+    {
+        // Constant capability flags — what this host implements (LockOp below), not per-file state.
+        [JsonPropertyName("SupportsLocks")] public bool SupportsLocks => true;
+        [JsonPropertyName("SupportsUpdate")] public bool SupportsUpdate => true;
+        [JsonPropertyName("SupportsGetLock")] public bool SupportsGetLock => true;
     }
 
     private static async Task<IResult> GetFile(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens, IBlobStore blobs)

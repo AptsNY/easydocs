@@ -9,13 +9,16 @@ namespace EasyDocs.Api.Tests.Conformance;
 // API with an `ed_` personal access token — no DbContext shortcuts for the *actions*, so a green suite
 // is a direct proof of the M3 exit gate ("the API drives the full document flow unattended").
 //
-// Two documented deviations:
+// One documented deviation:
 //   * Criteria that assert internal state the API deliberately does not expose (branch closure in E4)
 //     read the DB to *verify*. The actions that produced that state still go through the API.
-//   * E3/E4 need a Collabora editing round trip. Rather than drive a headless browser, the suite plays
-//     Collabora's side of the WOPI contract directly (LOCK + PutFile against /wopi/files/{sid}), which
-//     is the exact HTTP conversation Collabora has with the host. Spec §12.3 permits either; this
-//     keeps CI free of a browser and a running Collabora for the pure-protocol assertions.
+//
+// E3/E4 still play Collabora's side of the WOPI contract here (LOCK + PutFile against /wopi/files/{sid})
+// because that is the fastest way to assert the protocol's branches. It is NO LONGER a substitute for
+// spec §12.3's headless-browser driver, and must never be described as one again: for four milestones
+// this suite was green while no browser could open a document at all, because it deserialises
+// CheckFileInfo case-insensitively and the real host emitted camelCase. The browser driver now lives in
+// web/e2e/collabora.spec.ts, drives the real Collabora editor, and is the thing that proves E3.
 [CollectionDefinition(Name)]
 public class ConformanceCollection : ICollectionFixture<ApiFactory>
 {

@@ -46,7 +46,8 @@ jobs:
   # (fixed in de46163). Passing under Vite proves strictly less.
   #
   # Boot sequence copied from conformance.yml on purpose: one pattern for "run against the real
-  # artefact", not two that drift apart.
+  # artefact", not two that drift apart. The stack includes Collabora, which is what lets
+  # collabora.spec.ts close spec §12.3's headless-browser requirement here rather than in a fourth job.
   web-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
