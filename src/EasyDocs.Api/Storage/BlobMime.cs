@@ -19,9 +19,29 @@ public static class BlobMime
     public const string Doc = "application/msword";
     public const string Pdf = "application/pdf";
 
-    /// <summary>Extensions R8 can append — and therefore the ones stripped off a document name that
-    /// already carries one (see <see cref="Versioning.Numbering.DownloadFileName"/>).</summary>
+    /// <summary>Extensions this product can append — and therefore the ones stripped off a document name
+    /// that already carries one (see <see cref="Versioning.Numbering.DownloadFileName"/>).</summary>
     public static readonly string[] KnownExtensions = [".docx", ".doc", ".pdf"];
+
+    /// <summary>
+    /// A document NAME with any extension this product could itself append removed, so appending one
+    /// cannot produce "lease.docx.docx". Documents ingested from a real folder are named after the file
+    /// they came from, so most of a real corpus carries one.
+    ///
+    /// The one place that rule lives: R8's download filename (via <see cref="Versioning.Numbering"/>)
+    /// and WOPI's BaseFileName (spec §6) both go through here, so they cannot drift apart.
+    /// </summary>
+    public static string StripKnownExtension(string docName)
+    {
+        var name = docName.Trim();
+        // Longest match wins, so ".docx" is never mistaken for a ".doc" leaving an "x" behind. The
+        // length guard keeps a document literally named ".docx" from becoming the empty string, and
+        // matching only these three means a dot inside a name ("Suite 4.2 Lease") survives.
+        var known = KnownExtensions
+            .Where(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase) && name.Length > e.Length)
+            .MaxBy(e => e.Length);
+        return known is null ? name : name[..^known.Length].TrimEnd();
+    }
 
     private const int HeadBytes = 8;
     private static readonly byte[] Ole2Signature = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];

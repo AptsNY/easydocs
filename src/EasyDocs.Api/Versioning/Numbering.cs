@@ -36,16 +36,11 @@ public static class Numbering
 
     // R8's {Sanitized_Name} is a NAME, not a filename: documents ingested from a real folder are named
     // after the file they came from ("Laundry Agreement.pdf"), and leaving that extension in would put it
-    // mid-name with a second one appended ("Laundry_Agreement.pdf-v0.0.1.pdf"). Only an extension R8 could
-    // itself append is stripped, so a dot inside a name ("Suite 4.2 Lease") survives.
+    // mid-name with a second one appended ("Laundry_Agreement.pdf-v0.0.1.pdf"). The stripping rule is
+    // shared with WOPI's BaseFileName (spec §6) — one copy, in BlobMime next to KnownExtensions.
     private static string Sanitize(string docName)
     {
-        var name = docName.Trim();
-        // Longest match wins, so ".docx" is never mistaken for a ".doc" leaving an "x" behind.
-        var known = Storage.BlobMime.KnownExtensions
-            .Where(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase) && name.Length > e.Length)
-            .MaxBy(e => e.Length);
-        if (known is not null) name = name[..^known.Length].TrimEnd();
+        var name = Storage.BlobMime.StripKnownExtension(docName);
 
         var sb = new System.Text.StringBuilder(name.Length);
         foreach (var ch in name)

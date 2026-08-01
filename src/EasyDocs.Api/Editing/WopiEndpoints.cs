@@ -24,7 +24,8 @@ public static class WopiEndpoints
         g.MapPost("/wopi/files/{fileId:guid}", LockOp);
     }
 
-    private static async Task<IResult> CheckFileInfo(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens)
+    private static async Task<IResult> CheckFileInfo(Guid fileId, HttpContext ctx, EasyDocsDbContext db,
+        WopiAccessToken tokens, IBlobStore blobs)
     {
         var auth = await Authorize(fileId, ctx, db, tokens);
         if (auth.Error is not null) return auth.Error;
@@ -34,8 +35,13 @@ public static class WopiEndpoints
         var baseVersion = await db.Versions.FirstAsync(v => v.Id == session.BaseVersionId, ctx.RequestAborted);
         var blob = await db.Blobs.FirstAsync(bl => bl.Sha256 == baseVersion.BlobSha256, ctx.RequestAborted);
 
+        // Exactly one extension, and the blob's REAL one — same rule and same sniff as the R8 download
+        // name (spec §5.3). Collabora shows this to the user and picks its editor from the extension,
+        // so "… laundry lease.docx.docx" was both wrong and visible.
+        var (_, ext) = await BlobMime.SniffAsync(blobs, baseVersion.BlobSha256, ctx.RequestAborted);
+
         return Results.Ok(new CheckFileInfoResponse(
-            $"{doc.Name}.docx",
+            $"{BlobMime.StripKnownExtension(doc.Name)}.{ext}",
             blob.SizeBytes,
             doc.CreatedBy.ToString(),
             auth.Uid.ToString(),

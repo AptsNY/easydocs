@@ -28,11 +28,12 @@ public class WopiHostTests : IClassFixture<ApiFactory>
     }
 
     // Register -> create doc -> upload base version -> mint session. Returns (sessionId, accessToken).
-    private async Task<(Guid sid, string token)> MintSessionAsync(HttpClient c)
+    private async Task<(Guid sid, string token)> MintSessionAsync(
+        HttpClient c, string docName = "Lease", byte[]? bytes = null)
     {
-        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Lease" }))
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = docName }))
             .Content.ReadFromJsonAsync<DocDto>())!.Id;
-        var part = new ByteArrayContent(BaseBytes);
+        var part = new ByteArrayContent(bytes ?? BaseBytes);
         part.Headers.ContentType = new MediaTypeHeaderValue(DocxMime);
         var form = new MultipartFormDataContent { { part, "file", "lease.docx" } };
         var up = await c.PostAsync($"/api/v1/documents/{docId}/versions", form);
@@ -86,6 +87,28 @@ public class WopiHostTests : IClassFixture<ApiFactory>
             Assert.Contains($"\"{name}\"", raw);
             Assert.DoesNotContain($"\"{char.ToLowerInvariant(name[0])}{name[1..]}\"", raw);
         }
+    }
+
+    // Documents are named after the file they were ingested from ("… laundry lease.docx"), so appending
+    // a literal ".docx" produced "… laundry lease.docx.docx" for the entire corpus. BaseFileName must
+    // carry exactly one extension, and it must be the blob's REAL type — Collabora shows the name to the
+    // user and picks its editor from the extension (spec §6, and the same R8 rule as the download name).
+    [Theory]
+    [InlineData("Lease", new byte[] { 0x50, 0x4B, 0x03, 0x04 }, "Lease.docx")]           // zip -> docx
+    [InlineData("Lease.docx", new byte[] { 0x50, 0x4B, 0x03, 0x04 }, "Lease.docx")]      // no double ext
+    [InlineData("Lease.doc", new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 }, "Lease.doc")]
+    [InlineData("Lease.pdf", new byte[] { 0x25, 0x50, 0x44, 0x46, 0x2D }, "Lease.pdf")]  // %PDF-
+    [InlineData("Suite 4.2 Lease", new byte[] { 0x50, 0x4B, 0x03, 0x04 }, "Suite 4.2 Lease.docx")]
+    public async Task CheckFileInfo_BaseFileName_has_exactly_one_correct_extension(
+        string docName, byte[] bytes, string expected)
+    {
+        var c = await AuthedClientAsync();
+        var (sid, token) = await MintSessionAsync(c, docName, bytes);
+
+        var info = await _f.CreateClient()
+            .GetFromJsonAsync<CheckFileInfoDto>($"/wopi/files/{sid}?access_token={token}");
+
+        Assert.Equal(expected, info!.BaseFileName);
     }
 
     [Fact]
