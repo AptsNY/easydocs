@@ -1,12 +1,21 @@
 import { useId, useState } from 'react'
-import { Navigate } from 'react-router'
+import { Navigate, useLocation } from 'react-router'
 import { ApiError } from '../api'
 import { useSession } from '../auth'
+
+// Where to land after signing in: the destination RequireAuth was guarding, or the dashboard. Only
+// same-origin paths are honoured — `//evil.example` is a protocol-relative URL the browser would treat
+// as another origin, so it is rejected rather than turned into an open redirect.
+function returnTo(state: unknown): string {
+  const from = (state as { from?: unknown } | null)?.from
+  return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : '/'
+}
 
 // Sign-in and registration on one screen (spec §9). Registration also creates the org, so it needs the
 // extra org-name field — there is no separate org-creation flow.
 export default function Login() {
   const { me, signIn, register } = useSession()
+  const location = useLocation()
   const [creating, setCreating] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -16,7 +25,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const ids = useId()
 
-  if (me) return <Navigate to="/" replace />
+  if (me) return <Navigate to={returnTo(location.state)} replace />
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()

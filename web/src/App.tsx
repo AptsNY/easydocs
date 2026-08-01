@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router'
+import { api, type OrgMembership } from './api'
 import { RequireAuth, useSession } from './auth'
+import AcceptInvitation from './routes/AcceptInvitation'
 import Approvals from './routes/Approvals'
 import Audit from './routes/Audit'
 import Compare from './routes/Compare'
@@ -27,6 +30,9 @@ export default function App() {
           <Route path="/folders/:folderId" element={<Dashboard />} />
           <Route path="/trash" element={<Dashboard trashed />} />
           <Route path="/approvals" element={<Approvals inbox />} />
+          {/* Inside the guard: accepting binds the invitation to the signed-in identity, so a signed-out
+              recipient is sent to /login and returned here with the token still in the path. */}
+          <Route path="/invitations/:token" element={<AcceptInvitation />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/documents/:id" element={<DocumentConsole />}>
             <Route index element={<History />} />
@@ -62,6 +68,7 @@ function Shell() {
           easydocs
         </Link>
         <span data-testid="org-name">{org?.name}</span>
+        <OrgSwitcher />
         <nav>
           <Link to="/">Documents</Link>
           <Link to="/approvals">Approvals</Link>
@@ -72,8 +79,7 @@ function Shell() {
           type="button"
           className="link"
           onClick={() => {
-            signOut()
-            navigate('/login', { replace: true })
+            void signOut().then(() => navigate('/login', { replace: true }))
           }}
         >
           Sign out
@@ -83,5 +89,45 @@ function Shell() {
         <Outlet />
       </main>
     </div>
+  )
+}
+
+// Renders nothing for the ordinary single-org user, which is why it is a plain <select> and not a
+// screen: someone invited into a colleague's organization is a member of two, and a session binds to
+// exactly one. Switching re-issues the session cookie server-side, so everything already on screen is
+// now about the wrong org — hence the full reload rather than a refetch of one view.
+function OrgSwitcher() {
+  const { org } = useSession()
+  const [orgs, setOrgs] = useState<OrgMembership[]>([])
+
+  useEffect(() => {
+    if (!org) return
+    api
+      .get<{ items: OrgMembership[] }>('/api/v1/orgs')
+      .then((page) => setOrgs(page.items))
+      .catch((e: unknown) => console.error('org list failed', e))
+  }, [org])
+
+  if (orgs.length < 2) return null
+
+  return (
+    <label className="org-switcher">
+      <span className="visually-hidden">Organization</span>
+      <select
+        data-testid="org-switcher"
+        value={org?.id ?? ''}
+        onChange={(e) => {
+          void api
+            .post('/api/v1/auth/switch-org', { orgId: e.target.value })
+            .then(() => window.location.assign('/'))
+        }}
+      >
+        {orgs.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }

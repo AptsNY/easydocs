@@ -170,9 +170,12 @@ export default function MembersPanel({
       {invitation && (
         <div className="invitation" role="status">
           <p>
-            Invited {invitation.email}. Send them this invitation token now — it is shown once and
-            cannot be recovered.
+            Invited {invitation.email}. Send them this link now — the token is shown once and cannot be
+            recovered.
           </p>
+          {/* The link is the useful half: it lands on the screen that redeems the token. The bare token
+              stays visible because it is what the API returns and what an automated caller needs. */}
+          <code data-testid="invitation-url">{`${window.location.origin}/invitations/${invitation.token}`}</code>
           <code data-testid="invitation-token">{invitation.token}</code>
         </div>
       )}

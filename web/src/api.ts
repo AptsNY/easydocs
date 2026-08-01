@@ -71,6 +71,9 @@ export const api = {
 
 export type Me = { id: string; email: string; displayName: string; orgId: string }
 export type Org = { id: string; name: string; slug: string; myRole: string }
+// A user belongs to one org per session but can be a member of several — their own, from registration,
+// plus any they were invited into. `current` is which one this session is bound to.
+export type OrgMembership = Org & { current: boolean }
 export type Folder = { id: string; name: string; parentId: string | null }
 
 export type Tile = {

@@ -54,13 +54,20 @@ test.describe('Collabora editing (spec §6, §12.3 E3)', () => {
 
     // CODE greets a first-time browser profile with a three-slide "what's new" modal that covers the
     // document — every Playwright run is a fresh profile, so it is always there. Click through it the
-    // way a person does. (`.first()` and the visibility probe keep this a no-op if a future CODE build
-    // or a configured deployment does not show it.)
-    const welcome = editor.frameLocator('iframe.iframe-welcome-modal')
-    const lastSlide = welcome.locator('#slide-3-indicator')
-    if (await lastSlide.isVisible().catch(() => false)) {
-      await lastSlide.click()
+    // way a person does.
+    //
+    // The wait is the point. CODE injects this modal a beat AFTER the canvas paints, so probing for it
+    // the instant the canvas appeared raced it: the probe reported "not there", the modal arrived, and
+    // it swallowed the canvas click below — a flake that fails with "<iframe title='Welcome Dialog'>
+    // intercepts pointer events". Wait for it to show, dismiss it, then wait for it to go away.
+    // Every wait is bounded and swallowed, so a CODE build that drops the modal is still a no-op.
+    const welcomeFrame = editor.locator('iframe.iframe-welcome-modal')
+    await welcomeFrame.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {})
+    if (await welcomeFrame.isVisible().catch(() => false)) {
+      const welcome = editor.frameLocator('iframe.iframe-welcome-modal')
+      await welcome.locator('#slide-3-indicator').click()
       await welcome.locator('#slide-3-button').click()
+      await welcomeFrame.waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {})
     }
 
     // Type into the real editor, then press its own Save button -> WOPI PutFile against this host.

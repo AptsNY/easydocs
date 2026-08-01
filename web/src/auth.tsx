@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { Navigate, Outlet } from 'react-router'
+import { Navigate, Outlet, useLocation } from 'react-router'
 import { api, ApiError, type Me, type Org } from './api'
 
 type Session = {
@@ -8,7 +8,7 @@ type Session = {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   register: (email: string, displayName: string, password: string, orgName: string) => Promise<void>
-  signOut: () => void
+  signOut: () => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -63,11 +63,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
-  // ponytail: sign-out is client-side only — the API has no logout endpoint, so the ed_session cookie
-  // stays valid until it expires and anyone with the browser could restore the session by navigating
-  // back. Upgrade path: POST /api/v1/auth/logout that clears the cookie (and ideally revokes the JWT),
-  // then call it here. Out of scope for a frontend-only task.
-  const signOut = useCallback(() => {
+  // The server clears the httpOnly ed_session cookie; dropping only the in-memory copy left the session
+  // restorable with a reload. The local state is cleared even if the call fails — a user who pressed
+  // Sign out must never be left looking signed in, and the route guard is what keeps them off the app.
+  const signOut = useCallback(async () => {
+    try {
+      await api.post('/api/v1/auth/logout')
+    } catch (e) {
+      console.error('logout failed', e)
+    }
     setMe(null)
     setOrg(null)
   }, [])
@@ -81,7 +85,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
 export function RequireAuth() {
   const { me, loading } = useSession()
+  const location = useLocation()
   // Rendering the redirect before /me resolves would bounce every signed-in user to /login on reload.
   if (loading) return <p>Loading…</p>
-  return me ? <Outlet /> : <Navigate to="/login" replace />
+  // Carry the destination through the sign-in so a deep link survives it. Without this every bookmarked
+  // URL lands on the dashboard, and an invitation link — whose whole payload is in the path — is lost.
+  return me ? (
+    <Outlet />
+  ) : (
+    <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  )
 }

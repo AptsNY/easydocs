@@ -72,15 +72,9 @@ public static class InvitationEndpoints
         // Rebind the session to the invited org. A session carries exactly one org (spec §10.2), so
         // without this an invitee who already had their own org would authenticate against that one and
         // still read the invited document as cross-org (404).
-        // ponytail: no org switcher in v1 — a multi-org user's next /auth/login binds to their oldest
-        // org. Add POST /auth/switch-org when multi-org membership is a real workflow.
-        ctx.Response.Cookies.Append("ed_session", jwt.Issue(userId, invite.OrgId), new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Lax,
-            Path = "/",
-        });
+        // Their next /auth/login binds to their oldest membership, which for anyone who registered
+        // before being invited is their own org — POST /auth/switch-org is how they get back here.
+        ctx.Response.Cookies.Append("ed_session", jwt.Issue(userId, invite.OrgId), AuthEndpoints.SessionCookie);
 
         return Results.Ok(new
         {

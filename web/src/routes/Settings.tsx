@@ -293,9 +293,10 @@ export default function Settings() {
         {invitation && (
           <div className="invitation" role="status">
             <p>
-              Invited {invitation.email}. Send them this invitation token now — it is shown once and cannot
-              be recovered.
+              Invited {invitation.email}. Send them this link now — the token is shown once and cannot be
+              recovered.
             </p>
+            <code data-testid="org-invitation-url">{`${window.location.origin}/invitations/${invitation.token}`}</code>
             <code data-testid="org-invitation-token">{invitation.token}</code>
           </div>
         )}

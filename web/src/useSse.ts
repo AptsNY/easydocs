@@ -2,20 +2,10 @@ import { useEffect } from 'react'
 
 // The 11 v1 event types (spec §10.2). EventSource cannot send an Authorization header, which is
 // exactly why the API falls back to the ed_session cookie — so this needs no token plumbing.
-export type DocEvent =
-  | 'version.created'
-  | 'version.published'
-  | 'merge.completed'
-  | 'diff.ready'
-  | 'member.added'
-  | 'push.requested'
-  | 'push.reviewed'
-  | 'approval.responded'
-  | 'pdf.ready'
-  | 'version.named'
-  | 'version.reverted'
-
-const TYPES: DocEvent[] = [
+// The list is the source of truth and the union is derived from it. Maintaining both by hand meant
+// adding a twelfth event in one place and forgetting the other — the union would accept a name the
+// EventSource never subscribes to, and nothing would fail until a screen quietly stopped updating.
+const TYPES = [
   'version.created',
   'version.published',
   'merge.completed',
@@ -27,7 +17,9 @@ const TYPES: DocEvent[] = [
   'pdf.ready',
   'version.named',
   'version.reverted',
-]
+] as const
+
+export type DocEvent = (typeof TYPES)[number]
 
 /**
  * One EventSource per document, subscribed to all eleven v1 event types and closed on cleanup.

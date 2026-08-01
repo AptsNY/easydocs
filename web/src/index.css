@@ -307,6 +307,18 @@ input,
   border-inline-start: 1px solid var(--rule);
 }
 
+/* Only rendered for a user who belongs to more than one org, so it must not claim header space or
+   compete with the org name beside it when it is absent. */
+.org-switcher select {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px var(--s2);
+}
+
 .shell > header nav {
   display: flex;
   gap: var(--s4);

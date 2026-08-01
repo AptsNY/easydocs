@@ -287,4 +287,121 @@ public class E12_Security
     }
 
     private record ProblemShape(string? Title, int Status, string? Detail);
+
+    // ---- Endpoints the matrix above never reached (M5 gap close) ----
+    //
+    // "per endpoint x role" is only true of the endpoints actually named. These five Facts cover the
+    // §10.1 routes that had no role assertion anywhere in the suite: the folder routes, compare,
+    // share-link revocation, approval *requests*, and the version-scoped mutations that E12 previously
+    // exercised only through publish and upload.
+
+    [Fact]
+    public async Task Folder_routes_are_org_scoped_and_leak_nothing_across_the_boundary()
+    {
+        // Folders are the one §10.1 group with no document-membership chokepoint — they authorize on
+        // the session's org id alone, which is exactly the shape that a refactor drops silently.
+        var owner = await EdApi.NewAsync(_f);
+        var outsider = await EdApi.NewAsync(_f);
+        var folder = await owner.CreateFolderAsync($"Leases {Guid.NewGuid():N}");
+
+        Assert.DoesNotContain(await outsider.ListFoldersAsync(), f => f.Id == folder.Id);
+        Assert.Empty(await outsider.ListFoldersAsync(folder.Id)); // asking under it reveals nothing
+
+        AssertStatus(HttpStatusCode.NotFound,
+            await outsider.Http.PatchAsJsonAsync($"/api/v1/folders/{folder.Id}", new { name = "seized" }), "outsider renames folder");
+        AssertStatus(HttpStatusCode.NotFound, await outsider.DeleteFolderRawAsync(folder.Id, "trash"), "outsider deletes folder");
+
+        // Nor can it be adopted as a parent: 400 "not in your org", never a 403 that would confirm it exists.
+        AssertStatus(HttpStatusCode.BadRequest,
+            await outsider.Http.PostAsJsonAsync("/api/v1/folders", new { name = "Child", parentId = folder.Id }),
+            "outsider creates under a foreign parent");
+
+        Assert.Equal(folder.Name, (await owner.ListFoldersAsync()).Single(f => f.Id == folder.Id).Name);
+    }
+
+    [Fact]
+    public async Task Compare_is_a_read_open_to_every_member_and_shut_to_everyone_else()
+    {
+        var c = await CastAsync();
+        var url = $"/api/v1/documents/{c.DocId}/compare?from={c.VersionId}&to={c.PublishedVersionId}&format=summary";
+
+        foreach (var (api, name) in new[] { (c.Owner, "owner"), (c.Editor, "editor"), (c.Viewer, "viewer") })
+            AssertOk(await api.Http.GetAsync(url), $"{name} compare");
+
+        AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.Http.GetAsync(url), "stranger compare");
+        AssertStatus(HttpStatusCode.NotFound, await c.Outsider.Http.GetAsync(url), "outsider compare");
+    }
+
+    [Fact]
+    public async Task Revoking_a_share_link_belongs_to_its_creator_or_to_an_editor()
+    {
+        // Creating a link is Viewer+ (E10), so revoking cannot be: a Viewer who may share must be able
+        // to unshare their own link, and must not be able to pull down someone else's.
+        var c = await CastAsync();
+        await c.Viewer.CreateShareLinkAsync(c.VersionId);
+        await c.Owner.CreateShareLinkAsync(c.VersionId);
+
+        var rows = (await c.Owner.ListShareLinksAsync(c.DocId)).Items;
+        var viewersLink = rows.Single(r => r.CreatedBy == c.Viewer.UserId).Id;
+        var ownersLink = rows.Single(r => r.CreatedBy == c.Owner.UserId).Id;
+
+        AssertStatus(HttpStatusCode.Forbidden, await c.Viewer.RevokeShareLinkRawAsync(ownersLink), "viewer revokes the owner's link");
+        AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.RevokeShareLinkRawAsync(ownersLink), "stranger revokes");
+        AssertStatus(HttpStatusCode.NotFound, await c.Outsider.RevokeShareLinkRawAsync(ownersLink), "outsider revokes");
+
+        AssertOk(await c.Viewer.RevokeShareLinkRawAsync(viewersLink), "viewer revokes their own link");
+        AssertOk(await c.Editor.RevokeShareLinkRawAsync(ownersLink), "editor revokes another member's link");
+    }
+
+    [Fact]
+    public async Task Requesting_an_approval_is_a_write_and_needs_editor()
+    {
+        // E7 pins who may *decide*; nothing pinned who may *ask*. A Viewer who could raise an approval
+        // would be putting a decision obligation on the roster from a read-only seat.
+        var c = await CastAsync();
+        Guid[] approver = [c.Viewer.UserId];
+
+        AssertStatus(HttpStatusCode.Forbidden, await c.Viewer.RequestApprovalRawAsync(c.PublishedVersionId, approver), "viewer requests approval");
+        AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.RequestApprovalRawAsync(c.PublishedVersionId, approver), "stranger requests approval");
+        AssertStatus(HttpStatusCode.NotFound, await c.Outsider.RequestApprovalRawAsync(c.PublishedVersionId, approver), "outsider requests approval");
+        AssertOk(await c.Editor.RequestApprovalRawAsync(c.PublishedVersionId, approver), "editor requests approval");
+    }
+
+    [Fact]
+    public async Task Every_version_and_document_scoped_route_is_404_for_another_org()
+    {
+        // The existence-leak rule is a property of the whole surface, not of the two routes E12 happened
+        // to name. Each of these resolves the document through the chokepoint, so each must 404.
+        var c = await CastAsync();
+        var o = c.Outsider.Http;
+
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/versions/{c.VersionId}/download"), "outsider download");
+        AssertStatus(HttpStatusCode.NotFound, await o.PatchAsJsonAsync($"/api/v1/versions/{c.VersionId}", new { name = "seized" }), "outsider names version");
+        AssertStatus(HttpStatusCode.NotFound, await o.PostAsync($"/api/v1/versions/{c.VersionId}/revert", null), "outsider reverts");
+        AssertStatus(HttpStatusCode.NotFound, await o.PostAsync($"/api/v1/versions/{c.VersionId}/sessions", null), "outsider mints a session");
+        AssertStatus(HttpStatusCode.NotFound, await o.PostAsJsonAsync($"/api/v1/versions/{c.VersionId}/share-links", new { }), "outsider shares");
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/versions/{c.VersionId}/approvals"), "outsider reads the approvals panel");
+        AssertStatus(HttpStatusCode.NotFound, await c.Outsider.ForkRawAsync(c.VersionId, "seized copy"), "outsider forks a copy");
+        AssertStatus(HttpStatusCode.NotFound, await c.Outsider.MergeRawAsync(c.DocId, c.VersionId, c.PublishedVersionId), "outsider merges");
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/documents/{c.DocId}/share-links"), "outsider lists share links");
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/documents/{c.DocId}/copies"), "outsider lists copies");
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/documents/{c.DocId}/push-requests"), "outsider lists push requests");
+        AssertStatus(HttpStatusCode.NotFound, await o.GetAsync($"/api/v1/documents/{c.DocId}/events"), "outsider opens the event stream");
+    }
+
+    [Fact]
+    public async Task The_approvals_inbox_and_a_decision_both_stop_at_removal_from_the_document()
+    {
+        // ApprovalEndpoints scopes the inbox to documents the caller is STILL a member of, and Respond
+        // re-runs the chokepoint after matching the approver id. Both halves matter: the row must not
+        // carry a document name to someone who lost access, and being *named* is not itself access.
+        var c = await CastAsync();
+        var row = (await c.Owner.RequestApprovalAsync(c.PublishedVersionId, [c.Viewer.UserId])).Single();
+        Assert.Contains((await c.Viewer.ListApprovalsAsync("assigned")).Items, i => i.Id == row.Id);
+
+        (await c.Owner.RemoveMemberRawAsync(c.DocId, c.Viewer.UserId)).EnsureSuccessStatusCode();
+
+        Assert.DoesNotContain((await c.Viewer.ListApprovalsAsync("assigned")).Items, i => i.Id == row.Id);
+        AssertStatus(HttpStatusCode.Forbidden, await c.Viewer.RespondRawAsync(row.Id, "approved"), "removed approver responds");
+    }
 }

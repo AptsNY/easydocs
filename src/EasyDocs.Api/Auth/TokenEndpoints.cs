@@ -7,7 +7,7 @@ namespace EasyDocs.Api.Auth;
 
 // `ed_` personal access token management (spec §10). A logged-in user mints/lists/revokes tokens for
 // their own org. The raw token is returned exactly once at creation; only the hash is stored.
-// NOTE: accepting `ed_` on requests is Task 2 — not wired here.
+// Authenticating an inbound `ed_` token is ApiTokenAuthHandler's job, registered in Program.cs.
 public static class TokenEndpoints
 {
     public record CreateRequest(string Name, string[] Scopes, DateTimeOffset? ExpiresAt);
