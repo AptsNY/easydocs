@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/brand/easydocs-logo.svg" alt="easydocs" width="440">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/easydocs-logo-dark.svg">
+    <img src="docs/brand/easydocs-logo.svg" alt="easydocs" width="440">
+  </picture>
 </p>
 
 **Git-style history for `.docx` — without asking anyone to learn Git.**
