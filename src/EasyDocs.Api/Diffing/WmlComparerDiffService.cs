@@ -102,8 +102,21 @@ public sealed class WmlComparerDiffService(IBlobStore blobs, EasyDocsDbContext d
         }
         catch (DbUpdateException ex)
         {
+            // Lost the insert race — but UNLIKE SummaryAsync, the winner did not write what we
+            // computed: the summary worker never fills the html/redline pointers. Dropping them here
+            // left a row whose cache silently never fills (every compare recomputes forever), so
+            // reload the winner's row and update it. Content is deterministic per (from,to), so this
+            // is idempotent; if a third writer beat us to the html too, theirs is byte-identical.
             db.ChangeTracker.Clear();
-            log.LogDebug(ex, "version_diffs row for {From}->{To} was written concurrently; keeping it", fromSha, toSha);
+            log.LogDebug(ex, "version_diffs row for {From}->{To} was written concurrently; adding the redline pointers to it", fromSha, toSha);
+            var row = await db.VersionDiffs.FirstOrDefaultAsync(
+                x => x.FromSha256 == fromSha && x.ToSha256 == toSha, ct);
+            if (row is not null && row.HtmlBlobSha256 is null)
+            {
+                row.HtmlBlobSha256 = htmlBlob.Sha256;
+                row.RedlineBlobSha256 = docxBlob.Sha256;
+                await db.SaveChangesAsync(ct);
+            }
         }
 
         return new DiffRender(true, html);

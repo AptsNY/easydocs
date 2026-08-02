@@ -15,6 +15,16 @@ this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers tha
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
+## [Unreleased]
+
+### Fixed
+
+- **A lost redline-cache insert race no longer leaves the cache permanently unfilled.** When an
+  inline compare lost the `version_diffs` insert race to the summary worker, the computed HTML
+  pointers were dropped — the response was still correct, but that pair recomputed its redline on
+  every compare forever. The loser now updates the winner's row (deterministic content makes that
+  idempotent). Found by a CI flake on a docs-only commit; now pinned by a deterministic race test.
+
 ## [1.1.0] - 2026-08-01
 
 The whole v1.1 milestone — every feature below was a documented v1 exclusion, tracked as issues
