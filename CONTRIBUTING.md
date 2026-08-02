@@ -46,7 +46,7 @@ By making a contribution to this project, I certify that:
 
 By contributing, you agree your contribution is licensed under the license of the directory it lands in.
 The full reasoning and the exact boundary are in the
-[README's licensing section](README.md#license--contributing).
+[README's licensing section](README.md#license).
 
 ## Development
 

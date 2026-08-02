@@ -17,6 +17,9 @@ API for developers. One process, `docker compose up`.
 - **[Getting started](getting-started.md)** — install with `docker compose up` and take one `.docx`
   from upload to a second version, in about ten minutes.
 
+- **[User guide](user-guide.md)** — task-by-task instructions for every screen of the web UI, plus
+  an orientation to the REST API.
+
 - **[Concepts](concepts.md)** — the mental model. `X.Y.Z` numbering, branches and merge, redline diff,
   publishing, approvals, copies, share links. Read this before you roll easydocs out to anyone else.
 

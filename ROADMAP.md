@@ -25,7 +25,7 @@ Everything the v1.1 milestone tracked, each a deliberate v1 exclusion at the tim
 - **Threaded tasks/comments** on documents.
 - **WebAuthn/passkeys** as a second (or first) factor.
 - **MIT-licensed API client SDKs** under `packages/*` — the licensing boundary is already decided
-  (see the [README](README.md#license--contributing)); the code is not written.
+  (see the [README](README.md#license)); the code is not written.
 - **A public demo instance.**
 
 ## How to influence this

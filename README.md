@@ -103,19 +103,10 @@ Playwright suite asserts, against the shipped container image rather than a dev 
   **configurable trusted proxies** — see the
   [self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/).
 
-## What's *not* here yet
-
-Listed so you do not go looking for them — see [ROADMAP.md](ROADMAP.md).
-
-- **No cloud export/import pickers** (Dropbox/OneDrive/GDrive) and **no ONLYOFFICE option**.
-- **No antivirus scanning on upload.** easydocs trusts `.docx` from authenticated members.
-- **No org-wide MFA enforcement** — MFA is per-account opt-in.
-
-Rate limiting on the anonymous and credential routes exists per endpoint — but it is per client IP, so
-behind a reverse proxy it collapses into one install-wide budget unless you set
-`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`. Read
-[SECURITY.md](SECURITY.md#known-v1-limitations-not-vulnerabilities) for that and the rest of the known
-v1 limitations before you expose easydocs to anyone.
+Before exposing an install to anyone, read the
+[known limitations in SECURITY.md](SECURITY.md#known-v1-limitations-not-vulnerabilities) — notably
+that per-IP rate limiting behind a reverse proxy needs `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`
+(and, since v1.1, `ForwardedHeaders__KnownProxies__N` to narrow the trust).
 
 ## API
 
@@ -140,6 +131,7 @@ the app; the SPA is built into it and served from `wwwroot`.
 Guides are published at **<https://robertzu43.github.io/easydocs/>**:
 
 - [Getting started](https://robertzu43.github.io/easydocs/getting-started/) — one `.docx` from upload to a second version
+- [User guide](https://robertzu43.github.io/easydocs/user-guide/) — task-by-task instructions for every screen of the web UI, plus the API
 - [Concepts](https://robertzu43.github.io/easydocs/concepts/) — the mental model: numbering, branches, redlines, approvals
 - [Self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/) — TLS, `.env`, proxies, backups, upgrades
 - [Automation recipes](https://robertzu43.github.io/easydocs/automation-recipes/) — the full lifecycle over the REST API
@@ -152,7 +144,27 @@ And in the repo:
 - [CHANGELOG.md](CHANGELOG.md) — what each release delivered, most recently v1.1.0
 - Design specs and conformance profile: [`docs/superpowers/specs/`](docs/superpowers/specs/)
 
-## License & contributing
+## Feedback & contributing
+
+If you try easydocs, **say how it went** — that's the most useful thing you can do for the project
+right now.
+
+- **Something broke, or something's missing?**
+  [Open an issue](https://github.com/Robertzu43/easydocs/issues/new/choose). "This felt wrong" is a
+  valid report; describe the problem, not the solution.
+- **Questions and ideas** live in
+  [Discussions](https://github.com/Robertzu43/easydocs/discussions).
+- **Want a roadmap item sooner?** A 👍 or a "here's how I'd use it" comment on its issue is exactly
+  the signal that decides ordering — see [ROADMAP.md](ROADMAP.md).
+- **Want to write code?** Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
+  [`good first issue`](https://github.com/Robertzu43/easydocs/issues?q=is%3Aissue+label%3A%22good+first+issue%22)
+  label. Schema and public-API changes need agreement in an issue first
+  ([GOVERNANCE.md](GOVERNANCE.md)); everything else, just open a PR.
+
+easydocs exists because a closed service took a workflow down with it. It stays healthy the same
+way it started: people who need it, keeping it alive.
+
+## License
 
 **Everything in this repository today is AGPL-3.0** ([LICENSE](LICENSE)) — server, SPA, tests, deploy
 files, docs.

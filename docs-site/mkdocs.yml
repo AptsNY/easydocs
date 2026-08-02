@@ -60,6 +60,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - User guide: user-guide.md
   - Concepts: concepts.md
   - Self-hosting: self-hosting.md
   - Automation recipes: automation-recipes.md
