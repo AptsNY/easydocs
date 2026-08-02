@@ -34,18 +34,21 @@ API for developers. One process, `docker compose up`.
 [latest release](https://github.com/Robertzu43/easydocs/releases/latest) rather than building `main`
 from source — `main` is where development happens.
 
-## Not built in v1
+## New in v1.1
 
-Listed so you do not go looking for them. All are v1.1 or later.
+OIDC/SSO sign-in, per-account TOTP MFA, desktop "Open in Word" over WebDAV, full-text content
+search, a graphical revision graph, S3-compatible blob storage, blob garbage collection, a durable
+job queue, and configurable trusted proxies. Details: the
+[self-hosting guide](self-hosting.md) and the changelog.
 
-- **No OIDC/SSO** and **no MFA.** Local email + password (Argon2id) or an `ed_` API token. Put an
-  authenticating reverse proxy in front of easydocs if you need either.
-- **No S3 blob backend.** Blobs live on a filesystem volume, content-addressed by sha256.
-- **No desktop "Open in Word."** Editing is in the browser via Collabora. WebDAV + `ms-word:` is v1.1.
-- **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization
+## Not built yet
+
+Listed so you do not go looking for them — the full list lives in the repository's `ROADMAP.md`.
+
+- **No cloud export/import pickers** (Dropbox/OneDrive/GDrive) and **no ONLYOFFICE editor option**.
+- **No antivirus scanning on upload.** easydocs trusts `.docx` files from authenticated organization
   members.
-- **No graphical revision graph** (history is an indented list) and **no full-text content search**
-  (names only).
+- **No org-wide MFA enforcement** — MFA is per-account opt-in.
 
 ## API reference
 

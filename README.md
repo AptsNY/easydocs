@@ -86,17 +86,25 @@ docker compose up --build
 The whole lifecycle is doable in a browser without ever touching an HTTP client — which is what the
 Playwright suite asserts, against the shipped container image rather than a dev server.
 
-## What's *not* in v1
+## New in v1.1
 
-Listed so you do not go looking for them. All are planned — see [ROADMAP.md](ROADMAP.md) and the
-[v1.1 milestone](https://github.com/Robertzu43/easydocs/milestone/1).
+- **OIDC/SSO** — point three env keys at any OpenID Connect provider and the login screen grows a
+  "Sign in with SSO" entry. **MFA** — opt-in TOTP with single-use recovery codes, per account.
+- **Desktop "Open in Word"** — a version action hands desktop Word an `ms-word:` URL over WebDAV;
+  saving in Word commits a new version through the same write path as everything else.
+- **Full-text content search** — the dashboard search box matches document content, not just names.
+- **Graphical revision graph** — a List/Graph toggle on the History tab.
+- **S3-compatible blob storage**, **blob garbage collection**, a **durable job queue**, and
+  **configurable trusted proxies** — see the
+  [self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/).
 
-- **No OIDC/SSO and no MFA.** Local email + password (Argon2id) or an `ed_` API token. Put an
-  authenticating reverse proxy in front if you need either.
-- **No desktop "Open in Word."** Editing is in the browser via Collabora. WebDAV + `ms-word:` is v1.1.
-- **No graphical revision graph** (history is an indented list), **no full-text content search**
-  (names only), **no cloud export/import pickers**.
-- **No antivirus scanning on upload.** v1 trusts `.docx` from authenticated members.
+## What's *not* here yet
+
+Listed so you do not go looking for them — see [ROADMAP.md](ROADMAP.md).
+
+- **No cloud export/import pickers** (Dropbox/OneDrive/GDrive) and **no ONLYOFFICE option**.
+- **No antivirus scanning on upload.** easydocs trusts `.docx` from authenticated members.
+- **No org-wide MFA enforcement** — MFA is per-account opt-in.
 
 Rate limiting on the anonymous and credential routes exists per endpoint — but it is per client IP, so
 behind a reverse proxy it collapses into one install-wide budget unless you set

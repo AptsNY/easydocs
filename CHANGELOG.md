@@ -15,7 +15,10 @@ this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers tha
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
-## [Unreleased]
+## [1.1.0] - 2026-08-01
+
+The whole v1.1 milestone — every feature below was a documented v1 exclusion, tracked as issues
+#9–#17 and gathered in `ROADMAP.md`.
 
 ### Added
 

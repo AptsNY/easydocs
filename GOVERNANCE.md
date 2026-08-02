@@ -33,9 +33,9 @@ Everything is public.
   substantive record. Each plan carries a *Deviations* section written after execution — what the plan
   got wrong about the code, and what was built instead. That is the honest history of the project and
   the best place to understand why something is the way it is.
-- Post-v1.0 features already deferred by the spec are listed under
-  [Not in v1](docs-site/docs/self-hosting.md#not-in-v1). Please do not open an issue asking whether
-  SSO is planned; it is, for v1.1.
+- Deferred features are gathered in [ROADMAP.md](ROADMAP.md) and the
+  [Not in v1](docs-site/docs/self-hosting.md#not-in-v1) section of the self-hosting guide (which
+  also records what v1.1 delivered — SSO and MFA among it).
 
 **The best way to get something built** is an issue that describes the problem, not the solution. A
 proposal arriving as a large unsolicited PR is the slowest path — see
