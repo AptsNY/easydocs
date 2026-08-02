@@ -141,7 +141,12 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             },
         };
     });
-builder.Services.AddAuthorization();
+// Every session and ed_ token carries an "org" claim; the MFA challenge token deliberately does
+// not (issue #10). Requiring it in the default policy is what confines that token to the one
+// endpoint that validates it explicitly.
+builder.Services.AddAuthorization(o => o.DefaultPolicy =
+    new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser().RequireClaim("org").Build());
 builder.Services.AddEasyDocsRateLimiter(builder.Configuration); // spec §11 — see RateLimits
 
 // OpenAPI 3.1 doc generated from minimal-API metadata (spec §10.1). Declare the `Bearer`
@@ -239,6 +244,7 @@ app.UseSwaggerUI(o =>
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
+app.MapMfaEndpoints();
 app.MapOrgEndpoints();
 app.MapInvitationEndpoints();
 app.MapTokenEndpoints();

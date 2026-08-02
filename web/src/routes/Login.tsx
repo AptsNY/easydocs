@@ -14,7 +14,7 @@ function returnTo(state: unknown): string {
 // Sign-in and registration on one screen (spec §9). Registration also creates the org, so it needs the
 // extra org-name field — there is no separate org-creation flow.
 export default function Login() {
-  const { me, signIn, register } = useSession()
+  const { me, signIn, finishMfa, register } = useSession()
   const location = useLocation()
   const [creating, setCreating] = useState(false)
   const [email, setEmail] = useState('')
@@ -23,6 +23,9 @@ export default function Login() {
   const [orgName, setOrgName] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // MFA (issue #10): a correct password can come back as a challenge instead of a session.
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [code, setCode] = useState('')
   const ids = useId()
 
   if (me) return <Navigate to={returnTo(location.state)} replace />
@@ -33,7 +36,10 @@ export default function Login() {
     setBusy(true)
     try {
       if (creating) await register(email, displayName, password, orgName)
-      else await signIn(email, password)
+      else {
+        const challenge = await signIn(email, password)
+        if (challenge) setMfaToken(challenge.mfaToken)
+      }
     } catch (err) {
       // Surface the problem+json `detail` — "Email or password is incorrect." beats a generic message.
       setError(err instanceof ApiError ? err.detail || err.title : 'Could not reach the server.')
@@ -41,6 +47,58 @@ export default function Login() {
       setBusy(false)
     }
   }
+
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await finishMfa(mfaToken!, code)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail || err.title : 'Could not reach the server.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (mfaToken)
+    return (
+      <main className="auth" data-testid="login">
+        <h1>easydocs</h1>
+        <form onSubmit={submitCode} className="stack" data-testid="mfa-form">
+          <h2>Two-factor code</h2>
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          <label htmlFor={`${ids}-code`}>Code from your authenticator app (or a recovery code)</label>
+          <input
+            id={`${ids}-code`}
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            required
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+          <button type="submit" disabled={busy}>
+            Verify
+          </button>
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setMfaToken(null)
+              setCode('')
+              setError('')
+            }}
+          >
+            Back to sign in
+          </button>
+        </form>
+      </main>
+    )
 
   return (
     <main className="auth" data-testid="login">

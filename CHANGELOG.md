@@ -37,6 +37,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   branch, a dot per version, edges to parents and from merge commits back to the branch they
   merged. The indented list stays the default and keeps the merge controls; the graph is for
   reading the shape of a history at a glance.
+- **MFA for local accounts** (#10). Opt-in TOTP (RFC 6238, any authenticator app) with ten
+  single-use recovery codes, enabled from Settings. Login becomes two steps for enabled accounts:
+  a correct password yields a five-minute challenge token that can finish MFA and nothing else —
+  it carries no org claim, and every endpoint now requires one. Recovery codes are stored as
+  SHA-256 hashes; disabling MFA requires a current code, not just a live session.
 - **Durable job queue** (#16). Diff-summary and PDF-render jobs are now rows in a `BackgroundJobs`
   table, inserted in the same transaction as the version or publish that needs them and claimed with
   `FOR UPDATE SKIP LOCKED`. A restart resumes queued work instead of dropping it; a failing job

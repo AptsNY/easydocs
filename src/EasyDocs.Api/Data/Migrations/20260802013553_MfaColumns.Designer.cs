@@ -3,6 +3,7 @@ using System;
 using EasyDocs.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace EasyDocs.Api.Data.Migrations
 {
     [DbContext(typeof(EasyDocsDbContext))]
-    partial class EasyDocsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802013553_MfaColumns")]
+    partial class MfaColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

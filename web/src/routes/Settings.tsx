@@ -8,6 +8,7 @@ import {
   type Org,
 } from '../api'
 import { useSession } from '../auth'
+import MfaSection from '../components/MfaSection'
 
 const ROLES: OrgRole[] = ['Owner', 'Admin', 'Member']
 
@@ -117,6 +118,8 @@ export default function Settings() {
           </span>
         </p>
       </section>
+
+      <MfaSection />
 
       <section>
         <h3>API tokens</h3>
