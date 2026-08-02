@@ -3,6 +3,7 @@ using System;
 using EasyDocs.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace EasyDocs.Api.Data.Migrations
 {
     [DbContext(typeof(EasyDocsDbContext))]
-    partial class EasyDocsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802012457_ContentSearch")]
+    partial class ContentSearch
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -726,16 +729,6 @@ namespace EasyDocs.Api.Data.Migrations
                         .HasColumnType("citext");
 
                     b.Property<string>("PasswordHash")
-                        .HasColumnType("text");
-
-                    b.PrimitiveCollection<string[]>("RecoveryCodeHashes")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<DateTimeOffset?>("TotpEnabledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TotpSecret")
                         .HasColumnType("text");
 
                     b.HasKey("Id");

@@ -15,10 +15,47 @@ this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers tha
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
-## [Unreleased]
+## [1.1.0] - 2026-08-01
+
+The whole v1.1 milestone — every feature below was a documented v1 exclusion, tracked as issues
+#9–#17 and gathered in `ROADMAP.md`.
 
 ### Added
 
+- **S3-compatible blob backend** (#14). `BlobStore=s3` plus `S3__*` keys stores blobs in any
+  S3-compatible bucket (AWS, MinIO, Cloudflare R2) instead of the filesystem volume, keyed by sha256
+  exactly like the files were — content-addressed and write-once. An unknown `BlobStore` value or a
+  missing S3 key aborts boot; nothing ever silently falls back to the filesystem.
+- **Blob garbage collection** (#15). A daily background sweep deletes blobs referenced by no
+  version, PDF, or diff-cache column, honoring a 24-hour grace window for in-flight commits.
+  Immutable history is untouched by construction — every referencing column carries a Restrict FK,
+  so the database itself refuses to let the sweep take anything your documents point at.
+  `BlobGc__Enabled=false` restores the old never-delete behaviour.
+- **Full-text content search** (#12). The dashboard's one search box now matches document *content*
+  as well as names. Text is extracted from each document's main head on every save (via the durable
+  job queue) into a Postgres tsvector with a GIN index — language-neutral `simple` config, websearch
+  query syntax (`"exact phrase"`, `word -excluded`). Non-docx heads (PDF versions) simply index as
+  empty; history is not searched, the current document is.
+- **Graphical revision graph** (#13). The History tab gets a List/Graph toggle: one lane per
+  branch, a dot per version, edges to parents and from merge commits back to the branch they
+  merged. The indented list stays the default and keeps the merge controls; the graph is for
+  reading the shape of a history at a glance.
+- **Desktop "Open in Word"** (#11). A new action on every version mints a short-lived WebDAV
+  session and hands the browser an `ms-word:ofe|u|…` URL; desktop Word opens the document over a
+  minimal WebDAV class-2 surface (OPTIONS/PROPFIND/GET/LOCK/UNLOCK/PUT) and **Save commits a new
+  version** through the same single write path as upload and the browser editor — including
+  branch-on-stale, so Word is just a third editor, not a side door. New `edit_webdav` version
+  source; sessions expire after 30 minutes like their WOPI siblings.
+- **OIDC/SSO sign-in** (#9). Configure `Oidc__Authority` / `Oidc__ClientId` / `Oidc__ClientSecret`
+  and the login screen offers "Sign in with SSO" (authorization code + PKCE, any OpenID Connect
+  provider). First-time SSO users are provisioned by verified email — `email_verified=false` is
+  refused — with their own organization, like self-serve registration; the resulting session is
+  the same `ed_session` a password login issues, so orgs, tokens, and roles work identically.
+- **MFA for local accounts** (#10). Opt-in TOTP (RFC 6238, any authenticator app) with ten
+  single-use recovery codes, enabled from Settings. Login becomes two steps for enabled accounts:
+  a correct password yields a five-minute challenge token that can finish MFA and nothing else —
+  it carries no org claim, and every endpoint now requires one. Recovery codes are stored as
+  SHA-256 hashes; disabling MFA requires a current code, not just a live session.
 - **Durable job queue** (#16). Diff-summary and PDF-render jobs are now rows in a `BackgroundJobs`
   table, inserted in the same transaction as the version or publish that needs them and claimed with
   `FOR UPDATE SKIP LOCKED`. A restart resumes queued work instead of dropping it; a failing job

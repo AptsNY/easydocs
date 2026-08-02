@@ -102,7 +102,9 @@ public class E02_Ingest
         var api = await EdApi.NewAsync(_f);
         var doc = await api.Http.GetStringAsync("/openapi/v1.json");
 
-        foreach (var banned in new[] { "cloud-connections", "cloud_connections", "upload_url", "uploadUrl", ":initiate", "webdav" })
+        // "webdav" left this list in v1.1: /versions/{vid}/webdav-sessions is desktop EDITING
+        // (issue #11), not a cloud ingest path — the negative requirement this guards is unchanged.
+        foreach (var banned in new[] { "cloud-connections", "cloud_connections", "upload_url", "uploadUrl", ":initiate" })
             Assert.DoesNotContain(banned, doc, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -138,9 +138,10 @@ members (spec §11); there is no ClamAV or equivalent in the ingest path. Files 
 content-addressed and served back with the document MIME type, never executed. If your threat model
 includes malicious members, scan the blob store out of band.
 
-**No multi-factor authentication.** v1 authenticates with a password or an `ed_` personal access token
-only. There is no TOTP, WebAuthn, or SSO. Put an authenticating reverse proxy in front of easydocs if
-you need MFA.
+**MFA is TOTP, opt-in, per account.** Since v1.1 a user can enable an authenticator-app second factor
+(RFC 6238) plus ten single-use recovery codes from Settings; recovery codes are stored hashed. There
+is no WebAuthn and no way for an admin to *require* MFA org-wide yet — if you need enforced MFA for
+everyone, an authenticating reverse proxy in front of easydocs is still the tool.
 
 **Public downloads are not audited, only views.** `GET /s/{token}` writes a `share_link.viewed` audit
 row and increments the view count; `GET /s/{token}/download` writes nothing. In a browser the SPA

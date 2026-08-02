@@ -468,14 +468,48 @@ Things worth alerting on that easydocs does not alert on for you:
 
 ## Not in v1
 
-- **No S3 blob backend.** Blobs are on the filesystem volume. An S3 backend is a planned
-  env-configurable swap for **v1.1**.
-- **No OIDC/SSO** and **no MFA.** Local email/password (Argon2id) or `ed_` API tokens only. Both are
-  **v1.1** at the earliest. If you need either now, put an authenticating reverse proxy in front of
-  easydocs.
+- ~~No S3 blob backend.~~ **Since v1.1** set `BlobStore=s3` plus the `S3__*` keys to store blobs in
+  any S3-compatible bucket (AWS, MinIO, Cloudflare R2) instead of the filesystem volume:
+
+    ```bash
+    BlobStore=s3
+    S3__Bucket=easydocs-blobs        # must already exist; easydocs never creates buckets
+    S3__AccessKey=…
+    S3__SecretKey=…
+    S3__ServiceUrl=https://minio.internal:9000   # MinIO/R2/Ceph; omit for real AWS…
+    S3__Region=eu-central-1                      # …and set the region instead
+    # S3__ForcePathStyle=false                   # default true, which is what MinIO wants
+    ```
+
+    Objects are keyed by their sha256 exactly like files on the volume, so the layout stays
+    content-addressed and write-once. An unknown `BlobStore` value, or `BlobStore=s3` with a missing
+    key, aborts boot rather than falling back to the filesystem. Migrating existing installs: copy
+    every file under `BLOB_ROOT` (skip `.tmp/`) into the bucket with its filename as the object key,
+    then switch the config. There is no automatic migration.
+- ~~No OIDC/SSO and no MFA.~~ **Since v1.1** both exist:
+
+    - **OIDC/SSO**: point easydocs at any OpenID Connect provider and a "Sign in with SSO" entry
+      appears on the login screen. First-time SSO users are provisioned by their **verified** email
+      (an IdP reporting `email_verified=false` is refused) and get their own organization, exactly
+      like self-serve registration; joining an existing org remains invitation-based.
+
+        ```bash
+        Oidc__Authority=https://login.example.com/realms/acme
+        Oidc__ClientId=easydocs
+        Oidc__ClientSecret=…
+        # Redirect URI to register with the provider: {PUBLIC_BASE_URL}/api/v1/auth/oidc/callback
+        ```
+
+    - **MFA**: per-account opt-in TOTP with single-use recovery codes, under Settings. There is no
+      org-wide *enforcement* yet — if MFA must be mandatory for everyone, an authenticating reverse
+      proxy still does that. SSO sign-ins don't get a local TOTP prompt; the IdP owns MFA there.
 - **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization members.
   If your threat model includes malicious members, scan the blob store out of band.
-- **No blob garbage collection.** Nothing is ever deleted from the blob volume.
+- ~~No blob garbage collection.~~ **Since v1.1** a daily sweep deletes blobs referenced by no
+  version, PDF, or diff cache — with a 24-hour grace window so in-flight commits are never eaten.
+  Versions are immutable, so anything your history points at is permanent by construction; what the
+  sweep reclaims is the residue of failed commits. Tune with `BlobGc__IntervalSeconds` /
+  `BlobGc__GraceSeconds`, or set `BlobGc__Enabled=false` to keep the old never-delete behaviour.
 - ~~No durable job queue.~~ **Since v1.1** diff and PDF jobs are rows in the `BackgroundJobs` table,
   enqueued in the same transaction as the work that needs them: a restart picks queued jobs back up,
   a failing job retries with a two-minute backoff, and a job that fails five times is dropped with

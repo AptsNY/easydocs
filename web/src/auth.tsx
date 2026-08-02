@@ -6,7 +6,9 @@ type Session = {
   me: Me | null
   org: Org | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<void>
+  /** Resolves to an MFA challenge when the account needs a second factor, null when signed in. */
+  signIn: (email: string, password: string) => Promise<{ mfaToken: string } | null>
+  finishMfa: (mfaToken: string, code: string) => Promise<void>
   register: (email: string, displayName: string, password: string, orgName: string) => Promise<void>
   signOut: () => Promise<void>
   refresh: () => Promise<void>
@@ -49,7 +51,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
-      await api.post<Me>('/api/v1/auth/login', { email, password })
+      const res = await api.post<Me | { mfaRequired: true; mfaToken: string }>(
+        '/api/v1/auth/login', { email, password })
+      if ('mfaRequired' in res && res.mfaRequired) return { mfaToken: res.mfaToken }
+      await refresh()
+      return null
+    },
+    [refresh],
+  )
+
+  const finishMfa = useCallback(
+    async (mfaToken: string, code: string) => {
+      await api.post<Me>('/api/v1/auth/login/mfa', { mfaToken, code })
       await refresh()
     },
     [refresh],
@@ -77,7 +90,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <SessionContext.Provider value={{ me, org, loading, signIn, register, signOut, refresh }}>
+    <SessionContext.Provider value={{ me, org, loading, signIn, finishMfa, register, signOut, refresh }}>
       {children}
     </SessionContext.Provider>
   )

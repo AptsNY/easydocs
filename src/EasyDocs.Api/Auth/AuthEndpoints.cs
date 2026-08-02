@@ -100,6 +100,11 @@ public static partial class AuthEndpoints
         if (user?.PasswordHash is null || !hasher.Verify(req.Password ?? "", user.PasswordHash))
             return Problem.Of(401, "Invalid credentials", "Email or password is incorrect.");
 
+        // MFA (issue #10): a correct password is half a login. The challenge token can finish MFA
+        // and nothing else — no org claim, so the default policy rejects it everywhere.
+        if (user.TotpEnabledAt is not null)
+            return Results.Ok(new { mfaRequired = true, mfaToken = jwt.IssueMfaChallenge(user.Id) });
+
         // A session carries exactly one org. Accepting an invitation can make a user a member of more
         // than one, so pick deterministically (oldest membership) rather than whatever the DB returns
         // first. Anyone with several moves between them afterwards via POST /auth/switch-org.
@@ -187,14 +192,14 @@ public static partial class AuthEndpoints
             : Results.Ok(new { id = user.Id, email = user.Email, displayName = user.DisplayName, orgId });
     }
 
-    private static string Slugify(string name)
+    internal static string Slugify(string name)
     {
         var slug = NonSlugChars().Replace(name.Trim().ToLowerInvariant().Replace(' ', '-'), "");
         slug = MultiHyphen().Replace(slug, "-").Trim('-');
         return slug.Length == 0 ? "org" : slug;
     }
 
-    private static async Task<string> UniqueSlugAsync(EasyDocsDbContext db, string baseSlug)
+    internal static async Task<string> UniqueSlugAsync(EasyDocsDbContext db, string baseSlug)
     {
         var slug = baseSlug;
         while (await db.Organizations.AnyAsync(o => o.Slug == slug))

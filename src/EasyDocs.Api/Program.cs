@@ -73,6 +73,11 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Write
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);
 builder.Services.AddScoped<LibreOfficePdfRenderer>();
 builder.Services.AddHostedService<PdfRenderBackgroundService>();
+// Daily sweep of blobs no Versions/VersionDiffs column references (issue #15); grace window
+// protects commits in flight. BlobGc__Enabled=false turns it off.
+builder.Services.AddHostedService<BlobGarbageCollector>();
+// Content indexing for search (issue #12): drains 'extract' jobs, no nudge channel — poll-only.
+builder.Services.AddHostedService<EasyDocs.Api.Documents.TextIndexWorker>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<ApiTokenService>(); // stateless: mint/hash `ed_` PATs
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret
@@ -82,9 +87,22 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => new CollaboraDiscovery(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+// Blob backend (issue #14): BlobStore=filesystem (default) keeps the content-addressed volume;
+// BlobStore=s3 swaps in any S3-compatible endpoint (AWS, MinIO, R2) configured via S3__* keys.
+// An unknown value is a boot error, not a silent fallback to the filesystem — a typo that quietly
+// wrote blobs to the wrong place would surface as data loss at the next redeploy.
 builder.Services.AddSingleton<IBlobStore>(sp =>
-    new FileSystemBlobStore(sp.GetRequiredService<IConfiguration>()["BLOB_ROOT"]
-        ?? throw new InvalidOperationException("BLOB_ROOT not configured")));
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    return cfg["BlobStore"]?.ToLowerInvariant() switch
+    {
+        null or "" or "filesystem" => new FileSystemBlobStore(cfg["BLOB_ROOT"]
+            ?? throw new InvalidOperationException("BLOB_ROOT not configured")),
+        "s3" => S3BlobStore.FromConfiguration(cfg),
+        var other => throw new InvalidOperationException(
+            $"BlobStore is '{other}' — the supported values are 'filesystem' (default) and 's3'."),
+    };
+});
 
 // "sub"/"org" claims come through verbatim (no legacy mapping to ClaimTypes.NameIdentifier).
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
@@ -100,7 +118,43 @@ builder.Services.AddAuthentication("Composite")
     .AddPolicyScheme("Composite", "Composite", o => o.ForwardDefaultSelector = ctx =>
         ctx.Request.Headers.Authorization.ToString().StartsWith("Bearer ed_", StringComparison.Ordinal)
             ? ApiTokenAuthHandler.SchemeName
-            : JwtBearerDefaults.AuthenticationScheme);
+            : JwtBearerDefaults.AuthenticationScheme)
+    // OIDC/SSO (issue #9): the handshake cookie exists only to carry the IdP's claims from the
+    // OpenIdConnect handler to /api/v1/auth/oidc/complete, which converts them into the ordinary
+    // ed_session JWT and signs the handshake back out.
+    .AddCookie(OidcEndpoints.HandshakeScheme, o =>
+    {
+        o.Cookie.Name = "ed_oidc_handshake";
+        o.Cookie.SameSite = SameSiteMode.None; // the IdP POSTs/redirects back cross-site
+        o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(10);
+    })
+    .AddOpenIdConnect(OidcEndpoints.Scheme, o => { /* configured below, from IConfiguration */ });
+builder.Services.AddOptions<Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectOptions>(OidcEndpoints.Scheme)
+    .Configure<IConfiguration>((o, cfg) =>
+    {
+        // The handler participates in every request (it watches CallbackPath), so its options must
+        // validate even when SSO is off — hence syntactically-valid dummies that can never be hit.
+        // The /oidc/login endpoint refuses to challenge unless the real keys are present.
+        var configured = OidcEndpoints.Configured(cfg);
+        o.Authority = configured ? cfg["Oidc:Authority"] : "https://oidc-not-configured.invalid";
+        o.ClientId = configured ? cfg["Oidc:ClientId"] : "not-configured";
+        o.ClientSecret = cfg["Oidc:ClientSecret"] ?? "not-configured";
+        o.SignInScheme = OidcEndpoints.HandshakeScheme;
+        o.CallbackPath = "/api/v1/auth/oidc/callback";
+        o.ResponseType = "code";
+        o.UsePkce = true;
+        o.SaveTokens = false; // easydocs never calls the IdP on the user's behalf; keep the cookie light
+        o.GetClaimsFromUserInfoEndpoint = true;
+        o.Scope.Clear();
+        o.Scope.Add("openid");
+        o.Scope.Add("email");
+        o.Scope.Add("profile");
+        o.MapInboundClaims = false; // "email"/"name"/"sub" arrive under their own names
+        o.TokenValidationParameters.NameClaimType = "name";
+        // An http authority is a dev/test IdP; demand https metadata everywhere else.
+        o.RequireHttpsMetadata = !(o.Authority?.StartsWith("http://", StringComparison.Ordinal) ?? false);
+    });
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<IConfiguration>((o, cfg) =>
     {
@@ -123,7 +177,12 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             },
         };
     });
-builder.Services.AddAuthorization();
+// Every session and ed_ token carries an "org" claim; the MFA challenge token deliberately does
+// not (issue #10). Requiring it in the default policy is what confines that token to the one
+// endpoint that validates it explicitly.
+builder.Services.AddAuthorization(o => o.DefaultPolicy =
+    new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser().RequireClaim("org").Build());
 builder.Services.AddEasyDocsRateLimiter(builder.Configuration); // spec §11 — see RateLimits
 
 // OpenAPI 3.1 doc generated from minimal-API metadata (spec §10.1). Declare the `Bearer`
@@ -158,6 +217,10 @@ var app = builder.Build();
 
 // Fail fast at boot (not first login) if the signing key is missing/too short for HS256.
 RequireJwtKeyBytes(app.Configuration);
+
+// Resolve the blob store once so a bad BlobStore value or missing S3__*/BLOB_ROOT key aborts boot
+// here, not at the first upload after a redeploy.
+_ = app.Services.GetRequiredService<IBlobStore>();
 
 // Fail fast on unparseable trusted-proxy entries, and on entries that would be silently ignored
 // because the middleware itself is off — silently-ignored configuration is the exact defect that
@@ -217,6 +280,8 @@ app.UseSwaggerUI(o =>
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
+app.MapMfaEndpoints();
+app.MapOidcEndpoints();
 app.MapOrgEndpoints();
 app.MapInvitationEndpoints();
 app.MapTokenEndpoints();
@@ -233,6 +298,7 @@ app.MapPushEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
+app.MapWebdavEndpoints(); // token-in-path (issue #11) — must precede the /dav/{**rest} 404 below.
 app.MapShareEndpoints(); // public /s/{token} viewer — must precede the /s/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
@@ -241,6 +307,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.Map("/api/{**rest}", () => Results.NotFound());
 app.Map("/wopi/{**rest}", () => Results.NotFound());
+app.Map("/dav/{**rest}", () => Results.NotFound());
 app.Map("/s/{**rest}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 

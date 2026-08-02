@@ -108,6 +108,18 @@ export default function ActionsMenu({
     // The session is minted by the editor route, not here: arriving at /versions/:vid/edit by any means —
     // a bookmark, a reload, a link — has to mint one anyway.
     { label: 'Open in Collabora', need: 'edit', run: () => navigate(`/versions/${vid}/edit`) },
+    {
+      // Desktop Word via ms-word: + WebDAV (issue #11). The mint returns a protocol URL; assigning
+      // it hands off to the registered Office handler and never navigates the SPA. On a machine
+      // with no Word the browser shows its "no handler" notice — the honest outcome.
+      label: 'Open in Word',
+      need: 'edit',
+      run: () =>
+        void act(async () => {
+          const s = await api.post<{ msWordUrl: string }>(`/api/v1/versions/${vid}/webdav-sessions`)
+          window.location.assign(s.msWordUrl)
+        }),
+    },
     { label: 'Import', need: 'edit', run: () => fileRef.current?.click() },
     {
       label: 'Share',

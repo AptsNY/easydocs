@@ -138,6 +138,10 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         if (diffJob is not null)
             db.Add(BackgroundJobs.For(BackgroundJobs.Diff, diffJob));
 
+        // Reindex the document's content for search (issue #12) — the worker recomputes the main
+        // head itself, so enqueueing on every commit (branch or not) is always safe.
+        db.Add(BackgroundJobs.For(BackgroundJobs.Extract, input.DocumentId));
+
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 

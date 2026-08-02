@@ -59,10 +59,12 @@ for required in ["/api/v1/documents", "/api/v1/tokens", "/api/v1/documents/{id}/
     assert required in paths, f"missing {required} in the published document"
 schemes = d.get("components", {}).get("securitySchemes", {})
 assert "Bearer" in schemes, "the ed_ Bearer security scheme is not declared"
-banned = {"exports", "cloud-connections", "tasks", "realtime", "webdav"}
+# "webdav" left this set in v1.1: /versions/{vid}/webdav-sessions is the desktop "Open in Word"
+# feature (issue #11), a deliberate part of the surface now. The rest stay banned.
+banned = {"exports", "cloud-connections", "tasks", "realtime"}
 for p in paths:
     for b in banned:
-        assert b not in p, f"v1.1/dropped surface leaked into v1: {p}"
+        assert b not in p, f"dropped surface leaked into the API: {p}"
 print(f"  {len(paths)} paths, security schemes: {list(schemes)}")
 PY
 

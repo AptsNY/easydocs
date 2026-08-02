@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const target = 'http://localhost:8080'
+// EASYDOCS_API lets a test run aim the dev server at an API other than the compose stack's :8080 —
+// e.g. a `dotnet run` of the current tree when the container image is older than the endpoints
+// under test.
+const target = process.env.EASYDOCS_API ?? 'http://localhost:8080'
 const proxy = { target, changeOrigin: true }
 
 // In production the API serves the built SPA from wwwroot, so these paths are same-origin. In dev the
