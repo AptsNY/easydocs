@@ -47,6 +47,15 @@
   --danger: #b3261e;
   --danger-soft: rgb(179 38 30 / 7%);
 
+  /* Revision-graph lanes. Main is Core Blue; none is red, because red means
+     an error and nothing else. The dark block swaps in lighter values. */
+  --lane-0: #2456e8;
+  --lane-1: #0e8a7d;
+  --lane-2: #b26a00;
+  --lane-3: #7c3aed;
+  --lane-4: #0f7ca8;
+  --lane-5: #a83a92;
+
   --shadow:
     rgb(23 32 51 / 8%) 0 1px 2px, rgb(23 32 51 / 10%) 0 8px 20px -6px;
 
@@ -103,6 +112,13 @@
     --accent-rule: rgb(108 146 255 / 40%);
     --danger: #f0a9a0;
     --danger-soft: rgb(240 169 160 / 8%);
+
+    --lane-0: #6c92ff;
+    --lane-1: #35cdbb;
+    --lane-2: #f0b45c;
+    --lane-3: #b794ff;
+    --lane-4: #58c2ee;
+    --lane-5: #ef8fd4;
 
     --shadow: rgb(0 0 0 / 50%) 0 2px 4px, rgb(0 0 0 / 45%) 0 12px 28px -8px;
   }
