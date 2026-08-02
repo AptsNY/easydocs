@@ -39,7 +39,10 @@ services:
       COLLABORA_PUBLIC_URL: ${COLLABORA_PUBLIC_URL}
       ASPNETCORE_HTTP_PORTS: "8080"
     ports:
-      - "8080:8080"
+      # Loopback only: the quickstart's secrets are placeholders and the Secure cookie already
+      # refuses plain HTTP beyond localhost, so nothing off this machine has any business here.
+      # The edge proxy that terminates TLS (spec §11) runs on this host and reaches 127.0.0.1 fine.
+      - "127.0.0.1:8080:8080"
     volumes:
       - blobs:/data/blobs
 
@@ -59,7 +62,7 @@ services:
       # PUBLIC_BASE_URL's scheme: false for the plain-http default, true for a real https deployment
       # behind the edge proxy (spec §11) — set both together in .env.
       extra_params: "--o:ssl.enable=false --o:ssl.termination=${COLLABORA_SSL_TERMINATION:-false}"
-    ports: [ "9980:9980" ]
+    ports: [ "127.0.0.1:9980:9980" ] # loopback only, same reasoning as the app port
     cap_add: [ MKNOD ]
 
 volumes:
