@@ -298,6 +298,7 @@ app.MapPushEndpoints();
 app.MapEditingEndpoints();
 app.MapEventEndpoints();
 app.MapWopiEndpoints(); // token-authorized (query param) — must precede the /wopi/{**rest} 404 below.
+app.MapWebdavEndpoints(); // token-in-path (issue #11) — must precede the /dav/{**rest} 404 below.
 app.MapShareEndpoints(); // public /s/{token} viewer — must precede the /s/{**rest} 404 below.
 
 // Serve the SPA. Real endpoints above win on precedence; unmatched non-SPA prefixes
@@ -306,6 +307,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.Map("/api/{**rest}", () => Results.NotFound());
 app.Map("/wopi/{**rest}", () => Results.NotFound());
+app.Map("/dav/{**rest}", () => Results.NotFound());
 app.Map("/s/{**rest}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 

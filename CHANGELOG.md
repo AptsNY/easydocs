@@ -37,6 +37,12 @@ descriptions are **document** versions, produced by the versioning engine. They 
   branch, a dot per version, edges to parents and from merge commits back to the branch they
   merged. The indented list stays the default and keeps the merge controls; the graph is for
   reading the shape of a history at a glance.
+- **Desktop "Open in Word"** (#11). A new action on every version mints a short-lived WebDAV
+  session and hands the browser an `ms-word:ofe|u|…` URL; desktop Word opens the document over a
+  minimal WebDAV class-2 surface (OPTIONS/PROPFIND/GET/LOCK/UNLOCK/PUT) and **Save commits a new
+  version** through the same single write path as upload and the browser editor — including
+  branch-on-stale, so Word is just a third editor, not a side door. New `edit_webdav` version
+  source; sessions expire after 30 minutes like their WOPI siblings.
 - **OIDC/SSO sign-in** (#9). Configure `Oidc__Authority` / `Oidc__ClientId` / `Oidc__ClientSecret`
   and the login screen offers "Sign in with SSO" (authorization code + PKCE, any OpenID Connect
   provider). First-time SSO users are provisioned by verified email — `email_verified=false` is
