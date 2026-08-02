@@ -141,10 +141,10 @@ Guides are published at **<https://robertzu43.github.io/easydocs/>**:
 
 And in the repo:
 
-- [ROADMAP.md](ROADMAP.md) — what's planned after v1.0.0, and how to influence it
+- [ROADMAP.md](ROADMAP.md) — what's planned next, and how to influence it
 - [SECURITY.md](SECURITY.md) — private disclosure, and the known v1 limitations
 - [GOVERNANCE.md](GOVERNANCE.md) — how decisions get made, the RFC process, release versioning
-- [CHANGELOG.md](CHANGELOG.md) — v1.0.0 released 2026-08-01
+- [CHANGELOG.md](CHANGELOG.md) — what each release delivered, most recently v1.1.0
 - Design specs and conformance profile: [`docs/superpowers/specs/`](docs/superpowers/specs/)
 
 ## License & contributing

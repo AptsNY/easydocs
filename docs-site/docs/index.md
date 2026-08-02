@@ -30,9 +30,9 @@ API for developers. One process, `docker compose up`.
 
 ## Status
 
-**`v1.0.0` is released** (2026-08-01). Install from the compose bundle attached to the
-[latest release](https://github.com/Robertzu43/easydocs/releases/latest) rather than building `main`
-from source — `main` is where development happens.
+Install from the compose bundle attached to the
+[latest release](https://github.com/Robertzu43/easydocs/releases/latest) — currently **v1.1.0** —
+rather than building `main` from source; `main` is where development happens.
 
 ## New in v1.1
 
