@@ -10,6 +10,7 @@
     <PackageReference Include="Clippit" Version="3.8.0" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.10" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <!-- Override the transitive Microsoft.OpenApi 2.0.0 pulled by AspNetCore.OpenApi 10.0.10:
          2.0.0 has NU1903 high-sev advisory GHSA-v5pm-xwqc-g5wc (patched in the 2.x line at 2.7.5). -->

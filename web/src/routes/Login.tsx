@@ -1,6 +1,6 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Navigate, useLocation } from 'react-router'
-import { ApiError } from '../api'
+import { api, ApiError } from '../api'
 import { useSession } from '../auth'
 
 // Where to land after signing in: the destination RequireAuth was guarding, or the dashboard. Only
@@ -26,6 +26,14 @@ export default function Login() {
   // MFA (issue #10): a correct password can come back as a challenge instead of a session.
   const [mfaToken, setMfaToken] = useState<string | null>(null)
   const [code, setCode] = useState('')
+  // SSO (issue #9): the button only exists when the install has a provider configured.
+  const [ssoEnabled, setSsoEnabled] = useState(false)
+  useEffect(() => {
+    api
+      .get<{ enabled: boolean }>('/api/v1/auth/oidc')
+      .then((r) => setSsoEnabled(r.enabled))
+      .catch(() => setSsoEnabled(false)) // an older API without the endpoint just means no button
+  }, [])
   const ids = useId()
 
   if (me) return <Navigate to={returnTo(location.state)} replace />
@@ -169,6 +177,14 @@ export default function Login() {
         >
           {creating ? 'I already have an account' : 'Create a new organization'}
         </button>
+
+        {ssoEnabled && !creating && (
+          // A real navigation, not a fetch: the OIDC dance is a chain of redirects the browser
+          // must follow to the identity provider and back.
+          <a href="/api/v1/auth/oidc/login" data-testid="sso-login">
+            Sign in with SSO
+          </a>
+        )}
       </form>
     </main>
   )

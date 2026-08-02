@@ -192,14 +192,14 @@ public static partial class AuthEndpoints
             : Results.Ok(new { id = user.Id, email = user.Email, displayName = user.DisplayName, orgId });
     }
 
-    private static string Slugify(string name)
+    internal static string Slugify(string name)
     {
         var slug = NonSlugChars().Replace(name.Trim().ToLowerInvariant().Replace(' ', '-'), "");
         slug = MultiHyphen().Replace(slug, "-").Trim('-');
         return slug.Length == 0 ? "org" : slug;
     }
 
-    private static async Task<string> UniqueSlugAsync(EasyDocsDbContext db, string baseSlug)
+    internal static async Task<string> UniqueSlugAsync(EasyDocsDbContext db, string baseSlug)
     {
         var slug = baseSlug;
         while (await db.Organizations.AnyAsync(o => o.Slug == slug))

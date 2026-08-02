@@ -118,7 +118,43 @@ builder.Services.AddAuthentication("Composite")
     .AddPolicyScheme("Composite", "Composite", o => o.ForwardDefaultSelector = ctx =>
         ctx.Request.Headers.Authorization.ToString().StartsWith("Bearer ed_", StringComparison.Ordinal)
             ? ApiTokenAuthHandler.SchemeName
-            : JwtBearerDefaults.AuthenticationScheme);
+            : JwtBearerDefaults.AuthenticationScheme)
+    // OIDC/SSO (issue #9): the handshake cookie exists only to carry the IdP's claims from the
+    // OpenIdConnect handler to /api/v1/auth/oidc/complete, which converts them into the ordinary
+    // ed_session JWT and signs the handshake back out.
+    .AddCookie(OidcEndpoints.HandshakeScheme, o =>
+    {
+        o.Cookie.Name = "ed_oidc_handshake";
+        o.Cookie.SameSite = SameSiteMode.None; // the IdP POSTs/redirects back cross-site
+        o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(10);
+    })
+    .AddOpenIdConnect(OidcEndpoints.Scheme, o => { /* configured below, from IConfiguration */ });
+builder.Services.AddOptions<Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectOptions>(OidcEndpoints.Scheme)
+    .Configure<IConfiguration>((o, cfg) =>
+    {
+        // The handler participates in every request (it watches CallbackPath), so its options must
+        // validate even when SSO is off — hence syntactically-valid dummies that can never be hit.
+        // The /oidc/login endpoint refuses to challenge unless the real keys are present.
+        var configured = OidcEndpoints.Configured(cfg);
+        o.Authority = configured ? cfg["Oidc:Authority"] : "https://oidc-not-configured.invalid";
+        o.ClientId = configured ? cfg["Oidc:ClientId"] : "not-configured";
+        o.ClientSecret = cfg["Oidc:ClientSecret"] ?? "not-configured";
+        o.SignInScheme = OidcEndpoints.HandshakeScheme;
+        o.CallbackPath = "/api/v1/auth/oidc/callback";
+        o.ResponseType = "code";
+        o.UsePkce = true;
+        o.SaveTokens = false; // easydocs never calls the IdP on the user's behalf; keep the cookie light
+        o.GetClaimsFromUserInfoEndpoint = true;
+        o.Scope.Clear();
+        o.Scope.Add("openid");
+        o.Scope.Add("email");
+        o.Scope.Add("profile");
+        o.MapInboundClaims = false; // "email"/"name"/"sub" arrive under their own names
+        o.TokenValidationParameters.NameClaimType = "name";
+        // An http authority is a dev/test IdP; demand https metadata everywhere else.
+        o.RequireHttpsMetadata = !(o.Authority?.StartsWith("http://", StringComparison.Ordinal) ?? false);
+    });
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<IConfiguration>((o, cfg) =>
     {
@@ -245,6 +281,7 @@ app.UseSwaggerUI(o =>
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapMfaEndpoints();
+app.MapOidcEndpoints();
 app.MapOrgEndpoints();
 app.MapInvitationEndpoints();
 app.MapTokenEndpoints();

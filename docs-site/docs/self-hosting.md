@@ -486,9 +486,23 @@ Things worth alerting on that easydocs does not alert on for you:
     key, aborts boot rather than falling back to the filesystem. Migrating existing installs: copy
     every file under `BLOB_ROOT` (skip `.tmp/`) into the bucket with its filename as the object key,
     then switch the config. There is no automatic migration.
-- **No OIDC/SSO** and **no MFA.** Local email/password (Argon2id) or `ed_` API tokens only. Both are
-  **v1.1** at the earliest. If you need either now, put an authenticating reverse proxy in front of
-  easydocs.
+- ~~No OIDC/SSO and no MFA.~~ **Since v1.1** both exist:
+
+    - **OIDC/SSO**: point easydocs at any OpenID Connect provider and a "Sign in with SSO" entry
+      appears on the login screen. First-time SSO users are provisioned by their **verified** email
+      (an IdP reporting `email_verified=false` is refused) and get their own organization, exactly
+      like self-serve registration; joining an existing org remains invitation-based.
+
+        ```bash
+        Oidc__Authority=https://login.example.com/realms/acme
+        Oidc__ClientId=easydocs
+        Oidc__ClientSecret=…
+        # Redirect URI to register with the provider: {PUBLIC_BASE_URL}/api/v1/auth/oidc/callback
+        ```
+
+    - **MFA**: per-account opt-in TOTP with single-use recovery codes, under Settings. There is no
+      org-wide *enforcement* yet — if MFA must be mandatory for everyone, an authenticating reverse
+      proxy still does that. SSO sign-ins don't get a local TOTP prompt; the IdP owns MFA there.
 - **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization members.
   If your threat model includes malicious members, scan the blob store out of band.
 - ~~No blob garbage collection.~~ **Since v1.1** a daily sweep deletes blobs referenced by no

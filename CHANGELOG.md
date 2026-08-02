@@ -37,6 +37,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   branch, a dot per version, edges to parents and from merge commits back to the branch they
   merged. The indented list stays the default and keeps the merge controls; the graph is for
   reading the shape of a history at a glance.
+- **OIDC/SSO sign-in** (#9). Configure `Oidc__Authority` / `Oidc__ClientId` / `Oidc__ClientSecret`
+  and the login screen offers "Sign in with SSO" (authorization code + PKCE, any OpenID Connect
+  provider). First-time SSO users are provisioned by verified email — `email_verified=false` is
+  refused — with their own organization, like self-serve registration; the resulting session is
+  the same `ed_session` a password login issues, so orgs, tokens, and roles work identically.
 - **MFA for local accounts** (#10). Opt-in TOTP (RFC 6238, any authenticator app) with ten
   single-use recovery codes, enabled from Settings. Login becomes two steps for enabled accounts:
   a correct password yields a five-minute challenge token that can finish MFA and nothing else —
