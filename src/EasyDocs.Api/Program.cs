@@ -73,6 +73,9 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Write
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);
 builder.Services.AddScoped<LibreOfficePdfRenderer>();
 builder.Services.AddHostedService<PdfRenderBackgroundService>();
+// Daily sweep of blobs no Versions/VersionDiffs column references (issue #15); grace window
+// protects commits in flight. BlobGc__Enabled=false turns it off.
+builder.Services.AddHostedService<BlobGarbageCollector>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<ApiTokenService>(); // stateless: mint/hash `ed_` PATs
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret

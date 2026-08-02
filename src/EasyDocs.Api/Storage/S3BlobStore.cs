@@ -103,6 +103,9 @@ public sealed class S3BlobStore(IAmazonS3 s3, string bucket) : IBlobStore
         return new ResponseStream(response);
     }
 
+    public Task DeleteAsync(string sha256, CancellationToken ct = default)
+        => s3.DeleteObjectAsync(bucket, sha256, ct); // S3 DELETE is idempotent by contract
+
     // GetObjectResponse owns the network stream; disposing only the inner stream leaks the response
     // (and with it the connection). Callers get one Stream and dispose one Stream — this makes that
     // one dispose reach both.

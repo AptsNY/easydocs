@@ -23,6 +23,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   S3-compatible bucket (AWS, MinIO, Cloudflare R2) instead of the filesystem volume, keyed by sha256
   exactly like the files were — content-addressed and write-once. An unknown `BlobStore` value or a
   missing S3 key aborts boot; nothing ever silently falls back to the filesystem.
+- **Blob garbage collection** (#15). A daily background sweep deletes blobs referenced by no
+  version, PDF, or diff-cache column, honoring a 24-hour grace window for in-flight commits.
+  Immutable history is untouched by construction — every referencing column carries a Restrict FK,
+  so the database itself refuses to let the sweep take anything your documents point at.
+  `BlobGc__Enabled=false` restores the old never-delete behaviour.
 - **Durable job queue** (#16). Diff-summary and PDF-render jobs are now rows in a `BackgroundJobs`
   table, inserted in the same transaction as the version or publish that needs them and claimed with
   `FOR UPDATE SKIP LOCKED`. A restart resumes queued work instead of dropping it; a failing job

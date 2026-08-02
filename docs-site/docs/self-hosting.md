@@ -491,7 +491,11 @@ Things worth alerting on that easydocs does not alert on for you:
   easydocs.
 - **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization members.
   If your threat model includes malicious members, scan the blob store out of band.
-- **No blob garbage collection.** Nothing is ever deleted from the blob volume.
+- ~~No blob garbage collection.~~ **Since v1.1** a daily sweep deletes blobs referenced by no
+  version, PDF, or diff cache — with a 24-hour grace window so in-flight commits are never eaten.
+  Versions are immutable, so anything your history points at is permanent by construction; what the
+  sweep reclaims is the residue of failed commits. Tune with `BlobGc__IntervalSeconds` /
+  `BlobGc__GraceSeconds`, or set `BlobGc__Enabled=false` to keep the old never-delete behaviour.
 - ~~No durable job queue.~~ **Since v1.1** diff and PDF jobs are rows in the `BackgroundJobs` table,
   enqueued in the same transaction as the work that needs them: a restart picks queued jobs back up,
   a failing job retries with a two-minute backoff, and a job that fails five times is dropped with

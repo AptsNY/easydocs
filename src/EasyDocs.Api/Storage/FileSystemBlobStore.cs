@@ -71,5 +71,13 @@ public sealed class FileSystemBlobStore : IBlobStore
         return Task.FromResult<Stream>(File.OpenRead(path));
     }
 
+    public Task DeleteAsync(string sha256, CancellationToken ct = default)
+    {
+        var path = ShardPath(sha256);
+        if (File.Exists(path)) File.Delete(path);
+        // Shard directories are left behind empty; two levels of 256 dirs is noise, not leakage.
+        return Task.CompletedTask;
+    }
+
     private string ShardPath(string sha) => Path.Combine(_root, sha[..2], sha[2..4], sha);
 }
