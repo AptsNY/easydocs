@@ -244,19 +244,29 @@ it **clears the loopback-only restriction, trusting the forwarded headers from a
     If the proxy runs in another container, drop the `ports:` mapping entirely and put both on a shared
     Docker network, so the app is reachable only over that network.
 
-### `KnownProxies` cannot be set by configuration in v1
+### Narrowing trust to named proxies (v1.1+)
 
-!!! warning "A real gap, stated plainly"
-    You may see advice to restrict trust with `ForwardedHeaders__KnownProxies__0=…`. **That does nothing
-    on easydocs v1.** `ForwardedHeadersOptions` is never bound from configuration — the only code that
-    touches it is the framework's `ForwardedHeadersOptionsSetup` above, which reads exactly one key
-    (`ForwardedHeaders_Enabled`) and then clears the proxy list. Setting `KnownProxies` in `.env` is
-    silently ignored.
+Since v1.1 the trusted-proxy lists bind from configuration, so you can name the proxy instead of
+relying on port binding alone:
 
-    Narrowing trust to a named proxy requires a code change in `Program.cs`
-    (`builder.Services.Configure<ForwardedHeadersOptions>(…)`), which v1 does not have. Until it does,
-    **network isolation is the control** — the port binding above, not a config key. Restricting trusted
-    proxies by configuration is tracked for v1.1.
+```bash
+ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+ForwardedHeaders__KnownProxies__0=10.0.0.5        # exact proxy IPs…
+ForwardedHeaders__KnownNetworks__0=172.16.0.0/12  # …or CIDR ranges (Docker networks live here)
+```
+
+With either list set, `X-Forwarded-*` headers are honored only from those addresses; a connection
+from anywhere else is treated as the client itself. Both lists are additive — set as many indexed
+entries as you have proxies.
+
+Two properties worth knowing, both deliberate:
+
+- **Misconfiguration aborts boot.** An entry that isn't an IP / CIDR, or lists set while
+  `ASPNETCORE_FORWARDEDHEADERS_ENABLED` is off (which would make them dead config), stops the app at
+  startup with a message naming the problem. On easydocs v1.0 these keys were silently ignored —
+  never again.
+- **Network isolation is still worth keeping.** The port-binding advice above remains good
+  defense-in-depth even with named proxies; the lists narrow header trust, not reachability.
 
 ### Verify it worked
 

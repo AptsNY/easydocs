@@ -119,8 +119,10 @@ installation shares one budget. It fails **closed**, not open — the limits get
 extra allowance — and the `ip` field in share-view audit rows records the proxy instead of the
 visitor. This is deliberately not on by default: trusting `X-Forwarded-For` unconditionally would let
 anyone bypass the limiter with a header. Note that enabling the switch also clears the framework's
-loopback-only trust list, and **easydocs v1 cannot restrict `KnownProxies` by configuration** — so
-network isolation, not a config key, is the control. Read
+loopback-only trust list. Since v1.1 you can narrow that trust back to named proxies with
+`ForwardedHeaders__KnownProxies__N` / `ForwardedHeaders__KnownNetworks__N` (unparseable values, or
+setting them with the switch off, abort boot rather than being silently ignored); keep the network
+isolation as defense-in-depth regardless. Read
 [Forwarded headers behind a proxy](docs-site/docs/self-hosting.md#forwarded-headers-behind-a-proxy)
 in full before enabling it.
 

@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
 using System.Text;
 using System.Threading.Channels;
 using EasyDocs.Api.Approvals;
@@ -23,6 +24,23 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ASPNETCORE_FORWARDEDHEADERS_ENABLED=true turns the forwarded-headers middleware on, but the
+// framework setup it triggers clears KnownProxies/KnownNetworks — i.e. it trusts X-Forwarded-* from
+// anyone who can reach the port. These keys narrow that trust to named proxies:
+//   ForwardedHeaders__KnownProxies__0=10.0.0.5
+//   ForwardedHeaders__KnownNetworks__0=10.0.0.0/8
+// PostConfigure so the framework's own setup (an IConfigureOptions) runs first and its Clear()
+// cannot wipe these entries. Config is read inside the callback (not at this line) for the same
+// reason RequireJwtKeyBytes runs after Build(): test hosts merge their config during Build().
+// ParseTrustedProxies is also called once at boot, below, so a typo aborts startup with the
+// offending value instead of surfacing as trust granted to nobody (or everybody).
+builder.Services.AddOptions<ForwardedHeadersOptions>().PostConfigure<IConfiguration>((o, cfg) =>
+{
+    var (proxies, networks) = ParseTrustedProxies(cfg);
+    foreach (var p in proxies) o.KnownProxies.Add(p);
+    foreach (var n in networks) o.KnownIPNetworks.Add(n);
+});
 
 // Minimal-API body binding uses its own JSON options (Microsoft.AspNetCore.Http.Json.JsonOptions),
 // separate from MVC's (which this project doesn't use) - so the UTC-normalizing DateTimeOffset
@@ -139,6 +157,19 @@ var app = builder.Build();
 // Fail fast at boot (not first login) if the signing key is missing/too short for HS256.
 RequireJwtKeyBytes(app.Configuration);
 
+// Fail fast on unparseable trusted-proxy entries, and on entries that would be silently ignored
+// because the middleware itself is off — silently-ignored configuration is the exact defect that
+// created this knob (issue #17).
+{
+    var (proxies, networks) = ParseTrustedProxies(app.Configuration);
+    if ((proxies.Length > 0 || networks.Length > 0)
+        && !app.Configuration.GetValue<bool>("ForwardedHeaders_Enabled"))
+        throw new InvalidOperationException(
+            "ForwardedHeaders:KnownProxies/KnownNetworks are configured but the forwarded-headers"
+            + " middleware is off, so they would be silently ignored — set"
+            + " ASPNETCORE_FORWARDEDHEADERS_ENABLED=true as well.");
+}
+
 using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>().Database.Migrate();
 
@@ -212,6 +243,18 @@ app.Map("/s/{**rest}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// The narrowing lists for the forwarded-headers middleware. Throws on a malformed entry — callers
+// rely on that for boot-time fail-fast.
+static (IPAddress[] Proxies, IPNetwork[] Networks) ParseTrustedProxies(IConfiguration cfg) => (
+    (cfg.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+        .Select(s => IPAddress.TryParse(s, out var ip) ? ip : throw new InvalidOperationException(
+            $"ForwardedHeaders:KnownProxies contains '{s}', which is not an IP address."))
+        .ToArray(),
+    (cfg.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+        .Select(s => IPNetwork.TryParse(s, out var net) ? net : throw new InvalidOperationException(
+            $"ForwardedHeaders:KnownNetworks contains '{s}', which is not CIDR notation (e.g. 10.0.0.0/8)."))
+        .ToArray());
 
 // HS256 requires a >= 256-bit (32-byte) key; reject a missing or short secret with a clear message.
 static byte[] RequireJwtKeyBytes(IConfiguration cfg)

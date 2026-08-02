@@ -15,6 +15,16 @@ this file are **easydocs releases**. The `0.0.1` / `0.1.0` / `1.0.0` numbers tha
 descriptions are **document** versions, produced by the versioning engine. They are unrelated. See
 [GOVERNANCE.md](GOVERNANCE.md#versioning-the-products-version-is-not-a-documents-version).
 
+## [Unreleased]
+
+### Added
+
+- **Trusted-proxy configuration** (#17). `ForwardedHeaders__KnownProxies__N` and
+  `ForwardedHeaders__KnownNetworks__N` now bind, so `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` can
+  trust named proxies instead of everything that reaches the port. Misconfiguration — an entry that
+  isn't an IP/CIDR, or lists set while the middleware is off — aborts boot instead of being silently
+  ignored.
+
 ## [1.0.1] - 2026-08-01
 
 ### Fixed
