@@ -43,6 +43,10 @@ organization, and you are its owner. Invite colleagues from **Settings → Organ
 document's Members panel) and send them the invitation link; someone who belongs to more than one
 organization gets a switcher in the header.
 
+From there, the **[User guide](https://robertzu43.github.io/easydocs/user-guide/)** walks every
+screen and action — uploading, editing, branching and merging, publishing, approvals, sharing — and
+the [API](#api) does everything the UI does.
+
 Two things to set in `.env`:
 
 - **`Jwt__Secret`** ships deliberately too short to boot — the app fails fast under 32 bytes. Generate
