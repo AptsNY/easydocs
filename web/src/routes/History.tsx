@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router'
 import { api, problemText, type DocRole, type Paged, type VersionRow as Version } from '../api'
 import Row from '../components/VersionRow'
+import RevisionGraph from '../components/RevisionGraph'
 
-// ponytail: history is an indented list — main spine plus grouped concurrent-branch entries, per
-// spec §9. The graphical DAG renderer is v1.1; most documents are linear until a concurrent edit.
+// Two renderings of the same page of versions: the indented list (spec §9, the default the
+// conformance suite asserts) and the graphical DAG (issue #13), behind a toggle. Merging stays a
+// list-view action; the graph is for reading the shape of the history.
 
 type Group = {
   branchId: string
@@ -20,6 +22,7 @@ export default function History() {
   const [rows, setRows] = useState<Version[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [view, setView] = useState<'list' | 'graph'>('list')
 
   // order=desc is opt-in on the API: ascending is the default because the C# conformance suite asserts
   // oldest-first. Reversing a page here instead would only ever reorder page one.
@@ -67,6 +70,24 @@ export default function History() {
     <div data-testid="history">
       <h3>History</h3>
 
+      <div className="view-toggle" role="group" aria-label="History view">
+        <button
+          type="button"
+          aria-pressed={view === 'list'}
+          onClick={() => setView('list')}
+        >
+          List
+        </button>
+        <button
+          type="button"
+          data-testid="graph-toggle"
+          aria-pressed={view === 'graph'}
+          onClick={() => setView('graph')}
+        >
+          Graph
+        </button>
+      </div>
+
       {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
           not a console tab), so without this link nothing in the app reaches it. */}
       <p>
@@ -79,6 +100,9 @@ export default function History() {
         </p>
       )}
 
+      {view === 'graph' && <RevisionGraph rows={rows} rowProps={rowProps} />}
+
+      {view === 'list' && (
       <ol className="spine" data-testid="branch-spine">
         {spine.map((v) => (
           <li key={v.id}>
@@ -103,6 +127,7 @@ export default function History() {
           </li>
         ))}
       </ol>
+      )}
 
       {rows.length === 0 && !error && <p>No versions yet.</p>}
 

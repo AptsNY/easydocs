@@ -33,6 +33,10 @@ descriptions are **document** versions, produced by the versioning engine. They 
   job queue) into a Postgres tsvector with a GIN index — language-neutral `simple` config, websearch
   query syntax (`"exact phrase"`, `word -excluded`). Non-docx heads (PDF versions) simply index as
   empty; history is not searched, the current document is.
+- **Graphical revision graph** (#13). The History tab gets a List/Graph toggle: one lane per
+  branch, a dot per version, edges to parents and from merge commits back to the branch they
+  merged. The indented list stays the default and keeps the merge controls; the graph is for
+  reading the shape of a history at a glance.
 - **Durable job queue** (#16). Diff-summary and PDF-render jobs are now rows in a `BackgroundJobs`
   table, inserted in the same transaction as the version or publish that needs them and claimed with
   `FOR UPDATE SKIP LOCKED`. A restart resumes queued work instead of dropping it; a failing job

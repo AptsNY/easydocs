@@ -1591,3 +1591,36 @@ button.danger:focus-visible {
     max-width: none;
   }
 }
+
+/* Graphical revision DAG (issue #13). The cell is a fixed-width column the SVG fills absolutely,
+   so percentage y-coordinates track each row's natural height with no measuring. */
+.revision-graph {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.revision-graph > li {
+  display: flex;
+  align-items: stretch;
+}
+.revision-graph .graph-cell {
+  position: relative;
+  flex: none;
+}
+.revision-graph .graph-cell svg {
+  position: absolute;
+  inset: 0;
+}
+.revision-graph .graph-row {
+  flex: 1;
+  min-width: 0;
+}
+.view-toggle {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+.view-toggle button[aria-pressed='true'] {
+  font-weight: 600;
+  text-decoration: underline;
+}
