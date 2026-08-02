@@ -108,6 +108,7 @@ public static class BackgroundJobs
 {
     public const string Diff = "diff";
     public const string Pdf = "pdf";
+    public const string Extract = "extract";
 
     public static Domain.BackgroundJob For<TPayload>(string type, TPayload payload) => new()
     {

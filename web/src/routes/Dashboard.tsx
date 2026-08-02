@@ -88,7 +88,7 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                   id="search"
                   data-testid="search"
                   type="search"
-                  placeholder="Search documents"
+                  placeholder="Search names & content"
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                 />

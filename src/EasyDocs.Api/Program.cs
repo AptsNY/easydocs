@@ -76,6 +76,8 @@ builder.Services.AddHostedService<PdfRenderBackgroundService>();
 // Daily sweep of blobs no Versions/VersionDiffs column references (issue #15); grace window
 // protects commits in flight. BlobGc__Enabled=false turns it off.
 builder.Services.AddHostedService<BlobGarbageCollector>();
+// Content indexing for search (issue #12): drains 'extract' jobs, no nudge channel — poll-only.
+builder.Services.AddHostedService<EasyDocs.Api.Documents.TextIndexWorker>();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<ApiTokenService>(); // stateless: mint/hash `ed_` PATs
 builder.Services.AddSingleton<WopiAccessToken>(); // only reads Jwt:Secret

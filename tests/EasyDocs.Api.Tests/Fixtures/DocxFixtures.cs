@@ -31,7 +31,7 @@ public static class DocxFixtures
                 Build("Alpha", marker + " EDITED", "Charlie", "Delta " + marker));
     }
 
-    private static byte[] Build(params string[] paragraphs)
+    public static byte[] Build(params string[] paragraphs)
     {
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))

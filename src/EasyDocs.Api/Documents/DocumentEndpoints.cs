@@ -132,7 +132,13 @@ public static class DocumentEndpoints
             ? membership.Where(d => d.DeletedAt != null)
             : membership.Where(d => d.DeletedAt == null);
         if (folderId is { } fid) query = query.Where(d => d.FolderId == fid);
-        if (!string.IsNullOrWhiteSpace(q)) query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%"));
+        // Name OR content (issue #12): content matches the tsvector index built from each document's
+        // main head. websearch syntax ("lease agreement", "cat -dog") with the same language-neutral
+        // 'simple' config the index uses — mixing configs would make the GIN index unusable.
+        if (!string.IsNullOrWhiteSpace(q))
+            query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%")
+                || db.DocumentTexts.Any(t => t.DocumentId == d.Id
+                    && t.SearchVector.Matches(EF.Functions.WebSearchToTsQuery("simple", q))));
 
         var page = await Pagination.PageAsync(query, cursor, limit, descending: false, ctx.RequestAborted);
         return Results.Ok(new
