@@ -15,26 +15,33 @@ theme:
   # off-origin. There is deliberately no `extra.analytics` block either. Do not add one: the docs for
   # a self-hostable, AGPL tool must not track the people reading them.
   font: false
+  logo: assets/easydocs-mark.svg
+  favicon: assets/easydocs-mark.svg
   features:
     - navigation.sections
     - navigation.top
     - content.code.copy
     - content.action.edit
   palette:
+    # `custom` hands the actual colours to stylesheets/brand.css, which holds
+    # the brand palette: Core Blue #2456E8, Fold Blue #6C92FF, Ink #172033.
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/brand.css
 
 markdown_extensions:
   - admonition

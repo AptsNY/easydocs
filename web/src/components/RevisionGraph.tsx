@@ -11,7 +11,10 @@ import Row from './VersionRow'
 // last row has passed.
 
 const LANE_W = 14
-const COLORS = ['#6366f1', '#059669', '#d97706', '#dc2626', '#0891b2', '#7c3aed']
+// Lane colours are CSS custom properties (--lane-0…5 in index.css): main is Core Blue, no lane is
+// red (red means error, nothing else), and the dark theme swaps in lighter values. var() does not
+// resolve inside SVG presentation attributes, so lines/dots take them via style.
+const COLORS = [0, 1, 2, 3, 4, 5].map((i) => `var(--lane-${i})`)
 const colorOf = (lane: number) => COLORS[lane % COLORS.length]
 
 type Edge = { top: number; bottom: number; topLane: number; bottomLane: number; travelLane: number }
@@ -69,13 +72,13 @@ export default function RevisionGraph({ rows, rowProps }: { rows: Version[]; row
           <div className="graph-cell" style={{ width: laneCount * LANE_W }} aria-hidden="true">
             <svg width="100%" height="100%" data-testid="graph-cell">
               {segments(k).map((s, i) => (
-                <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.color} strokeWidth={2} />
+                <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} style={{ stroke: s.color }} strokeWidth={2} />
               ))}
               <circle
                 cx={x(laneOf(v))}
                 cy="50%"
                 r={4}
-                fill={colorOf(laneOf(v))}
+                style={{ fill: colorOf(laneOf(v)) }}
                 data-testid="graph-dot"
               />
             </svg>

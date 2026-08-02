@@ -65,6 +65,9 @@ function Shell() {
       </a>
       <header>
         <Link to="/" className="brand">
+          {/* The favicon IS the brand mark (docs/brand/easydocs-mark.svg), so the header reuses it
+              rather than shipping the same SVG twice. */}
+          <img className="brand-mark" src="/favicon.svg" alt="" />
           easydocs
         </Link>
         <span data-testid="org-name">{org?.name}</span>
