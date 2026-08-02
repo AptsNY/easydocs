@@ -82,9 +82,22 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => new CollaboraDiscovery(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+// Blob backend (issue #14): BlobStore=filesystem (default) keeps the content-addressed volume;
+// BlobStore=s3 swaps in any S3-compatible endpoint (AWS, MinIO, R2) configured via S3__* keys.
+// An unknown value is a boot error, not a silent fallback to the filesystem — a typo that quietly
+// wrote blobs to the wrong place would surface as data loss at the next redeploy.
 builder.Services.AddSingleton<IBlobStore>(sp =>
-    new FileSystemBlobStore(sp.GetRequiredService<IConfiguration>()["BLOB_ROOT"]
-        ?? throw new InvalidOperationException("BLOB_ROOT not configured")));
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    return cfg["BlobStore"]?.ToLowerInvariant() switch
+    {
+        null or "" or "filesystem" => new FileSystemBlobStore(cfg["BLOB_ROOT"]
+            ?? throw new InvalidOperationException("BLOB_ROOT not configured")),
+        "s3" => S3BlobStore.FromConfiguration(cfg),
+        var other => throw new InvalidOperationException(
+            $"BlobStore is '{other}' — the supported values are 'filesystem' (default) and 's3'."),
+    };
+});
 
 // "sub"/"org" claims come through verbatim (no legacy mapping to ClaimTypes.NameIdentifier).
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
@@ -158,6 +171,10 @@ var app = builder.Build();
 
 // Fail fast at boot (not first login) if the signing key is missing/too short for HS256.
 RequireJwtKeyBytes(app.Configuration);
+
+// Resolve the blob store once so a bad BlobStore value or missing S3__*/BLOB_ROOT key aborts boot
+// here, not at the first upload after a redeploy.
+_ = app.Services.GetRequiredService<IBlobStore>();
 
 // Fail fast on unparseable trusted-proxy entries, and on entries that would be silently ignored
 // because the middleware itself is off — silently-ignored configuration is the exact defect that

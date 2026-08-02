@@ -468,8 +468,24 @@ Things worth alerting on that easydocs does not alert on for you:
 
 ## Not in v1
 
-- **No S3 blob backend.** Blobs are on the filesystem volume. An S3 backend is a planned
-  env-configurable swap for **v1.1**.
+- ~~No S3 blob backend.~~ **Since v1.1** set `BlobStore=s3` plus the `S3__*` keys to store blobs in
+  any S3-compatible bucket (AWS, MinIO, Cloudflare R2) instead of the filesystem volume:
+
+    ```bash
+    BlobStore=s3
+    S3__Bucket=easydocs-blobs        # must already exist; easydocs never creates buckets
+    S3__AccessKey=…
+    S3__SecretKey=…
+    S3__ServiceUrl=https://minio.internal:9000   # MinIO/R2/Ceph; omit for real AWS…
+    S3__Region=eu-central-1                      # …and set the region instead
+    # S3__ForcePathStyle=false                   # default true, which is what MinIO wants
+    ```
+
+    Objects are keyed by their sha256 exactly like files on the volume, so the layout stays
+    content-addressed and write-once. An unknown `BlobStore` value, or `BlobStore=s3` with a missing
+    key, aborts boot rather than falling back to the filesystem. Migrating existing installs: copy
+    every file under `BLOB_ROOT` (skip `.tmp/`) into the bucket with its filename as the object key,
+    then switch the config. There is no automatic migration.
 - **No OIDC/SSO** and **no MFA.** Local email/password (Argon2id) or `ed_` API tokens only. Both are
   **v1.1** at the earliest. If you need either now, put an authenticating reverse proxy in front of
   easydocs.
