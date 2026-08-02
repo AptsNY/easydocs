@@ -64,7 +64,33 @@ Collabora Online for in-browser editing.
 > Terminate TLS at a reverse proxy in front of the app — see the
 > [self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/).
 
-Developing or building from source instead:
+### Or hand it to an AI agent
+
+Using Claude Code, Cursor, Copilot or any other coding agent? Paste this — it carries every footgun
+so the agent lands a working install on the first try:
+
+```text
+Set up easydocs (https://github.com/Robertzu43/easydocs) on this machine. Docker must be running.
+
+1. Download the easydocs-*-compose.tar.gz asset from the latest GitHub release
+   (https://github.com/Robertzu43/easydocs/releases/latest) and extract it into a new
+   directory called easydocs. Do NOT build from source.
+2. In that directory: cp .env.example .env, then edit .env — set Jwt__Secret to the output
+   of `openssl rand -base64 48` (the placeholder is deliberately too short to boot), and set
+   POSTGRES_PASSWORD to a random value (update it in ConnectionStrings__Postgres too, where
+   the same password appears).
+3. Run `docker compose up -d`, then poll http://localhost:8080/health until it returns
+   {"status":"ok"} (first boot pulls images and runs migrations — allow a few minutes).
+4. Tell me to open http://localhost:8080 and register: the first account created also
+   creates the organization and owns it. Point me at the user guide:
+   https://robertzu43.github.io/easydocs/user-guide/
+5. If this machine is a remote server rather than my laptop: STOP before exposing anything.
+   The session cookie is Secure-only, so login silently fails over plain HTTP anywhere but
+   localhost — TLS at a reverse proxy is required first, per
+   https://robertzu43.github.io/easydocs/self-hosting/
+```
+
+### Developing or building from source instead
 
 ```bash
 git clone https://github.com/Robertzu43/easydocs && cd easydocs/deploy/compose
