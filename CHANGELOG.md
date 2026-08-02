@@ -19,6 +19,12 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **Durable job queue** (#16). Diff-summary and PDF-render jobs are now rows in a `BackgroundJobs`
+  table, inserted in the same transaction as the version or publish that needs them and claimed with
+  `FOR UPDATE SKIP LOCKED`. A restart resumes queued work instead of dropping it; a failing job
+  retries up to five times with a two-minute backoff, then is dropped loudly with its payload in the
+  log. The old in-memory channels remain only as wake-up nudges, so latency is unchanged.
+
 - **Trusted-proxy configuration** (#17). `ForwardedHeaders__KnownProxies__N` and
   `ForwardedHeaders__KnownNetworks__N` now bind, so `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` can
   trust named proxies instead of everything that reaches the port. Misconfiguration — an entry that

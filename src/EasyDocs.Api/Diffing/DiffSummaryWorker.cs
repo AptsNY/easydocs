@@ -1,32 +1,26 @@
 using System.Threading.Channels;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Events;
 
 namespace EasyDocs.Api.Diffing;
 
-// ponytail: Channel<DiffJob> is the queue — in-memory, recomputable on restart (spec §3/§7); no durable broker.
 public record DiffJob(string FromSha, string ToSha, Guid DocumentId);
 
-// Eager numeric-summary computation (spec §7): drains the diff queue, computes the summary in a per-job
-// scope, then fans out a diff.ready SSE event.
+// Eager numeric-summary computation (spec §7): drains the durable diff queue (issue #16 — the
+// BackgroundJobs table, enqueued inside the commit's transaction), computes the summary in a
+// per-job scope, then fans out a diff.ready SSE event. The Channel<DiffJob> is only the wake-up
+// nudge; the table is the queue.
 public sealed class DiffSummaryWorker(
-    ChannelReader<DiffJob> jobs, IServiceScopeFactory scopes, EventBus bus, ILogger<DiffSummaryWorker> log)
-    : BackgroundService
+    ChannelReader<DiffJob> nudges, IServiceScopeFactory scopes, IConfiguration cfg,
+    EventBus bus, ILogger<DiffSummaryWorker> log)
+    : DurableJobWorker<DiffJob>(BackgroundJobs.Diff, scopes, cfg, log)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task AwaitNudgeAsync(CancellationToken ct) => await nudges.ReadAsync(ct);
+
+    protected override async Task HandleAsync(IServiceProvider services, DiffJob job, CancellationToken ct)
     {
-        await foreach (var job in jobs.ReadAllAsync(stoppingToken))
-        {
-            try
-            {
-                using var scope = scopes.CreateScope();
-                var diff = scope.ServiceProvider.GetRequiredService<WmlComparerDiffService>();
-                await diff.SummaryAsync(job.FromSha, job.ToSha, stoppingToken);
-                bus.Publish(job.DocumentId, "diff.ready", new { job.FromSha, job.ToSha });
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                log.LogError(ex, "diff job {From}->{To} failed", job.FromSha, job.ToSha);
-            }
-        }
+        var diff = services.GetRequiredService<WmlComparerDiffService>();
+        await diff.SummaryAsync(job.FromSha, job.ToSha, ct);
+        bus.Publish(job.DocumentId, "diff.ready", new { job.FromSha, job.ToSha });
     }
 }

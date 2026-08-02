@@ -127,19 +127,25 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             "version", version.Id.ToString(),
             new { number = $"{major}.{minor}.{rev}", source = input.Source.ToString(), branchId = targetBranch.Id }));
 
+        // Enqueue the parent->child diff for eager numeric-summary computation (spec §7) — a durable
+        // BackgroundJobs row in THIS transaction, so the job commits iff the version does (issue #16).
+        // Only when this commit has a parent — a brand-new document's first version has nothing to
+        // compare against.
+        var parentSha = targetHead?.BlobSha256;
+        if (parentSha is null && version.ParentVersionId is { } parentId)
+            parentSha = await db.Versions.Where(v => v.Id == parentId).Select(v => v.BlobSha256).FirstOrDefaultAsync(ct);
+        var diffJob = parentSha is not null ? new DiffJob(parentSha, version.BlobSha256, input.DocumentId) : null;
+        if (diffJob is not null)
+            db.Add(BackgroundJobs.For(BackgroundJobs.Diff, diffJob));
+
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
         bus.Publish(input.DocumentId, "version.created",
             new { versionId = version.Id, major, minor, revision = rev, branchId = targetBranch.Id });
 
-        // Enqueue the parent->child diff for eager numeric-summary computation (spec §7). Only when this
-        // commit has a parent — a brand-new document's first version has nothing to compare against.
-        var parentSha = targetHead?.BlobSha256;
-        if (parentSha is null && version.ParentVersionId is { } parentId)
-            parentSha = await db.Versions.Where(v => v.Id == parentId).Select(v => v.BlobSha256).FirstOrDefaultAsync(ct);
-        if (parentSha is not null)
-            diffQueue.TryWrite(new DiffJob(parentSha, version.BlobSha256, input.DocumentId));
+        if (diffJob is not null)
+            diffQueue.TryWrite(diffJob); // nudge only — the committed row is the job
 
         return new CommitResult(version.Id, major, minor, rev, targetBranch.Id, Deduped: false);
     }

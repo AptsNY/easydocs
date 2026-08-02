@@ -26,5 +26,6 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["WOPI_HOST_URL"]   = "http://localhost",
             ["COLLABORA_URL"]   = "http://localhost:9980",
             ["COLLABORA_ACTION_URL"] = "http://localhost:9980/browser/dist/cool.html?", // test seam: skip live discovery
+            ["Jobs:PollSeconds"] = "1", // durable-queue tests plant rows with no nudge; don't wait 15s
         }));
 }

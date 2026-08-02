@@ -54,8 +54,9 @@ builder.Services.AddScoped<EasyDocs.Api.Versioning.VersioningService>();
 builder.Services.AddScoped<EasyDocs.Api.Publishing.PublishService>();
 builder.Services.AddSingleton<EventBus>();
 
-// In-process diff queue (spec §7): commits enqueue parent->child jobs; DiffSummaryWorker drains them
-// and computes the numeric summary eagerly. Unbounded is fine — jobs are tiny and recomputable on restart.
+// Diff queue (spec §7): commits enqueue parent->child jobs as durable BackgroundJobs rows inside
+// their own transaction (issue #16); DiffSummaryWorker drains the table. This channel is only the
+// in-process wake-up nudge that keeps latency instant — losing it costs one poll interval, nothing more.
 builder.Services.AddSingleton(Channel.CreateUnbounded<DiffJob>());
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Writer);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Reader);
@@ -64,8 +65,9 @@ builder.Services.AddScoped<WmlComparerMergeService>();
 builder.Services.AddScoped<EasyDocs.Api.Copies.PushService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
 
-// In-process PDF render queue (spec §7): publish enqueues a version id; PdfRenderBackgroundService drains
-// it and shells out to LibreOffice. Unbounded — jobs are tiny and re-triggerable by re-publishing.
+// PDF render queue (spec §7): publish enqueues the version id as a durable BackgroundJobs row inside
+// the publish transaction (issue #16); PdfRenderBackgroundService drains the table and shells out to
+// LibreOffice. This channel is only the wake-up nudge, exactly like the diff one above.
 builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>());
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Writer);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);

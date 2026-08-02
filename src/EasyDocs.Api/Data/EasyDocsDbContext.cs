@@ -22,6 +22,7 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
     public DbSet<VersionDiff> VersionDiffs => Set<VersionDiff>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+    public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -164,5 +165,10 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         });
 
         // AuditEvent stays FK-light per spec §4/§11 (append-only; org/document/actor nullable, no hard FKs).
+
+        // The durable job queue (issue #16). Deliberately FK-free: a job payload referencing a row
+        // that has since vanished is the worker's no-op case, not an integrity violation. The index
+        // is the claim query's shape — WHERE Type = ? AND RunAfter <= now() ORDER BY Id.
+        b.Entity<BackgroundJob>().HasIndex(x => new { x.Type, x.RunAfter });
     }
 }

@@ -476,9 +476,10 @@ Things worth alerting on that easydocs does not alert on for you:
 - **No antivirus scanning on upload.** v1 trusts `.docx` files from authenticated organization members.
   If your threat model includes malicious members, scan the blob store out of band.
 - **No blob garbage collection.** Nothing is ever deleted from the blob volume.
-- **No durable job queue.** The diff and PDF workers are in-process and fed by in-memory channels. A
-  restart drops queued jobs; diffs are recomputed on demand, and a PDF can be re-triggered by
-  publishing again. Nothing is lost, but nothing is retried across a restart either.
+- ~~No durable job queue.~~ **Since v1.1** diff and PDF jobs are rows in the `BackgroundJobs` table,
+  enqueued in the same transaction as the work that needs them: a restart picks queued jobs back up,
+  a failing job retries with a two-minute backoff, and a job that fails five times is dropped with
+  its payload in the application log.
 
 See `SECURITY.md` in the repository for the full list of known v1 limitations and how to report a
 vulnerability.

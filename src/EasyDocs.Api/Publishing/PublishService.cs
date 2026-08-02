@@ -44,13 +44,17 @@ public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWr
         db.Add(Audit.Event(doc.OrgId, documentId, actorUserId, "version.published",
             "version", versionId.ToString(), new { number = $"{major}.{minor}.{rev}", kind, name }));
 
+        // Enqueue the out-of-process PDF render as a durable BackgroundJobs row in THIS transaction,
+        // so the job commits iff the publish does (issue #16); PdfRenderBackgroundService links
+        // PdfBlobSha256 when done.
+        db.Add(BackgroundJobs.For(BackgroundJobs.Pdf, versionId));
+
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
         bus.Publish(documentId, "version.published", new { versionId, major, minor, revision = rev, kind });
 
-        // Enqueue an out-of-process PDF render; PdfRenderBackgroundService links PdfBlobSha256 when done.
-        pdfJobs.TryWrite(versionId);
+        pdfJobs.TryWrite(versionId); // nudge only — the committed row is the job
 
         return new PublishResult(versionId, major, minor, rev, kind);
     }
