@@ -1,0 +1,16 @@
+/* The easydocs brand palette (docs/brand/easydocs-brand-colors.svg):
+   Core Blue #2456E8, Fold Blue #6C92FF, Ink #172033. Material wires these in
+   when mkdocs.yml sets `primary: custom` / `accent: custom`. */
+[data-md-color-primary='custom'] {
+  --md-primary-fg-color: #2456e8;
+  --md-primary-fg-color--light: #6c92ff;
+  --md-primary-fg-color--dark: #172033;
+}
+
+[data-md-color-accent='custom'] {
+  --md-accent-fg-color: #2456e8;
+}
+
+[data-md-color-scheme='slate'] {
+  --md-accent-fg-color: #6c92ff;
+}

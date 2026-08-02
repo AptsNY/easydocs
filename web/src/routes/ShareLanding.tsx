@@ -38,7 +38,7 @@ export default function ShareLanding() {
   if (unavailable)
     return (
       <main className="share" data-testid="share-landing">
-        <p className="share-brand">easydocs</p>
+        <p className="share-brand"><img className="brand-mark" src="/favicon.svg" alt="" />easydocs</p>
         <div className="share-card">
           <p role="alert" className="error" data-testid="share-unavailable">
             This link is no longer available. Shared links can expire or be turned off by the person who
@@ -52,7 +52,7 @@ export default function ShareLanding() {
     <main className="share" data-testid="share-landing">
       {/* Plain text, not a link: naming the product is reassurance, and there is nowhere here for this
           person to go. */}
-      <p className="share-brand">easydocs</p>
+      <p className="share-brand"><img className="brand-mark" src="/favicon.svg" alt="" />easydocs</p>
 
       <div className="share-card">
         {shared === null ? (

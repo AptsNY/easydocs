@@ -1,4 +1,6 @@
-# easydocs
+<p align="center">
+  <img src="docs/brand/easydocs-logo.svg" alt="easydocs" width="440">
+</p>
 
 **Git-style history for `.docx` — without asking anyone to learn Git.**
 
