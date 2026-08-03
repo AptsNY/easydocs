@@ -54,6 +54,10 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         {
             e.HasKey(x => new { x.OrgId, x.UserId });
             e.Property(x => x.Role).HasConversion<string>();
+            // Authorization compares these strings. A raw INSERT that writes the enum's ordinal
+            // ("0", "1") passes silently and demotes the member to a role nothing recognises —
+            // that happened; the constraint makes the mistake loud at write time.
+            e.ToTable(t => t.HasCheckConstraint("CK_OrgMembers_Role", "\"Role\" IN ('Owner','Admin','Member')"));
             e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrgId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(R);
         });
@@ -78,6 +82,8 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         {
             e.HasKey(x => new { x.DocumentId, x.UserId });
             e.Property(x => x.Role).HasConversion<string>();
+            // Same guard as OrgMember: the SPA's role checks and the Actions menu read these names.
+            e.ToTable(t => t.HasCheckConstraint("CK_DocumentMembers_Role", "\"Role\" IN ('Owner','Editor','Viewer')"));
             e.HasOne<Document>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(R);
         });
