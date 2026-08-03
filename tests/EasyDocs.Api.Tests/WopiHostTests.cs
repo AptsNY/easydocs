@@ -122,6 +122,25 @@ public class WopiHostTests : IClassFixture<ApiFactory>
         Assert.Equal(BaseBytes, await resp.Content.ReadAsByteArrayAsync());
     }
 
+    // A version row whose blob is gone (deleted file, mis-migrated S3 store) must answer 404, not an
+    // unhandled 500 — Collabora renders any CheckFileInfo failure as "Unauthorized WOPI host", so the
+    // status code and the server log are the only honest signals an operator gets.
+    [Theory]
+    [InlineData("")]
+    [InlineData("/contents")]
+    public async Task Missing_blob_is_404_not_500(string suffix)
+    {
+        var c = await AuthedClientAsync();
+        var bytes = Guid.NewGuid().ToByteArray(); // unique content: deleting it can't break other tests
+        var (sid, token) = await MintSessionAsync(c, bytes: bytes);
+
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        File.Delete(Path.Combine(_f.BlobRoot, sha[..2], sha[2..4], sha));
+
+        var resp = await _f.CreateClient().GetAsync($"/wopi/files/{sid}{suffix}?access_token={token}");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
     [Fact]
     public async Task PutFile_creates_new_version_via_commit_save()
     {
