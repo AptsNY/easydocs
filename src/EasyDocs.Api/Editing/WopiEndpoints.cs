@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Storage;
@@ -25,7 +26,7 @@ public static class WopiEndpoints
     }
 
     private static async Task<IResult> CheckFileInfo(Guid fileId, HttpContext ctx, EasyDocsDbContext db,
-        WopiAccessToken tokens, IBlobStore blobs)
+        WopiAccessToken tokens, IBlobStore blobs, ILoggerFactory logs)
     {
         var auth = await Authorize(fileId, ctx, db, tokens);
         if (auth.Error is not null) return auth.Error;
@@ -38,7 +39,15 @@ public static class WopiEndpoints
         // Exactly one extension, and the blob's REAL one — same rule and same sniff as the R8 download
         // name (spec §5.3). Collabora shows this to the user and picks its editor from the extension,
         // so "… laundry lease.docx.docx" was both wrong and visible.
-        var (_, ext) = await BlobMime.SniffAsync(blobs, baseVersion.BlobSha256, ctx.RequestAborted);
+        string ext;
+        try
+        {
+            (_, ext) = await BlobMime.SniffAsync(blobs, baseVersion.BlobSha256, ctx.RequestAborted);
+        }
+        catch (FileNotFoundException e)
+        {
+            return MissingBlob(logs, "CheckFileInfo", baseVersion.BlobSha256, e);
+        }
 
         return Results.Ok(new CheckFileInfoResponse(
             $"{BlobMime.StripKnownExtension(doc.Name)}.{ext}",
@@ -75,14 +84,37 @@ public static class WopiEndpoints
         [JsonPropertyName("SupportsGetLock")] public bool SupportsGetLock => true;
     }
 
-    private static async Task<IResult> GetFile(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens, IBlobStore blobs)
+    private static async Task<IResult> GetFile(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens,
+        IBlobStore blobs, ILoggerFactory logs)
     {
         var auth = await Authorize(fileId, ctx, db, tokens);
         if (auth.Error is not null) return auth.Error;
 
         var baseVersion = await db.Versions.FirstAsync(v => v.Id == auth.Session!.BaseVersionId, ctx.RequestAborted);
-        var stream = await blobs.OpenReadAsync(baseVersion.BlobSha256, ctx.RequestAborted);
-        return Results.Stream(stream, "application/octet-stream");
+        try
+        {
+            var stream = await blobs.OpenReadAsync(baseVersion.BlobSha256, ctx.RequestAborted);
+            return Results.Stream(stream, "application/octet-stream");
+        }
+        catch (FileNotFoundException e)
+        {
+            return MissingBlob(logs, "GetFile", baseVersion.BlobSha256, e);
+        }
+    }
+
+    // A version row whose bytes the blob store can't produce is an OPERATOR problem (deleted blob,
+    // mis-migrated store, wrong bucket/keys), not a client one — but if it escapes as an unhandled 500,
+    // Collabora shows the user "Unauthorized WOPI host", which sends whoever debugs it in exactly the
+    // wrong direction. Answer 404 and log the sha, so the server log names the real fault next to the
+    // misleading dialog text people will be searching for.
+    private static IResult MissingBlob(ILoggerFactory logs, string op, string sha, FileNotFoundException e)
+    {
+        logs.CreateLogger("WOPI").LogError(e,
+            "WOPI {Op}: blob {Sha} is missing from the blob store — the version row exists but its bytes " +
+            "don't. Collabora reports this to the user as 'Unauthorized WOPI host'. Check the blob store " +
+            "(BlobStore/S3 settings; S3 keys are the bare sha256).", op, sha);
+        return Problem.Of(404, "Blob missing",
+            "The document's bytes are missing from the blob store. See the server log for the sha256.");
     }
 
     private static async Task<IResult> PutFile(Guid fileId, HttpContext ctx, EasyDocsDbContext db, WopiAccessToken tokens,
