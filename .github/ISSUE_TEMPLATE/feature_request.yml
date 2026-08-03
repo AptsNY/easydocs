@@ -8,11 +8,11 @@ body:
         **Describe the problem, not the solution.** The most useful request explains what you were
         trying to do and where easydocs got in the way. A proposal arriving as a large unsolicited pull
         request is the slowest path to shipping — see
-        [GOVERNANCE.md](https://github.com/Robertzu43/easydocs/blob/main/GOVERNANCE.md#making-changes).
+        [GOVERNANCE.md](https://github.com/AptsNY/easydocs/blob/main/GOVERNANCE.md#making-changes).
 
         **A lot is already deferred to v1.1 by design** — OIDC/SSO, desktop "Open in Word", a graphical
         revision graph, full-text content search, cloud export/import, MFA. Check
-        [Not in v1](https://github.com/Robertzu43/easydocs/blob/main/docs-site/docs/self-hosting.md#not-in-v1)
+        [Not in v1](https://github.com/AptsNY/easydocs/blob/main/docs-site/docs/self-hosting.md#not-in-v1)
         before filing; if your request is already on that list, a 👍 on an existing issue is more useful
         than a new one.
 
@@ -80,7 +80,7 @@ body:
         Tick anything that applies. These need agreement in the issue before code — schema migrations
         run automatically on every self-hoster's database on upgrade, and spec §10.1 calls itself the
         authoritative endpoint set. See
-        [GOVERNANCE.md](https://github.com/Robertzu43/easydocs/blob/main/GOVERNANCE.md#making-changes).
+        [GOVERNANCE.md](https://github.com/AptsNY/easydocs/blob/main/GOVERNANCE.md#making-changes).
       options:
         - label: Probably needs a database schema change.
         - label: Probably adds or changes a public API endpoint.

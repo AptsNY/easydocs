@@ -6,7 +6,7 @@ expect this file to be honest about what v1 does not do.
 ## Reporting a vulnerability
 
 **Use GitHub private vulnerability reporting:**
-<https://github.com/Robertzu43/easydocs/security/advisories/new>
+<https://github.com/AptsNY/easydocs/security/advisories/new>
 
 That opens a private advisory visible only to you and the maintainer. It is the preferred channel
 because it needs no shared secret, keeps the discussion attached to the repository, and can become a

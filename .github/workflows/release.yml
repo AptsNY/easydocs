@@ -17,11 +17,11 @@ permissions:
   contents: read
 
 env:
-  # Hardcoded lowercase, NOT ${{ github.repository_owner }}: the owner is `Robertzu43`, and a registry
-  # reference must be lowercase — `ghcr.io/Robertzu43/easydocs` is rejected outright with "invalid
+  # Hardcoded lowercase, NOT ${{ github.repository_owner }}: the owner is `AptsNY`, and a registry
+  # reference must be lowercase — `ghcr.io/AptsNY/easydocs` is rejected outright with "invalid
   # reference format", which would fail the push, the cosign sign, and the bundle pin. A workflow-level
   # `env:` cannot call `toLower()`, so the literal is the fix.
-  IMAGE: ghcr.io/robertzu43/easydocs
+  IMAGE: ghcr.io/aptsny/easydocs
 
 jobs:
   # Gate the release on the same suites that guard main. A tag must not be able to publish an image

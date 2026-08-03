@@ -13,7 +13,7 @@ install).
 ## 1. Clone and configure
 
 ```bash
-git clone https://github.com/Robertzu43/easydocs
+git clone https://github.com/AptsNY/easydocs
 cd easydocs/deploy/compose
 cp .env.example .env
 ```
