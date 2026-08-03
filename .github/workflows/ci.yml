@@ -182,6 +182,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: docs-build
     runs-on: ubuntu-latest
+    # Pages rejects a deployment while another is in flight, so two merges landing minutes
+    # apart fail the later run (main@44e8e83). Queue them instead; never cancel an in-flight
+    # deploy — a cancelled Pages deployment can leave the site stuck until manual retry.
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     permissions:
       pages: write      # deploy to Pages
       id-token: write   # OIDC token that authenticates the deployment
