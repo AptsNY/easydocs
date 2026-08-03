@@ -31,9 +31,21 @@ public sealed class S3BlobStore(IAmazonS3 s3, string bucket) : IBlobStore
         if (cfg["S3:ServiceUrl"] is { Length: > 0 } url) config.ServiceURL = url;
         else config.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(Require("S3:Region"));
 
-        return new S3BlobStore(
-            new AmazonS3Client(Require("S3:AccessKey"), Require("S3:SecretKey"), config),
-            Require("S3:Bucket"));
+        // Static keys when configured (MinIO/R2, or AWS with an IAM user). With BOTH keys
+        // absent, fall back to the SDK's default credential chain — env vars, ~/.aws, or the
+        // IAM role of the EC2 instance / ECS task — so a role-based deployment needs no
+        // long-lived secret at all. Exactly one key set is a config error, and it fails the
+        // boot fast like every other half-configured S3 setting.
+        var accessKey = cfg["S3:AccessKey"];
+        var secretKey = cfg["S3:SecretKey"];
+        if (string.IsNullOrEmpty(accessKey) != string.IsNullOrEmpty(secretKey))
+            throw new InvalidOperationException(
+                "BlobStore=s3 requires S3__AccessKey and S3__SecretKey to be set together (or neither, to use the ambient IAM role).");
+
+        var client = string.IsNullOrEmpty(accessKey)
+            ? new AmazonS3Client(config)
+            : new AmazonS3Client(accessKey, secretKey, config);
+        return new S3BlobStore(client, Require("S3:Bucket"));
     }
 
     public async Task<BlobResult> PutAsync(Stream content, CancellationToken ct = default)

@@ -17,6 +17,18 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ## [Unreleased]
 
+### Added
+
+- **S3 blob credentials can come from the ambient IAM role.** With `BlobStore=s3` and **both**
+  `S3__AccessKey`/`S3__SecretKey` unset, easydocs now uses the AWS SDK's default credential chain
+  (environment, `~/.aws`, or the EC2 instance / ECS task role), so a role-based AWS deployment
+  needs no long-lived S3 key at all. Setting exactly one of the two keys still aborts boot. Static
+  keys keep working unchanged (MinIO, R2, or AWS with an IAM user).
+- **`deploy-aws.yml`**: a deploy workflow for AptsNY's ECS platform — builds the Dockerfile, pushes
+  to the platform's private ECR via GitHub OIDC, and rolls the service with zero downtime via the
+  shared `AptsNY/infra-platform` deploy workflow. Fires on `v*` tags and manual dispatch. Only
+  relevant to that install; self-hosters' release pipeline (GHCR, cosign) is untouched.
+
 ### Fixed
 
 - **A lost redline-cache insert race no longer leaves the cache permanently unfilled.** When an

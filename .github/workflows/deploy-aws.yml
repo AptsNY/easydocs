@@ -1,0 +1,70 @@
+name: deploy-aws
+# Deploys easydocs onto AptsNY's shared ECS Fargate platform (AptsNY/infra-platform).
+#
+# Split from release.yml on purpose: a version tag first has to pass release.yml's verify
+# gate to become a public GHCR release, and this workflow deploys the same commit to
+# easydocs.aptsny.com. The image here goes to the platform's private ECR (immutable,
+# per-commit tags — the task definition pins :<sha>, never a mutable version tag), built
+# amd64-only because Fargate is; the multi-arch GHCR image stays the self-hosters' artifact.
+#
+# Auth is GitHub OIDC against the platform's per-app deploy role — no stored AWS keys.
+# The role trusts refs/heads/main and refs/tags/v* (tofu/iam_app_roles.tf + the easydocs
+# deploy_refs entry in the platform repo), which is exactly this workflow's trigger set.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      smoke_url:
+        description: "Public URL curled after rollout (expects 2xx/3xx). Clear it before the DNS cutover — easydocs.aptsny.com does not resolve yet."
+        required: false
+        type: string
+        default: "https://easydocs.aptsny.com/health"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Build + push the image; the shared platform workflow does the zero-downtime roll.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::645868669589:role/easydocs-deploy
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - id: build
+        run: |
+          set -euo pipefail
+          IMAGE=645868669589.dkr.ecr.us-east-1.amazonaws.com/easydocs:${{ github.sha }}
+          # ECR tags are immutable: a tag push after a manual deploy of the same commit must
+          # reuse the image that is already there, not fail re-pushing identical bytes.
+          if aws ecr describe-images --repository-name easydocs \
+               --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "image for ${{ github.sha }} already in ECR — reusing it"
+          else
+            docker build -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  # Zero-downtime roll: register new task-def revision, update service, poll rollout
+  # (fails on circuit-breaker rollback), smoke-test. Shared across all platform tenants.
+  deploy:
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    uses: AptsNY/infra-platform/.github/workflows/app-deploy.yml@main
+    with:
+      app: easydocs
+      image: ${{ needs.build.outputs.image }}
+      smoke_url: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.com/health' || inputs.smoke_url }}
