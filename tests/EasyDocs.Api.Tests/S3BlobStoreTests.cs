@@ -82,6 +82,54 @@ public class S3BlobStoreTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Same exception type as FileSystemBlobStore — callers must not be able to tell backends apart.
         await Assert.ThrowsAsync<FileNotFoundException>(() => store.OpenReadAsync(absent));
     }
+
+    // With BOTH keys absent, FromConfiguration uses the SDK default credential chain — this is
+    // what lets an ECS/EC2 deployment authenticate via its IAM role with no long-lived secret.
+    // The chain includes the AWS_* environment variables, so pointing those at MinIO proves the
+    // chain path is really taken: the roundtrip fails without them.
+    [Fact]
+    public async Task No_keys_falls_back_to_the_default_credential_chain()
+    {
+        var prevAccess = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID");
+        var prevSecret = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
+        try
+        {
+            Environment.SetEnvironmentVariable("AWS_ACCESS_KEY_ID", minio.Container.GetAccessKey());
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", minio.Container.GetSecretKey());
+
+            var store = S3BlobStore.FromConfiguration(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["S3:ServiceUrl"] = minio.Container.GetConnectionString(),
+                    ["S3:Bucket"] = MinioFixture.Bucket,
+                }).Build());
+
+            var bytes = Encoding.UTF8.GetBytes("hello ambient credentials");
+            var put = await store.PutAsync(new MemoryStream(bytes));
+            Assert.True(await store.ExistsAsync(put.Sha256));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AWS_ACCESS_KEY_ID", prevAccess);
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", prevSecret);
+        }
+    }
+
+    // Exactly one key set is a config error, not a silent fall-through to the ambient chain.
+    [Theory]
+    [InlineData("S3:AccessKey")]
+    [InlineData("S3:SecretKey")]
+    public void One_key_without_the_other_refuses_to_boot(string theOnlyKey)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => S3BlobStore.FromConfiguration(
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["S3:ServiceUrl"] = "http://localhost:1", // never dialed — construction fails first
+                ["S3:Bucket"] = "b",
+                [theOnlyKey] = "half-a-credential",
+            }).Build()));
+        Assert.Contains("together", ex.Message, StringComparison.Ordinal);
+    }
 }
 
 // The wiring: a host booted with BlobStore=s3 serves the whole upload/download lifecycle out of the
