@@ -178,7 +178,10 @@ export default function Compare() {
 
       {unchanged && (
         <p data-testid="compare-empty" className="muted">
-          No changes between these two versions.
+          {/* "No changes" would overclaim: the engine diffs body text only, and two versions can
+              differ purely in formatting (highlights) or in headers/footers — real leases do. */}
+          No changes to the body text between these two versions. Formatting and header/footer
+          changes are not part of this comparison.
         </p>
       )}
 
