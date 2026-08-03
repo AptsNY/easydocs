@@ -57,14 +57,101 @@ jobs:
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
   # Zero-downtime roll: register new task-def revision, update service, poll rollout
-  # (fails on circuit-breaker rollback), smoke-test. Shared across all platform tenants.
+  # (fails on circuit-breaker rollback), smoke-test. These steps are COPIED from the
+  # platform's reusable app-deploy.yml rather than `uses:`-referenced: this repo is
+  # public and infra-platform is private, and GitHub forbids a public repo from calling
+  # a private repo's reusable workflow. If app-deploy.yml changes, re-sync by hand.
   deploy:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: app-deploy-easydocs
+      cancel-in-progress: false
     permissions:
       id-token: write
       contents: read
-    uses: AptsNY/infra-platform/.github/workflows/app-deploy.yml@main
-    with:
-      app: easydocs
-      image: ${{ needs.build.outputs.image }}
-      smoke_url: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.com/health' || inputs.smoke_url }}
+    env:
+      AWS_REGION: us-east-1
+      CLUSTER: container-platform
+      APP: easydocs
+      IMAGE: ${{ needs.build.outputs.image }}
+      TIMEOUT_SECONDS: 900
+      SMOKE_URL: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.com/health' || inputs.smoke_url }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::645868669589:role/easydocs-deploy
+          aws-region: us-east-1
+
+      - name: Register new task definition and update service
+        id: register
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$IMAGE" ]; then echo "::error::image input is empty"; exit 1; fi
+          aws ecs describe-task-definition --task-definition "$APP" \
+            --query taskDefinition > taskdef.json
+          # Only the app container's image changes; the collabora sidecar stays pinned.
+          jq --arg IMAGE "$IMAGE" --arg NAME "$APP" '
+            (.containerDefinitions[] | select(.name == $NAME)).image = $IMAGE
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy)
+          ' taskdef.json > taskdef-new.json
+          got=$(jq -r --arg NAME "$APP" \
+            '.containerDefinitions[] | select(.name == $NAME) | .image' taskdef-new.json)
+          if [ "$got" != "$IMAGE" ]; then
+            echo "::error::task def has no container named '$APP'; image not applied (found: ${got:-none})"
+            exit 1
+          fi
+          arn=$(aws ecs register-task-definition \
+            --cli-input-json file://taskdef-new.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "registered $arn"
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+          aws ecs update-service --cluster "$CLUSTER" --service "$APP-web" \
+            --task-definition "$arn" >/dev/null
+          echo "updated $APP-web -> $arn"
+
+      - name: Wait for rollout (fail on circuit-breaker rollback)
+        shell: bash
+        env:
+          EXPECTED: ${{ steps.register.outputs.arn }}
+        run: |
+          set -euo pipefail
+          service="$APP-web"
+          deadline=$(( SECONDS + TIMEOUT_SECONDS ))
+          while :; do
+            primary=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+              --query 'services[0].deployments[?status==`PRIMARY`] | [0].[taskDefinition, rolloutState]' \
+              --output text)
+            if [ "$primary" = "None" ] || [ -z "$primary" ]; then
+              echo "::error::$service not found or has no PRIMARY deployment"; exit 1
+            fi
+            current=$(cut -f1 <<<"$primary"); state=$(cut -f2 <<<"$primary")
+            if [ "$current" != "$EXPECTED" ]; then
+              echo "::error::$service PRIMARY deployment is $current, expected $EXPECTED — superseded by another deploy"
+              exit 1
+            fi
+            echo "$service rollout: $state"
+            if [ "$state" = "COMPLETED" ]; then break; fi
+            if [ "$state" = "FAILED" ]; then
+              echo "::error::$service deployment FAILED — ECS rolled back to the previous task set"
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::$service rollout did not complete within ${TIMEOUT_SECONDS}s"
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Smoke test
+        if: env.SMOKE_URL != ''
+        shell: bash
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SMOKE_URL" || echo 000)
+          case "$code" in
+            2*|3*) echo "smoke OK: $SMOKE_URL ($code)" ;;
+            *) echo "::error::smoke FAILED: $SMOKE_URL ($code)"; exit 1 ;;
+          esac
