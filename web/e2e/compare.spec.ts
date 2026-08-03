@@ -74,6 +74,8 @@ test('2. the redline renders inside an iframe and never in the app’s own DOM',
   // edited.docx adds " EDITED" and a "Delta" paragraph to base.docx, so the redline has real insertions.
   const inside = page.frameLocator('[data-testid="redline-frame"]').locator('ins')
   await expect(inside.first()).toContainText('EDITED')
+  // And it reads as a REDline: the frame carries its own stylesheet (the cached HTML has none).
+  await expect(inside.first()).toHaveCSS('color', 'rgb(179, 38, 30)')
 
   // The proof it is not inlined: the app document itself has no redline markup. A locator does not
   // pierce a frame boundary, so this counts only the page's own elements.
