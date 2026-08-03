@@ -25,6 +25,11 @@ import {
 // matters: an `X-EasyDocs-Diff: unavailable` response header on the html branch.
 const UNAVAILABLE = '<p>Comparison unavailable.</p>'
 
+// Word's redline colours: insertions red-underlined, deletions red-struck. One string, prepended
+// to the frame's srcDoc.
+const REDLINE_STYLE =
+  '<style>ins{color:#b3261e;text-decoration:underline}del{color:#b3261e;text-decoration:line-through}</style>'
+
 export default function Compare() {
   const { id } = useParams()
   const fieldId = useId()
@@ -205,7 +210,11 @@ export default function Compare() {
             className="editor-frame"
             title="Redline comparison"
             sandbox=""
-            srcDoc={html}
+            /* The generated HTML is cached UN-styled in the blob store, so the frame document
+               carries its own stylesheet — prepending it here styles cached redlines too. Red is
+               the convention the feature is named after; the frame is always white, so one colour
+               serves both themes. */
+            srcDoc={REDLINE_STYLE + html}
           />
         </>
       )}
