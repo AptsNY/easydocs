@@ -34,7 +34,7 @@ API for developers. One process, `docker compose up`.
 ## Status
 
 Install from the compose bundle attached to the
-[latest release](https://github.com/Robertzu43/easydocs/releases/latest) — currently **v1.1.0** —
+[latest release](https://github.com/AptsNY/easydocs/releases/latest) — currently **v1.1.0** —
 rather than building `main` from source; `main` is where development happens.
 
 ## New in v1.1

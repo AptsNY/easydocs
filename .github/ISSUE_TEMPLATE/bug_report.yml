@@ -6,14 +6,14 @@ body:
     attributes:
       value: |
         **Do not report a security vulnerability here.** Use
-        [private reporting](https://github.com/Robertzu43/easydocs/security/advisories/new) —
-        see [SECURITY.md](https://github.com/Robertzu43/easydocs/blob/main/SECURITY.md).
+        [private reporting](https://github.com/AptsNY/easydocs/security/advisories/new) —
+        see [SECURITY.md](https://github.com/AptsNY/easydocs/blob/main/SECURITY.md).
 
         **Check the known v1 limitations before filing.** Several things that look like bugs are
         documented ceilings — plain-HTTP logins silently failing (the `Secure` cookie), no org
         switcher, move and format-change counts always reading zero, rate limits collapsing behind a
         proxy. See
-        [Known v1 limitations](https://github.com/Robertzu43/easydocs/blob/main/SECURITY.md#known-v1-limitations-not-vulnerabilities).
+        [Known v1 limitations](https://github.com/AptsNY/easydocs/blob/main/SECURITY.md#known-v1-limitations-not-vulnerabilities).
 
   - type: checkboxes
     id: acknowledgements

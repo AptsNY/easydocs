@@ -1,8 +1,8 @@
 site_name: easydocs
 site_description: Git-style history for .docx — without asking anyone to learn Git.
-site_url: https://robertzu43.github.io/easydocs/
-repo_url: https://github.com/Robertzu43/easydocs
-repo_name: Robertzu43/easydocs
+site_url: https://aptsny.github.io/easydocs/
+repo_url: https://github.com/AptsNY/easydocs
+repo_name: AptsNY/easydocs
 edit_uri: edit/main/docs-site/docs/
 
 # MkDocs Material, deliberately not Docusaurus: four guide pages do not justify a React/node

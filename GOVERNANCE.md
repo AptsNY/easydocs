@@ -25,9 +25,9 @@ succession plan, and it is deliberate.
 
 Everything is public.
 
-- **[Issues](https://github.com/Robertzu43/easydocs/issues)** are the backlog. Bugs and feature
+- **[Issues](https://github.com/AptsNY/easydocs/issues)** are the backlog. Bugs and feature
   requests both start there, with the templates in `.github/ISSUE_TEMPLATE/`.
-- **[Projects](https://github.com/Robertzu43/easydocs/projects)** is the board: what is queued, in
+- **[Projects](https://github.com/AptsNY/easydocs/projects)** is the board: what is queued, in
   progress, and shipped. If it is not on the board, it is not planned yet.
 - **Design specs and milestone plans** live in [`docs/superpowers/`](docs/superpowers/) and are the
   substantive record. Each plan carries a *Deviations* section written after execution — what the plan

@@ -7,10 +7,10 @@
 
 **Git-style history for `.docx` — without asking anyone to learn Git.**
 
-[![CI](https://github.com/Robertzu43/easydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/Robertzu43/easydocs/actions/workflows/ci.yml)
-[![Conformance](https://github.com/Robertzu43/easydocs/actions/workflows/conformance.yml/badge.svg)](https://github.com/Robertzu43/easydocs/actions/workflows/conformance.yml)
-[![Release](https://img.shields.io/github/v/release/Robertzu43/easydocs)](https://github.com/Robertzu43/easydocs/releases/latest)
-[![License: AGPL-3.0](https://img.shields.io/github/license/Robertzu43/easydocs)](LICENSE)
+[![CI](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml)
+[![Conformance](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml)
+[![Release](https://img.shields.io/github/v/release/AptsNY/easydocs)](https://github.com/AptsNY/easydocs/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/github/license/AptsNY/easydocs)](LICENSE)
 
 Open-source, self-hostable version control for Word documents. Every save becomes an immutable,
 numbered version. Two people editing at once branch instead of overwriting each other, and merge in one
@@ -29,7 +29,7 @@ exactly the guarantees a discontinued service can't take away.
 
 ## Quickstart
 
-Download the compose bundle from the [latest release](https://github.com/Robertzu43/easydocs/releases/latest)
+Download the compose bundle from the [latest release](https://github.com/AptsNY/easydocs/releases/latest)
 — no clone, no build, the image is pinned by version and signed with cosign:
 
 ```bash
@@ -43,7 +43,7 @@ organization, and you are its owner. Invite colleagues from **Settings → Organ
 document's Members panel) and send them the invitation link; someone who belongs to more than one
 organization gets a switcher in the header.
 
-From there, the **[User guide](https://robertzu43.github.io/easydocs/user-guide/)** walks every
+From there, the **[User guide](https://aptsny.github.io/easydocs/user-guide/)** walks every
 screen and action — uploading, editing, branching and merging, publishing, approvals, sharing — and
 the [API](#api) does everything the UI does.
 
@@ -62,7 +62,7 @@ Collabora Online for in-browser editing.
 > easydocs at `http://192.168.1.50:8080` or `http://easydocs.internal` and login will appear to
 > succeed, the browser will discard the cookie, and you land back on the sign-in screen with no error.
 > Terminate TLS at a reverse proxy in front of the app — see the
-> [self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/).
+> [self-hosting guide](https://aptsny.github.io/easydocs/self-hosting/).
 
 ### Or hand it to an AI agent
 
@@ -70,10 +70,10 @@ Using Claude Code, Cursor, Copilot or any other coding agent? Paste this — it 
 so the agent lands a working install on the first try:
 
 ```text
-Set up easydocs (https://github.com/Robertzu43/easydocs) on this machine. Docker must be running.
+Set up easydocs (https://github.com/AptsNY/easydocs) on this machine. Docker must be running.
 
 1. Download the easydocs-*-compose.tar.gz asset from the latest GitHub release
-   (https://github.com/Robertzu43/easydocs/releases/latest) and extract it into a new
+   (https://github.com/AptsNY/easydocs/releases/latest) and extract it into a new
    directory called easydocs. Do NOT build from source.
 2. In that directory: cp .env.example .env, then edit .env — set Jwt__Secret to the output
    of `openssl rand -base64 48` (the placeholder is deliberately too short to boot), and set
@@ -83,17 +83,17 @@ Set up easydocs (https://github.com/Robertzu43/easydocs) on this machine. Docker
    {"status":"ok"} (first boot pulls images and runs migrations — allow a few minutes).
 4. Tell me to open http://localhost:8080 and register: the first account created also
    creates the organization and owns it. Point me at the user guide:
-   https://robertzu43.github.io/easydocs/user-guide/
+   https://aptsny.github.io/easydocs/user-guide/
 5. If this machine is a remote server rather than my laptop: STOP before exposing anything.
    The session cookie is Secure-only, so login silently fails over plain HTTP anywhere but
    localhost — TLS at a reverse proxy is required first, per
-   https://robertzu43.github.io/easydocs/self-hosting/
+   https://aptsny.github.io/easydocs/self-hosting/
 ```
 
 ### Developing or building from source instead
 
 ```bash
-git clone https://github.com/Robertzu43/easydocs && cd easydocs/deploy/compose
+git clone https://github.com/AptsNY/easydocs && cd easydocs/deploy/compose
 cp .env.example .env    # same two secrets
 docker compose up --build
 ```
@@ -131,7 +131,7 @@ Playwright suite asserts, against the shipped container image rather than a dev 
 - **Graphical revision graph** — a List/Graph toggle on the History tab.
 - **S3-compatible blob storage**, **blob garbage collection**, a **durable job queue**, and
   **configurable trusted proxies** — see the
-  [self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/).
+  [self-hosting guide](https://aptsny.github.io/easydocs/self-hosting/).
 
 Before exposing an install to anyone, read the
 [known limitations in SECURITY.md](SECURITY.md#known-v1-limitations-not-vulnerabilities) — notably
@@ -148,7 +148,7 @@ Everything the UI does, the API does — it is the same surface, not a subset.
   for the browser. A token can never exceed the role of the user who minted it.
 - **Live updates:** server-sent events per document at `/api/v1/documents/{id}/events`.
 
-Worked end-to-end examples: [automation recipes](https://robertzu43.github.io/easydocs/automation-recipes/).
+Worked end-to-end examples: [automation recipes](https://aptsny.github.io/easydocs/automation-recipes/).
 
 ## Tech
 
@@ -158,13 +158,13 @@ the app; the SPA is built into it and served from `wwwroot`.
 
 ## Docs
 
-Guides are published at **<https://robertzu43.github.io/easydocs/>**:
+Guides are published at **<https://aptsny.github.io/easydocs/>**:
 
-- [Getting started](https://robertzu43.github.io/easydocs/getting-started/) — one `.docx` from upload to a second version
-- [User guide](https://robertzu43.github.io/easydocs/user-guide/) — task-by-task instructions for every screen of the web UI, plus the API
-- [Concepts](https://robertzu43.github.io/easydocs/concepts/) — the mental model: numbering, branches, redlines, approvals
-- [Self-hosting guide](https://robertzu43.github.io/easydocs/self-hosting/) — TLS, `.env`, proxies, backups, upgrades
-- [Automation recipes](https://robertzu43.github.io/easydocs/automation-recipes/) — the full lifecycle over the REST API
+- [Getting started](https://aptsny.github.io/easydocs/getting-started/) — one `.docx` from upload to a second version
+- [User guide](https://aptsny.github.io/easydocs/user-guide/) — task-by-task instructions for every screen of the web UI, plus the API
+- [Concepts](https://aptsny.github.io/easydocs/concepts/) — the mental model: numbering, branches, redlines, approvals
+- [Self-hosting guide](https://aptsny.github.io/easydocs/self-hosting/) — TLS, `.env`, proxies, backups, upgrades
+- [Automation recipes](https://aptsny.github.io/easydocs/automation-recipes/) — the full lifecycle over the REST API
 
 And in the repo:
 
@@ -180,14 +180,14 @@ If you try easydocs, **say how it went** — that's the most useful thing you ca
 right now.
 
 - **Something broke, or something's missing?**
-  [Open an issue](https://github.com/Robertzu43/easydocs/issues/new/choose). "This felt wrong" is a
+  [Open an issue](https://github.com/AptsNY/easydocs/issues/new/choose). "This felt wrong" is a
   valid report; describe the problem, not the solution.
 - **Questions and ideas** live in
-  [Discussions](https://github.com/Robertzu43/easydocs/discussions).
+  [Discussions](https://github.com/AptsNY/easydocs/discussions).
 - **Want a roadmap item sooner?** A 👍 or a "here's how I'd use it" comment on its issue is exactly
   the signal that decides ordering — see [ROADMAP.md](ROADMAP.md).
 - **Want to write code?** Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
-  [`good first issue`](https://github.com/Robertzu43/easydocs/issues?q=is%3Aissue+label%3A%22good+first+issue%22)
+  [`good first issue`](https://github.com/AptsNY/easydocs/issues?q=is%3Aissue+label%3A%22good+first+issue%22)
   label. Schema and public-API changes need agreement in an issue first
   ([GOVERNANCE.md](GOVERNANCE.md)); everything else, just open a PR.
 

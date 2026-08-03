@@ -3,11 +3,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability — do not open a public issue
-    url: https://github.com/Robertzu43/easydocs/security/advisories/new
+    url: https://github.com/AptsNY/easydocs/security/advisories/new
     about: Report privately. See SECURITY.md for what to include and what to expect.
   - name: Known v1 limitations
-    url: https://github.com/Robertzu43/easydocs/blob/main/SECURITY.md#known-v1-limitations-not-vulnerabilities
+    url: https://github.com/AptsNY/easydocs/blob/main/SECURITY.md#known-v1-limitations-not-vulnerabilities
     about: Check here first — several things that look like bugs are documented v1 ceilings.
   - name: Self-hosting guide
-    url: https://github.com/Robertzu43/easydocs/blob/main/docs-site/docs/self-hosting.md
+    url: https://github.com/AptsNY/easydocs/blob/main/docs-site/docs/self-hosting.md
     about: TLS, .env, proxies, rate limits, backups, upgrades, and the known footguns.
