@@ -27,6 +27,9 @@ import { test, expect, createDocument, uploadVersion } from './fixtures'
 // So the rewrite is gone. The app resolves the browser-facing origin itself from COLLABORA_PUBLIC_URL,
 // and the first assertion below is that it did — because a URL the browser cannot fetch is the failure.
 const COLLABORA_ORIGIN = process.env.E2E_COLLABORA_URL ?? 'http://localhost:9980'
+// The host coolwsd calls back INTO — compose-internal by default; awsvpc/sidecar deployments use
+// localhost:8080. Override alongside E2E_COLLABORA_URL when pointing the suite at a real install.
+const WOPI_HOST = process.env.E2E_WOPI_HOST ?? 'easydocs:8080'
 
 // Collabora CODE cold-starts a document process per file and streams a large SPA before it draws
 // anything. Warm it is a second or two; cold on a CI runner it is not, so the budgets are generous.
@@ -50,7 +53,7 @@ test.describe('Collabora editing (spec §6, §12.3 E3)', () => {
     expect(new URL(editorUrl).origin, 'editorUrl must be browser-reachable, not the compose-internal host')
       .toBe(COLLABORA_ORIGIN)
     // WOPISrc stays internal: coolwsd fetches it from inside the network, so that is correct as-is.
-    expect(decodeURIComponent(new URL(editorUrl).searchParams.get('WOPISrc') ?? '')).toContain('easydocs:8080')
+    expect(decodeURIComponent(new URL(editorUrl).searchParams.get('WOPISrc') ?? '')).toContain(WOPI_HOST)
 
     await page.goto(`/versions/${versionId}/edit`)
     await expect(page.getByTestId('editor-frame')).toBeVisible()
