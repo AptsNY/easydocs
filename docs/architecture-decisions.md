@@ -2,7 +2,9 @@
 
 How easydocs works, told through the decisions that shaped it. Each record is Context → Decision →
 Consequences. Statuses are current as of v1.1.0. The deeper design rationale lives in
-[`docs/superpowers/specs/`](superpowers/specs/); this document is the tour.
+[`docs/superpowers/specs/`](superpowers/specs/); this document is the tour. For the concrete domain
+model, database schema, and diagrams (ER, components, the write path, the version DAG), see the
+companion [design-schema.md](design-schema.md).
 
 **The system in one paragraph:** easydocs is a self-hostable version-control service for `.docx`
 files. One ASP.NET Core process serves a REST API and a React SPA; PostgreSQL holds all state;
