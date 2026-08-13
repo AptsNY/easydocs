@@ -128,19 +128,16 @@ body {
   margin: 0;
 }
 
-/* The column IS the sheet: raised paper between two hairlines, on darker
-   paper. */
+/* The app fills the viewport; readable line lengths come from the inner
+   grids and the 62ch prose cap, not from a fixed outer column. */
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
   min-height: 100svh;
-  margin: 0 auto;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   text-align: start;
   background: var(--paper-raised);
-  border-inline: 1px solid var(--rule);
 }
 
 /* ---------------------------------------------------------------- typography */
