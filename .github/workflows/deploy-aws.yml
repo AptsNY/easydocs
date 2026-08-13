@@ -3,7 +3,7 @@ name: deploy-aws
 #
 # Split from release.yml on purpose: a version tag first has to pass release.yml's verify
 # gate to become a public GHCR release, and this workflow deploys the same commit to
-# easydocs.aptsny.com. The image here goes to the platform's private ECR (immutable,
+# easydocs.aptsny.net. The image here goes to the platform's private ECR (immutable,
 # per-commit tags — the task definition pins :<sha>, never a mutable version tag), built
 # amd64-only because Fargate is; the multi-arch GHCR image stays the self-hosters' artifact.
 #
@@ -16,10 +16,10 @@ on:
   workflow_dispatch:
     inputs:
       smoke_url:
-        description: "Public URL curled after rollout (expects 2xx/3xx). Clear it before the DNS cutover — easydocs.aptsny.com does not resolve yet."
+        description: "Public URL curled after rollout (expects 2xx/3xx). Clear it before the DNS cutover — easydocs.aptsny.net does not resolve yet."
         required: false
         type: string
-        default: "https://easydocs.aptsny.com/health"
+        default: "https://easydocs.aptsny.net/health"
 
 permissions:
   id-token: write
@@ -77,7 +77,7 @@ jobs:
       APP: easydocs
       IMAGE: ${{ needs.build.outputs.image }}
       TIMEOUT_SECONDS: 900
-      SMOKE_URL: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.com/health' || inputs.smoke_url }}
+      SMOKE_URL: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.net/health' || inputs.smoke_url }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
