@@ -279,6 +279,13 @@ app.UseSwaggerUI(o =>
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// /health stays shallow on purpose: it is the ALB target-group check, and a DB outage must not
+// make the ALB kill the tasks. /health/ready is for the deploy smoke test — it proves the app can
+// actually reach Postgres, which /health cannot (the 2026-08 rotation outage shipped green on it).
+app.MapGet("/health/ready", async (EasyDocs.Api.Data.EasyDocsDbContext db) =>
+    await db.Database.CanConnectAsync()
+        ? Results.Ok(new { status = "ok" })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 app.MapAuthEndpoints();
 app.MapMfaEndpoints();
 app.MapOidcEndpoints();
