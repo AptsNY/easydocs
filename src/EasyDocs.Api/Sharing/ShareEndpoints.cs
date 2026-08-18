@@ -17,7 +17,7 @@ namespace EasyDocs.Api.Sharing;
 // returned once. The public /s/{token} route is anonymous and audited (spec §11).
 public static class ShareEndpoints
 {
-    public record CreateRequest(DateTimeOffset? ExpiresAt);
+    public record CreateShareLinkRequest(DateTimeOffset? ExpiresAt);
 
     public static void MapShareEndpoints(this WebApplication app)
     {
@@ -42,7 +42,7 @@ public static class ShareEndpoints
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     // Viewer+ (any member of the version's document) may share.
-    private static async Task<IResult> Create(Guid vid, CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> Create(Guid vid, CreateShareLinkRequest req, HttpContext ctx, EasyDocsDbContext db)
     {
         var version = await db.Versions.FirstOrDefaultAsync(v => v.Id == vid, ctx.RequestAborted);
         if (version is null) return Problem.Of(404, "Not found", "Version not found.");
