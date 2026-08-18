@@ -19,7 +19,7 @@ namespace EasyDocs.Api.Copies;
 // role on the master and never sees its drafts (spec §11, E12).
 public static class CopyEndpoints
 {
-    public record CreateRequest(string? Name);
+    public record CreateCopyRequest(string? Name);
 
     public static void MapCopyEndpoints(this WebApplication app)
     {
@@ -31,7 +31,7 @@ public static class CopyEndpoints
     // Fork a specific version into a new isolated document. Editor+ on the SOURCE: forking lifts content
     // out of a document, which is a content-level privilege a Viewer does not hold.
     private static async Task<IResult> Fork(
-        Guid vid, CreateRequest? req, HttpContext ctx, EasyDocsDbContext db, VersioningService versioning)
+        Guid vid, CreateCopyRequest? req, HttpContext ctx, EasyDocsDbContext db, VersioningService versioning)
     {
         var source = await db.Versions.FirstOrDefaultAsync(v => v.Id == vid, ctx.RequestAborted);
         if (source is null) return Problem.Of(404, "Not found", "Version not found.");

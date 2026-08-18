@@ -485,7 +485,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRequest"
+                "$ref": "#/components/schemas/CreateTokenRequest"
               }
             }
           },
@@ -560,7 +560,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRequest"
+                "$ref": "#/components/schemas/CreateFolderRequest"
               }
             }
           },
@@ -696,7 +696,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRequest"
+                "$ref": "#/components/schemas/CreateDocumentRequest"
               }
             }
           },
@@ -1520,7 +1520,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/CreateRequest"
+                    "$ref": "#/components/schemas/CreateCopyRequest"
                   }
                 ]
               }
@@ -1934,7 +1934,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRequest"
+                "$ref": "#/components/schemas/CreateShareLinkRequest"
               }
             }
           },
@@ -2094,7 +2094,76 @@
           }
         }
       },
-      "CreateRequest": {
+      "CreateCopyRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateDocumentRequest": {
+        "required": [
+          "name",
+          "folderId"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folderId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "CreateFolderRequest": {
+        "required": [
+          "name",
+          "parentId"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "CreateShareLinkRequest": {
+        "required": [
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateTokenRequest": {
         "required": [
           "name",
           "scopes",

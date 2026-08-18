@@ -12,7 +12,7 @@ namespace EasyDocs.Api.Documents;
 
 public static class DocumentEndpoints
 {
-    public record CreateRequest(string? Name, Guid? FolderId);
+    public record CreateDocumentRequest(string? Name, Guid? FolderId);
     public record UpdateRequest(string? Name, Guid? FolderId);
     public record VersionCounterRequest(int Major, int Minor, int Rev);
 
@@ -148,7 +148,7 @@ public static class DocumentEndpoints
         });
     }
 
-    private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> Create(CreateDocumentRequest req, HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);

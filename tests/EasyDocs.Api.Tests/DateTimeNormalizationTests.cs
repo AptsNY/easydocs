@@ -15,8 +15,8 @@ namespace EasyDocs.Api.Tests;
 // at the HTTP layer), a bare 500. But +02:00/-05:00/Z are all perfectly valid RFC 3339 offsets, and
 // the OpenAPI document advertises these fields as `date-time` - so a conforming client in any
 // non-UTC timezone got a 500 on a *correct* request, on every one of the three body fields that
-// take a DateTimeOffset today: ApprovalEndpoints.RequestBody.DueAt, ShareEndpoints.CreateRequest.
-// ExpiresAt, TokenEndpoints.CreateRequest.ExpiresAt (grepped for `record.*DateTimeOffset` under
+// take a DateTimeOffset today: ApprovalEndpoints.RequestBody.DueAt, ShareEndpoints.CreateShareLinkRequest.
+// ExpiresAt, TokenEndpoints.CreateTokenRequest.ExpiresAt (grepped for `record.*DateTimeOffset` under
 // src/EasyDocs.Api to confirm that's the full list). Fixed once via a JsonConverter<DateTimeOffset>
 // registered in ConfigureHttpJsonOptions (minimal-API body binding does not share MVC's JsonOptions),
 // which normalizes every inbound value to its UTC instant before it reaches a handler or the DB -

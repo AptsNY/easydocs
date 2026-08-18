@@ -14,19 +14,6 @@ These recipes are worked examples, not a reference. The reference is generated f
 - **OpenAPI 3.1 document:** **`/openapi/v1.json`** — feed it to a client generator, Bruno, Insomnia, or
   anything else that speaks OpenAPI.
 
-!!! bug "Known defect: five request bodies share one schema name in the generated document"
-    In the current build, the request-body schemas for **`POST /api/v1/documents`**,
-    **`POST /api/v1/folders`**, **`POST /api/v1/versions/{vid}/share-links`** and
-    **`POST /api/v1/versions/{vid}/copies`** are wrong in `/openapi/v1.json`.
-
-    Five separate C# records are all named `CreateRequest`, and the OpenAPI generator collapses them into
-    a single `#/components/schemas/CreateRequest` component. The one that wins is the token one, so all
-    five endpoints are documented as taking `{ "name": …, "scopes": [...], "expiresAt": … }`.
-
-    **The bodies on this page are read from the endpoint source and are correct.** Where they disagree
-    with `/openapi/v1.json`, trust this page. Response schemas and every other endpoint are unaffected.
-    Tracked for a fix; until then treat those four request bodies as documented here.
-
 ## Authentication
 
 Two credentials, same surface:

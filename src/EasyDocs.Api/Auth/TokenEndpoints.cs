@@ -10,7 +10,7 @@ namespace EasyDocs.Api.Auth;
 // Authenticating an inbound `ed_` token is ApiTokenAuthHandler's job, registered in Program.cs.
 public static class TokenEndpoints
 {
-    public record CreateRequest(string Name, string[] Scopes, DateTimeOffset? ExpiresAt);
+    public record CreateTokenRequest(string Name, string[] Scopes, DateTimeOffset? ExpiresAt);
 
     public static void MapTokenEndpoints(this WebApplication app)
     {
@@ -22,7 +22,7 @@ public static class TokenEndpoints
         g.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization();
     }
 
-    private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db, ApiTokenService tokens)
+    private static async Task<IResult> Create(CreateTokenRequest req, HttpContext ctx, EasyDocsDbContext db, ApiTokenService tokens)
     {
         var name = req.Name?.Trim() ?? "";
         if (name.Length == 0)
