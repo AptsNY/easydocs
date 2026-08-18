@@ -80,4 +80,42 @@ public class OpenApiTests(ApiFactory f) : IClassFixture<ApiFactory>
         Assert.DoesNotContain("unpkg.com", body);
         Assert.DoesNotContain("jsdelivr", body);
     }
+
+    // The docs site publishes a committed snapshot of /openapi/v1.json (rendered by Swagger UI at
+    // /api/ on the site), because the mkdocs job is python-only and cannot boot the app. This test
+    // is what stops that snapshot rotting: any change to the served document fails CI until the
+    // snapshot is regenerated. To regenerate:
+    //   UPDATE_OPENAPI_SNAPSHOT=1 dotnet test --filter Openapi_snapshot_in_docs_site_matches
+    [Fact]
+    public async Task Openapi_snapshot_in_docs_site_matches_the_served_document()
+    {
+        var served = Normalize(await f.CreateClient().GetStringAsync("/openapi/v1.json"));
+
+        var path = Path.Combine(RepoRoot(), "docs-site", "docs", "api", "openapi", "v1.json");
+        if (Environment.GetEnvironmentVariable("UPDATE_OPENAPI_SNAPSHOT") == "1")
+            await File.WriteAllTextAsync(path, served + "\n");
+
+        Assert.True(File.Exists(path), $"missing snapshot {path} — regenerate per the comment above");
+        var snapshot = (await File.ReadAllTextAsync(path)).TrimEnd('\n');
+        Assert.True(snapshot == served,
+            "docs-site/docs/api/openapi/v1.json no longer matches the served /openapi/v1.json —"
+            + " regenerate with: UPDATE_OPENAPI_SNAPSHOT=1 dotnet test --filter Openapi_snapshot_in_docs_site_matches");
+    }
+
+    // Indent for reviewable diffs; drop `servers` — it echoes the test host's address, which is
+    // meaningless in a published document (each install is its own server).
+    private static string Normalize(string json)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+        node.Remove("servers");
+        return node.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string RepoRoot()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+            if (File.Exists(Path.Combine(d.FullName, "easydocs.slnx")))
+                return d.FullName;
+        throw new InvalidOperationException("easydocs.slnx not found above the test binary.");
+    }
 }

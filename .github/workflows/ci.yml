@@ -166,7 +166,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install MkDocs Material
-        run: pip install mkdocs-material
+        run: pip install mkdocs-material mkdocs-swagger-ui-tag
 
       - name: Build the docs site
         working-directory: docs-site

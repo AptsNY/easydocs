@@ -142,7 +142,8 @@ that per-IP rate limiting behind a reverse proxy needs `ASPNETCORE_FORWARDEDHEAD
 
 Everything the UI does, the API does — it is the same surface, not a subset.
 
-- **Interactive docs:** `/docs` on your install (self-contained, no external CDN)
+- **Interactive docs:** [aptsny.github.io/easydocs/api/](https://aptsny.github.io/easydocs/api/), or
+  `/docs` on your install (self-contained, no external CDN)
 - **OpenAPI 3.1:** `/openapi/v1.json`
 - **Auth:** `ed_`-prefixed personal access tokens as `Authorization: Bearer ed_…`, or the session cookie
   for the browser. A token can never exceed the role of the user who minted it.
@@ -165,6 +166,7 @@ Guides are published at **<https://aptsny.github.io/easydocs/>**:
 - [Concepts](https://aptsny.github.io/easydocs/concepts/) — the mental model: numbering, branches, redlines, approvals
 - [Self-hosting guide](https://aptsny.github.io/easydocs/self-hosting/) — TLS, `.env`, proxies, backups, upgrades
 - [Automation recipes](https://aptsny.github.io/easydocs/automation-recipes/) — the full lifecycle over the REST API
+- [API reference](https://aptsny.github.io/easydocs/api/) — every endpoint, rendered from the OpenAPI document
 
 And in the repo:
 

@@ -3,17 +3,16 @@
 Everything the web UI does, the API does — it is the same surface, not a subset. This page walks one
 document through its whole lifecycle with `curl`, using a personal access token.
 
-## The API reference lives in the app
+## Where the API reference lives
 
-These recipes are worked examples, not a reference. The reference is generated from the running build and
-served by the application itself:
+These recipes are worked examples, not a reference. The reference is generated from the running build:
 
+- **[API reference](api/index.md)** on this site — a committed snapshot of the document below,
+  guarded by CI so it cannot drift from what the application serves.
 - **Interactive docs:** **`/docs`** on your install — e.g. <http://localhost:8080/docs>. Self-contained,
-  no external CDN.
+  no external CDN, and "try it out" works there.
 - **OpenAPI 3.1 document:** **`/openapi/v1.json`** — feed it to a client generator, Bruno, Insomnia, or
   anything else that speaks OpenAPI.
-
-Deliberately not re-rendered here. One source of truth; a second copy would drift.
 
 !!! bug "Known defect: five request bodies share one schema name in the generated document"
     In the current build, the request-body schemas for **`POST /api/v1/documents`**,
