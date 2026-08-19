@@ -1,15 +1,18 @@
 name: Use a fast apt mirror
 description: >
   Point apt at archive.ubuntu.com instead of the runners' default azure.archive.ubuntu.com, which on
-  2026-08-19 trickled multi-MB packages (43 MB of libreoffice-core in >4.5 min, ~19.5 min of font
-  packages in web-e2e) and hung three jobs past their entire time budgets.
+  2026-08-19 trickled multi-MB packages and hung three jobs past their whole time budgets: one
+  libreoffice-core fetch (43 MB) was still unfinished when its step was killed 4m33s later, and
+  web-e2e spent 21m49s of 30m on font packages, 7m17s of it on a single 7 MB one.
 
-  Lives here rather than inline because all three apt-using jobs need it: duplicating the snippet is
-  what produced the first, broken version. That one edited only sources.list and *.sources — but
-  noble runners resolve sources through `URIs: mirror+file:/etc/apt/apt-mirrors.txt`, so the
-  hostname it needed to rewrite was in the mirrorlist, and the sed silently changed nothing while
-  looking like a fix. Hence the verification below: a swap that does not apply must fail loudly, not
-  quietly leave the slow mirror in place.
+  Lives here rather than inline because all three apt-using jobs need it, and duplicating the snippet
+  is what produced the first, broken version. That one rewrote only sources.list and *.sources — but
+  noble runners resolve sources through `URIs: mirror+file:/etc/apt/apt-mirrors.txt`, so the hostname
+  it needed was in the mirrorlist, and the sed silently changed nothing while looking like a fix.
+
+  Hence: find the files by content instead of guessing their names, and treat the rewrite as
+  best-effort but the verification as authoritative. A swap that does not apply must fail loudly
+  rather than quietly leave the slow mirror in place — that silent pass is the whole defect.
 
 runs:
   using: composite
@@ -17,15 +20,16 @@ runs:
     - shell: bash
       run: |
         set -euo pipefail
-        # Every file apt reads for source definitions, mirrorlist included.
-        sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
-          /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+        # `|| true` because grep exits 1 when nothing matches, and "no azure anywhere" is a perfectly
+        # good outcome — without it, pipefail would turn a clean runner image into a failed step.
+        sudo grep -rl 'azure\.archive\.ubuntu\.com' /etc/apt 2>/dev/null \
+          | xargs -r sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' || true
 
-        if grep -qs 'azure\.archive\.ubuntu\.com' \
-            /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/*; then
-          echo "::error::apt still points at the azure mirror — the swap missed a config file"
-          grep -ls 'azure\.archive\.ubuntu\.com' \
-            /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* || true
+        # sudo here too: a file this cannot read would exit 2, which an `if` cannot tell apart from
+        # "no match" — i.e. it would pass green with the slow mirror still in place.
+        if sudo grep -rq 'azure\.archive\.ubuntu\.com' /etc/apt; then
+          echo "::error::apt still points at the azure mirror — these files were not rewritten:"
+          sudo grep -rl 'azure\.archive\.ubuntu\.com' /etc/apt
           exit 1
         fi
         echo "apt mirror is archive.ubuntu.com"
