@@ -29,6 +29,9 @@ API for developers. One process, `docker compose up`.
 - **[Automation recipes](automation-recipes.md)** — drive the whole lifecycle over the REST API with
   an `ed_` personal access token.
 
+- **[API reference](api/index.md)** — every endpoint, rendered from the OpenAPI 3.1 document the
+  application itself serves.
+
 </div>
 
 ## Status
@@ -55,14 +58,15 @@ Listed so you do not go looking for them — the full list lives in the reposito
 
 ## API reference
 
-The API reference is served by the application itself, so it can never drift from the running build:
+The reference is generated from the running build, so it can never drift:
 
-- **Interactive docs:** `/docs` on your install (self-contained, no external CDN)
-- **OpenAPI 3.1 document:** `/openapi/v1.json`
+- **[API reference](api/index.md)** on this site — the full document rendered with Swagger UI, from
+  a snapshot that CI verifies against what the application actually serves.
+- **Interactive docs:** `/docs` on your install (self-contained, no external CDN) — "try it out"
+  works there.
+- **OpenAPI 3.1 document:** `/openapi/v1.json` on your install.
 
-These guides link to it rather than re-rendering it. One source of truth. See
-[Automation recipes](automation-recipes.md) for worked examples, and for the one place the generated
-document is currently misleading.
+See [Automation recipes](automation-recipes.md) for worked end-to-end examples.
 
 ## License
 
