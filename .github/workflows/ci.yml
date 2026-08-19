@@ -38,12 +38,10 @@ jobs:
       # release gate installs LibreOffice, so the first environment ever to execute them was the v1.0.0
       # tag — where one of them failed on an assertion that had been wrong since it was written. A test
       # whose only runtime is the release gate is a test that fails at the worst possible moment.
-      # Same mirror swap + step timeout as conformance.yml: azure.archive.ubuntu.com trickled these
-      # installs past whole job budgets on 2026-08-19, and a slow-but-alive mirror defeats timeouts.
+      - uses: ./.github/actions/apt-mirror
       - name: Install LibreOffice (so the PDF tests run instead of skipping)
         timeout-minutes: 8
         run: |
-          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libreoffice
 
@@ -111,7 +109,12 @@ jobs:
           echo "::error::easydocs did not become healthy within 90s"
           exit 1
 
+      # --with-deps shells out to apt, so this step wants the mirror swap too: on 2026-08-19 it spent
+      # 21m49s of a 30m budget pulling font packages from the azure mirror (the Playwright run itself
+      # took 68 seconds). The browser binary comes from Playwright's own CDN and was never the problem.
+      - uses: ./.github/actions/apt-mirror
       - name: Install Chromium
+        timeout-minutes: 8
         working-directory: web
         run: npx playwright install --with-deps chromium
 
