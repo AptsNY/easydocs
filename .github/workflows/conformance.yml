@@ -57,14 +57,12 @@ jobs:
 
       # E6 asserts a rendered PDF. Without soffice on the runner that criterion skips itself, which
       # would make a green run overstate coverage — so install it and let the assertion run for real.
-      # The runners' default mirror (azure.archive.ubuntu.com) trickled this install past the whole
-      # 30m job budget three times on 2026-08-19 — and a slow-but-alive mirror defeats connection
-      # timeouts, so swap to the global archive up front. timeout-minutes keeps any future stall a
-      # fast red instead of a 30-minute hang.
+      # timeout-minutes keeps a future mirror stall a fast red instead of a 30-minute hang; the
+      # mirror swap itself is the actual fix (see .github/actions/apt-mirror).
+      - uses: ./.github/actions/apt-mirror
       - name: Install LibreOffice (so E6's PDF criterion runs instead of skipping)
         timeout-minutes: 8
         run: |
-          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libreoffice-writer
           soffice --version
