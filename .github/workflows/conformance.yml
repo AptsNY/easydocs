@@ -57,10 +57,13 @@ jobs:
 
       # E6 asserts a rendered PDF. Without soffice on the runner that criterion skips itself, which
       # would make a green run overstate coverage — so install it and let the assertion run for real.
+      # timeout-minutes + Acquire options: a stalled Ubuntu mirror hung this step for the full 30m
+      # job budget twice on 2026-08-19; fail in minutes and retry the fetch instead.
       - name: Install LibreOffice (so E6's PDF criterion runs instead of skipping)
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-writer
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends libreoffice-writer
           soffice --version
 
       - name: Run the E1-E12 conformance suite

@@ -38,8 +38,11 @@ jobs:
       # release gate installs LibreOffice, so the first environment ever to execute them was the v1.0.0
       # tag — where one of them failed on an assertion that had been wrong since it was written. A test
       # whose only runtime is the release gate is a test that fails at the worst possible moment.
+      # timeout-minutes + Acquire options: same hardening as conformance.yml — a stalled Ubuntu
+      # mirror hung that job's identical step for its full 30m budget twice on 2026-08-19.
       - name: Install LibreOffice (so the PDF tests run instead of skipping)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice
+        timeout-minutes: 8
+        run: sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends libreoffice
 
       # ubuntu-latest runners ship Docker, so Testcontainers can start Postgres.
       # With LibreOffice installed above, nothing here is allowed to skip: a silent skip is how the
