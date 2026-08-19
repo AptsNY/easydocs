@@ -14,3 +14,37 @@
 [data-md-color-scheme='slate'] {
   --md-accent-fg-color: #6c92ff;
 }
+
+/* Render the "API reference" nav entry as a button — it is the page people arrive looking for, and a
+   seventh identical text link buries it. Matched on href, not label, so renaming the nav title cannot
+   silently drop the styling; the second selector is that same entry while it IS the current page,
+   where Material rewrites the href to "./" (without it the button would vanish on the page it leads
+   to, which reads as a bug). Kept to the primary nav so the in-page table of contents is untouched. */
+.md-nav--primary .md-nav__link[href$='api/'],
+.md-nav--primary .md-nav__item:last-child > .md-nav__link--active[href='./'] {
+  background: var(--md-primary-fg-color);
+  color: #fff;
+  border-radius: 0.3rem;
+  padding: 0.35rem 0.6rem;
+  margin: 0.4rem 0;
+  font-weight: 600;
+}
+
+/* Material's hover rule sets `color: var(--md-accent-fg-color)`, i.e. blue text on a blue fill.
+   Restate the colour so the label stays legible, and lift the fill instead to signal hover. */
+.md-nav--primary .md-nav__link[href$='api/']:hover,
+.md-nav--primary .md-nav__link[href$='api/']:focus,
+.md-nav--primary .md-nav__item:last-child > .md-nav__link--active[href='./']:hover {
+  background: var(--md-primary-fg-color--light);
+  color: #fff;
+}
+
+/* Fold Blue is too light to carry white text (about 3:1 — under WCAG AA), so the dark scheme pairs it
+   with Ink instead, which clears AA comfortably. */
+[data-md-color-scheme='slate'] .md-nav--primary .md-nav__link[href$='api/'],
+[data-md-color-scheme='slate'] .md-nav--primary .md-nav__item:last-child > .md-nav__link--active[href='./'],
+[data-md-color-scheme='slate'] .md-nav--primary .md-nav__link[href$='api/']:hover,
+[data-md-color-scheme='slate'] .md-nav--primary .md-nav__link[href$='api/']:focus {
+  background: #6c92ff;
+  color: #172033;
+}
