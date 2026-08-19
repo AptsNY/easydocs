@@ -38,3 +38,29 @@ test('the share landing is public: no session, no redirect', async ({ page }) =>
   await page.goto('/s/some-token')
   await expect(page.getByTestId('share-landing')).toBeVisible()
 })
+
+// The masthead's "API docs" entry has to escape the SPA: /docs is the server's own Swagger UI, so the
+// link must be a plain <a>. Written as a click rather than a goto because the failure mode being
+// guarded is somebody "tidying" it into a react-router <Link> — which matches no route, falls through
+// to index.html, and silently opens the app again instead of the docs.
+test('the header links out to the app-served API docs, not through the router', async ({
+  signedIn: page,
+}) => {
+  const link = page.getByRole('link', { name: 'API docs (opens in a new tab)' })
+  await expect(link).toBeVisible()
+
+  const docs = await new Promise<import('@playwright/test').Page>((resolve) => {
+    page.context().once('page', resolve)
+    void link.click()
+  })
+  await docs.waitForLoadState('domcontentloaded')
+
+  // /docs 301s to /docs/index.html — assert the prefix, not the exact path, or this fails on a
+  // redirect that is Swagger UI working normally.
+  expect(new URL(docs.url()).pathname).toMatch(/^\/docs\b/)
+  // The rendered document's own title, which proves two things at once: Swagger UI booted, and it
+  // loaded THIS app's OpenAPI document rather than an empty shell. (`.swagger-ui` alone is ambiguous —
+  // the page has two such elements.)
+  await expect(docs.getByRole('heading', { name: /easydocs API/ })).toBeVisible()
+  await expect(docs.getByTestId('dashboard')).toHaveCount(0)
+})

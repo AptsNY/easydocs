@@ -58,7 +58,7 @@ function Shell() {
 
   return (
     <div className="shell">
-      {/* First stop in the tab order, visible only when focused: the masthead is five links deep on
+      {/* First stop in the tab order, visible only when focused: the masthead is six links deep on
           every screen, and a keyboard reader should not have to walk it to reach the work. */}
       <a className="skip-link" href="#main">
         Skip to content
@@ -76,6 +76,13 @@ function Shell() {
           <Link to="/">Documents</Link>
           <Link to="/approvals">Approvals</Link>
           <Link to="/settings">Settings</Link>
+          {/* A plain <a>, deliberately NOT a react-router <Link>: /docs is the Swagger UI the server
+              itself serves, so the router must not intercept it — it would match nothing and fall
+              through to index.html, i.e. the app would appear to reload onto a blank screen. New tab
+              because it leaves the app entirely and nobody should lose the document they were on. */}
+          <a href="/docs" target="_blank" rel="noopener" aria-label="API docs (opens in a new tab)">
+            API docs<span aria-hidden="true"> ↗</span>
+          </a>
         </nav>
         <span className="who">{me?.displayName}</span>
         <button
