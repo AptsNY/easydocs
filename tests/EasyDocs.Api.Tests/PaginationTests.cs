@@ -93,19 +93,28 @@ public class PaginationTests : IClassFixture<ApiFactory>
         Assert.Equal(seen.Count, seen.Distinct().Count());
     }
 
+    // Tag 2 is what `?sort=name` will mint (a later task); "invoice " is deliberately 8 bytes ending in
+    // 0x20 so it round-trips as a plausible-looking 8-byte time key. PageAsync must not let a cursor
+    // minted for a different sort move the page: it either matches its own CreatedTag or falls back to
+    // page one -- it must never be treated as a real key and silently produce an empty "end of list".
     [Fact]
-    public void Cursor_is_opaque_and_roundtrips()
+    public async Task A_cursor_from_a_different_sort_restarts_the_page_instead_of_ending_it()
     {
-        var when = DateTimeOffset.UtcNow;
-        var id = Guid.NewGuid();
-        var decoded = Pagination.Decode(Pagination.EncodeTime(Pagination.CreatedTag, when, id));
-        Assert.NotNull(decoded);
-        Assert.Equal(Pagination.CreatedTag, decoded!.Tag);
-        Assert.Equal(id, decoded.Id);
-        Assert.Equal(when, Pagination.AsTime(decoded));
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Foreign tag" }))
+            .Content.ReadFromJsonAsync<CreateDto>())!.Id;
 
-        // A null cursor (no query parameter at all) is not malformed input; it means "page one."
-        Assert.Null(Pagination.Decode(null));
+        for (var i = 0; i < 4; i++)
+            (await c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(new byte[] { (byte)(i + 1), 9, 9 }))).EnsureSuccessStatusCode();
+
+        var page = await c.GetFromJsonAsync<Page<VersionItem>>($"/api/v1/documents/{docId}/versions?limit=2");
+        Assert.Equal(2, page!.Items.Count);
+
+        var foreignCursor = Pagination.EncodeText(2, "invoice ", Guid.NewGuid());
+        var withForeignCursor = await c.GetFromJsonAsync<Page<VersionItem>>(
+            $"/api/v1/documents/{docId}/versions?limit=2&cursor={Uri.EscapeDataString(foreignCursor)}");
+
+        Assert.Equal(2, withForeignCursor!.Items.Count);
     }
 
     [Fact]
@@ -139,15 +148,31 @@ public class PaginationTests : IClassFixture<ApiFactory>
     }
 
     // A cursor is worthless if a client's garbage throws instead of restarting the list: Decode
-    // returning null means "no WHERE clause", which means page one.
+    // returning null means "no WHERE clause", which means page one. A null cursor (no query parameter
+    // at all) belongs on this list too -- it's not malformed, but it must land on the same "page one"
+    // outcome as everything else here.
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("not-base64url-!!!")]
     [InlineData("AAAA")] // decodes, but too short to hold a tag and a Guid
-    public void An_unusable_cursor_decodes_to_null_rather_than_throwing(string cursor)
+    // 16 raw bytes -- one short of the 17-byte minimum. If the guard were `< 16` instead of `< 17`,
+    // `b[1..^16]` would throw ArgumentOutOfRangeException on this exact input, and since that IS an
+    // ArgumentException, the catch below would mask the off-by-one instead of the test catching it.
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAA")]
+    public void An_unusable_cursor_decodes_to_null_rather_than_throwing(string? cursor)
     {
         Assert.Null(Pagination.Decode(cursor));
     }
+
+    [Theory]
+    [InlineData(long.MinValue)]
+    [InlineData(-1L)]
+    [InlineData(3155378976000000000L)] // DateTimeOffset.MaxValue.UtcTicks + 1
+    [InlineData(long.MaxValue)]
+    public void Ticks_outside_the_DateTimeOffset_range_are_not_a_time(long ticks) =>
+        Assert.Null(Pagination.AsTime(Pagination.Decode(
+            Pagination.Encode(Pagination.CreatedTag, BitConverter.GetBytes(ticks), Guid.NewGuid()))!));
 
     // A zero-length key is legal (an empty document name lower-cases to ""), and must not be
     // mistaken for a truncated payload.

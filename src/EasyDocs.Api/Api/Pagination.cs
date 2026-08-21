@@ -29,10 +29,11 @@ public static class Pagination
     // indistinguishable from a new cursor carrying a 7-byte name key ("invoice"), so honouring them
     // would misread a real page. Decode returns null for anything unusable and a null cursor means no
     // WHERE clause, so the worst case is a client's next page restarting at the top.
+    // Key is a byte[], so record equality is reference equality on it.
     public sealed record CursorKey(byte Tag, byte[] Key, Guid Id);
 
-    // The tag PageAsync's own (CreatedAt, Id) cursors carry. Any endpoint sorting on creation time uses
-    // it, so a `created` cursor means the same thing everywhere it appears.
+    // Any endpoint sorting on creation time uses it, so a `created` cursor means the same thing
+    // everywhere it appears.
     public const byte CreatedTag = 0;
 
     public static string Encode(byte tag, ReadOnlySpan<byte> key, Guid id)
@@ -44,6 +45,7 @@ public static class Pagination
         return Base64Url.EncodeToString(buf);
     }
 
+    // Malformed cursor -> null, never throws.
     public static CursorKey? Decode(string? cursor)
     {
         if (string.IsNullOrEmpty(cursor)) return null;
@@ -87,7 +89,7 @@ public static class Pagination
         where T : class, IKeyed
     {
         var take = ClampLimit(limit);
-        if (Decode(cursor) is { } c && AsTime(c) is { } t)
+        if (Decode(cursor) is { Tag: CreatedTag } c && AsTime(c) is { } t)
             query = descending
                 ? query.Where(x => x.CreatedAt < t || (x.CreatedAt == t && x.Id.CompareTo(c.Id) < 0))
                 : query.Where(x => x.CreatedAt > t || (x.CreatedAt == t && x.Id.CompareTo(c.Id) > 0));
