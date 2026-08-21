@@ -455,8 +455,7 @@ Add `using System.Net;` to the file's usings.
     }
 ```
 
-Check `FolderEndpoints.cs` for the actual create-request field name before writing `parentId` — if it
-differs, use what the endpoint expects.
+(`CreateFolderRequest` is `(string? Name, Guid? ParentId)`, so those field names are right.)
 
 Every test in this task and the next scopes its documents to a **fresh folder**. The suite shares one
 database, so a query over the whole org would see documents other tests created concurrently and the
