@@ -222,3 +222,38 @@ test('sorting reorders the tiles and survives a reload', async ({ page, request 
   await page.getByTestId('sort').selectOption('name:desc')
   await expect.poll(names).toEqual(['zulu-sort', 'mike-sort', 'alpha-sort'])
 })
+
+// The URL is the state, which means anyone can arrive with a pair that is not one of the six options
+// — a stale link, an edited query string. Asserting the select's VALUE cannot catch this: a <select>
+// whose value matches no option has its selectedness reset to the first option, so it reads
+// "updated:desc" whether the fallback happened or not. What differs is the LIST — and that is the
+// whole bug, because a control reading "Last updated" over an A–Z list is also a dead control:
+// picking the option it already displays fires no change event.
+test('a sort pair the select cannot show falls back to the default rather than lying', async ({
+  page,
+  request,
+}) => {
+  const account = await register(request)
+  await signIn(page, account)
+
+  // Created in an order that name-ascending would NOT produce, so the two candidate sorts are
+  // distinguishable: no versions here, so `updated` is creation time.
+  for (const name of ['zulu-lie', 'alpha-lie', 'mike-lie']) {
+    await disclose(newDocumentForm(page))
+    await newDocumentForm(page).getByLabel('Document name').fill(name)
+    await newDocumentForm(page).getByRole('button', { name: 'Create document' }).click()
+    await expect(tile(page, name)).toBeVisible()
+  }
+
+  await page.goto('/?sort=name&order=bogus')
+  await expect(page.getByTestId('dashboard')).toBeVisible()
+  await expect(page.getByTestId('sort')).toHaveValue('updated:desc')
+
+  const names = () =>
+    page
+      .locator('[data-testid="document-tile"]')
+      .evaluateAll((tiles) => tiles.map((t) => t.getAttribute('data-name')))
+
+  // What the control says it is doing, not the ?sort=name the URL asked for.
+  await expect.poll(names).toEqual(['mike-lie', 'alpha-lie', 'zulu-lie'])
+})

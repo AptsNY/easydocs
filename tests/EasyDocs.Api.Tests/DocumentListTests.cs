@@ -1,5 +1,7 @@
+using System.Buffers.Text;
 using System.Net;
 using System.Net.Http.Json;
+using EasyDocs.Api.Api;
 using EasyDocs.Api.Tests.Fixtures;
 
 namespace EasyDocs.Api.Tests;
@@ -164,28 +166,60 @@ public class DocumentListTests : IClassFixture<ApiFactory>
         Assert.Null(page.Items[0].UpdatedAt); // and the tile still says "no versions yet"
     }
 
-    // A sort that only holds within one page is not a sort. Five names read two at a time must come
-    // back in one alphabetical sequence, with no row repeated and none dropped.
-    [Fact]
-    public async Task A_sorted_list_stays_ordered_across_cursor_pages()
+    // A sort that only holds within one page is not a sort. The WHERE and the ORDER BY are two
+    // hand-written six-arm switches, so every (sort, order) pair needs paging of its own — one
+    // copy-paste slip in one arm otherwise ships silently.
+    //
+    // The paged sequence is compared against the same query read whole rather than against a hardcoded
+    // list. That is the point: the test never has to know which order is correct, so it holds whatever
+    // the collation and the coalesced update time decide, and fails exactly when the WHERE and the
+    // ORDER BY of an arm disagree with each other.
+    [Theory]
+    [InlineData("created", "asc")]
+    [InlineData("created", "desc")]
+    [InlineData("updated", "asc")]
+    [InlineData("updated", "desc")]
+    [InlineData("name", "asc")]
+    [InlineData("name", "desc")]
+    public async Task A_sorted_list_stays_ordered_across_cursor_pages(string sort, string order)
     {
         var acct = await _f.RegisterAsync();
-        var folderId = await acct.Client.CreateFolderAsync("Paged");
-        foreach (var name in new[] { "delta", "Alpha", "echo", "bravo", "Charlie" })
-            await acct.Client.CreateDocAsync(name, folderId);
+        // Its own folder: the suite shares one database and runs in parallel, so anything org-wide would
+        // be paging other tests' documents too.
+        var folderId = await acct.Client.CreateFolderAsync($"Paged {sort} {order}");
+        // "résumé" and "Ångström" put the name arms permanently on a locale-aware collation, and "a-b"
+        // on punctuation the C locale would order differently — Postgres does that comparison, not C#,
+        // and both the WHERE and the ORDER BY have to agree with it.
+        var names = new[] { "delta", "Alpha", "echo", "bravo", "Charlie", "résumé", "a-b", "Ångström" };
+        var ids = new Dictionary<string, Guid>();
+        foreach (var name in names)
+            ids[name] = await acct.Client.CreateDocAsync(name, folderId);
 
-        var seen = new List<string>();
+        // Uploaded in an order unrelated to creation, so the `updated` arms cannot agree with the
+        // `created` arms by accident and a swapped arm shows as a mismatch. Every upload carries a unique
+        // paragraph: blobs are content-addressed, and two tests first-writing the same sha at the same
+        // time can race into a 500.
+        foreach (var name in new[] { "echo", "Alpha", "Ångström", "bravo" })
+            await acct.Client.UploadAsync(
+                ids[name], DocxFixtures.Build(name, sort, order, Guid.NewGuid().ToString("N")));
+
+        var unpaged = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort={sort}&order={order}&limit=100");
+        Assert.Equal(names.Length, unpaged!.Items.Length);
+
+        var seen = new List<Guid>();
         string? cursor = null;
         do
         {
-            var url = $"/api/v1/documents?folderId={folderId}&sort=name&order=asc&limit=2"
+            var url = $"/api/v1/documents?folderId={folderId}&sort={sort}&order={order}&limit=2"
                 + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
             var page = await acct.Client.GetFromJsonAsync<Page>(url);
-            seen.AddRange(page!.Items.Select(t => t.Name));
+            seen.AddRange(page!.Items.Select(t => t.Id));
             cursor = page.NextCursor;
         } while (cursor is not null);
 
-        Assert.Equal(new[] { "Alpha", "bravo", "Charlie", "delta", "echo" }, seen);
+        Assert.Equal(seen.Count, seen.Distinct().Count()); // no row twice
+        Assert.Equal(unpaged.Items.Select(t => t.Id), seen);
     }
 
     // Unlike ?order=, a bad ?sort= is not safely ignorable: it decides which column the cursor's key
@@ -199,19 +233,6 @@ public class DocumentListTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         Assert.Equal("application/problem+json", res.Content.Headers.ContentType?.MediaType);
-    }
-
-    [Theory]
-    [InlineData("created")]
-    [InlineData("updated")]
-    [InlineData("name")]
-    public async Task Every_documented_sort_is_accepted(string sort)
-    {
-        var acct = await _f.RegisterAsync();
-
-        var res = await acct.Client.GetAsync($"/api/v1/documents?sort={sort}");
-
-        res.EnsureSuccessStatusCode();
     }
 
     // The cursor carries the column it was built from, so replaying a name cursor under a time sort
@@ -233,5 +254,69 @@ public class DocumentListTests : IClassFixture<ApiFactory>
             $"/api/v1/documents?folderId={folderId}&sort=updated&limit=2&cursor={Uri.EscapeDataString(byName.NextCursor!)}");
 
         Assert.Equal(HttpStatusCode.BadRequest, replayed.StatusCode);
+    }
+
+    // The other half of that check: only a tag this endpoint MINTS means "you changed sort". A cursor
+    // from the release before the tag existed is 8 bytes of ticks followed by a Guid, so what the new
+    // format reads as its tag is the LOW BYTE of a tick count — and rejecting that would mean an old
+    // browser tab pressing "Load more", having never sent ?sort= at all, is told to drop a cursor
+    // because it changed a sort it never asked for. An unusable cursor is page one; the spec leans on it.
+    [Fact]
+    public async Task A_cursor_from_before_the_tag_existed_falls_back_to_page_one()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Legacy cursor");
+        for (var i = 0; i < 3; i++)
+            await acct.Client.CreateDocAsync($"L{i}", folderId);
+
+        // The legacy payload, built by hand because no code mints it any more: 8 bytes of ticks then a
+        // Guid, 24 bytes, no tag. The low byte is what decides which branch this exercises, and it must
+        // NOT be 0 (SortCreated) — Postgres keeps timestamptz to the microsecond, so a real tick count is
+        // always a multiple of 10 and that byte is one of {0, 10, ... 250}, meaning 25 legacy cursors in
+        // 26 land here rather than on the tag-matches path. Simplify this to a plain UtcNow and the test
+        // covers the interesting branch one time in 26 and says nothing the other 25.
+        var legacy = new byte[24];
+        BitConverter.TryWriteBytes(legacy.AsSpan(0, 8), new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero).UtcTicks);
+        legacy[0] = 0x50;
+        Guid.NewGuid().TryWriteBytes(legacy.AsSpan(8));
+        Assert.NotEqual(0, legacy[0]);
+
+        // No ?sort=, exactly as the old client sent it.
+        var res = await acct.Client.GetAsync(
+            $"/api/v1/documents?folderId={folderId}&limit=100&cursor={Uri.EscapeDataString(Base64Url.EncodeToString(legacy))}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var page = await res.Content.ReadFromJsonAsync<Page>();
+        Assert.Equal(3, page!.Items.Length);
+    }
+
+    // A name cursor's key is client-controlled bytes that end up in a `text` parameter, and Postgres
+    // rejects NUL in text outright — so this used to be a 500 on input anyone can send. lower(name)
+    // cannot contain NUL either, so no such cursor can ever match a row: it belongs in the same
+    // unusable-so-page-one bucket. Bytes that are merely not valid UTF-8 need no such rescue — they
+    // round-trip to replacement characters, which Postgres compares happily — so they stay a plain 200
+    // and the last assertion holds that line.
+    [Fact]
+    public async Task A_name_cursor_whose_key_contains_NUL_is_page_one_not_a_500()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("NUL key");
+        for (var i = 0; i < 3; i++)
+            await acct.Client.CreateDocAsync($"B{i}", folderId);
+
+        // Tag 2 is what ?sort=name mints, so this reaches the name keyset rather than being discarded as
+        // a foreign tag.
+        var withNul = Pagination.Encode(2, new byte[] { 0x61, 0x00, 0x62 }, Guid.NewGuid());
+        var res = await acct.Client.GetAsync(
+            $"/api/v1/documents?folderId={folderId}&sort=name&limit=100&cursor={Uri.EscapeDataString(withNul)}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var page = await res.Content.ReadFromJsonAsync<Page>();
+        Assert.Equal(3, page!.Items.Length);
+
+        var invalidUtf8 = Pagination.Encode(2, new byte[] { 0xFF, 0xFE }, Guid.NewGuid());
+        var alsoOk = await acct.Client.GetAsync(
+            $"/api/v1/documents?folderId={folderId}&sort=name&limit=100&cursor={Uri.EscapeDataString(invalidUtf8)}");
+        Assert.Equal(HttpStatusCode.OK, alsoOk.StatusCode);
     }
 }
