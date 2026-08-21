@@ -211,7 +211,7 @@ Design quality is handled with the frontend-design skill at build time.
 
 Auth: `POST /auth/register` (creates user + org), `POST /auth/login`, `POST /invitations/{token}:accept`.
 Folders: `GET/POST /folders`, `PATCH/DELETE /folders/{id}`.
-Documents: `GET /documents?folder_id=&q=&trashed=true`, `POST /documents`, `GET /documents/{id}`, `PATCH /documents/{id}`, `PUT /documents/{id}/version-counter`, `DELETE /documents/{id}`, `POST /documents/{id}:restore`.
+Documents: `GET /documents?folder_id=&q=&trashed=true&sort=created|updated|name&order=asc|desc`, `POST /documents`, `GET /documents/{id}`, `PATCH /documents/{id}`, `PUT /documents/{id}/version-counter`, `DELETE /documents/{id}`, `POST /documents/{id}:restore`.
 Versions: `POST /documents/{id}/versions` (multipart upload — §10.3), `POST /documents/{id}/versions:import` (multipart), `GET /documents/{id}/versions?order=desc`, `GET /versions/{vid}`, `GET /versions/{vid}/download?format=docx|pdf`, `PATCH /versions/{vid}` (name), `POST /versions/{vid}/revert`, `GET /documents/{id}/compare?from=&to=&format=html|docx|summary`.
 Editing: `POST /versions/{vid}/sessions` (wopi only), `DELETE /sessions/{sid}`; WOPI host under `/wopi/*`.
 Publish/approvals: `POST /versions/{vid}/publish`, `GET /documents/{id}/publications`, `POST /versions/{vid}/approvals`, `POST /approvals/{id}:respond`, `POST /approvals/{id}:cancel`.

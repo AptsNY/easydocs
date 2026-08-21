@@ -19,6 +19,17 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **The dashboard's document list can be sorted.** `GET /api/v1/documents` accepts `sort` (`created`,
+  `updated`, `name`) and `order` (`asc`, `desc`), and the dashboard toolbar gains a sort menu whose
+  choice lives in the page's address — so it survives a reload and can be shared as a link. The web UI
+  now opens on **last updated first** instead of oldest-created-first; the API's own default is
+  unchanged (`created`/`asc`), so existing API clients see exactly what they saw before. `updated`
+  follows the newest version, falling back to the document's own creation time for a document with no
+  versions yet, and `name` sorts case-insensitively. An unrecognised `sort` is a 400 rather than a
+  silent fallback, because it decides which column a pagination cursor's key means.
+
+  Cursors are now tagged with the column that produced them. A cursor issued before this release does
+  not decode; it is treated as unusable, which means the next page restarts at the first one.
 - **S3 blob credentials can come from the ambient IAM role.** With `BlobStore=s3` and **both**
   `S3__AccessKey`/`S3__SecretKey` unset, easydocs now uses the AWS SDK's default credential chain
   (environment, `~/.aws`, or the EC2 instance / ECS task role), so a role-based AWS deployment
