@@ -33,8 +33,11 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   // back when you return from a document. The API's own default is created-asc — the web client opts
   // into last-updated-first the same way History opts into order=desc.
   const [params, setParams] = useSearchParams()
-  const sort = params.get('sort') ?? 'updated'
-  const order = params.get('order') ?? 'desc'
+  // Not trusted straight from the URL: a hand-typed or stale pair that is not one of the six options
+  // would leave the select showing index 0 -- "Last updated" -- while the list obeyed something else,
+  // and picking that option would fire no change event, so the obvious way back would be a dead control.
+  const pair = `${params.get('sort') ?? 'updated'}:${params.get('order') ?? 'desc'}`
+  const [sort, order] = (SORTS.some(([value]) => value === pair) ? pair : SORTS[0][0]).split(':')
 
   // Debounced so a five-letter word is one query, not five. The filter runs server-side (?q=): the
   // list is cursor-paginated, so filtering the loaded page would hide matches that live past it.
@@ -127,6 +130,10 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                     next.set('sort', s)
                     next.set('order', o)
                     setParams(next)
+                    // "Load more" renders on nextCursor, so leaving it set keeps the button live and
+                    // clickable through the refetch — and the cursor it holds belongs to the sort the
+                    // user just left, a pair the backend rejects with a message written for API clients.
+                    setNextCursor(null)
                   }}
                 >
                   {SORTS.map(([value, label]) => (

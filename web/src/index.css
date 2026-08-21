@@ -1625,10 +1625,6 @@ button.danger:focus-visible {
     width: 100%;
   }
 
-  .docs-tools .sort select {
-    width: 100%;
-  }
-
   .members {
     max-width: none;
   }
