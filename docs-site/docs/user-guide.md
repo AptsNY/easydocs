@@ -31,6 +31,9 @@ The dashboard is folders on the left, documents on the right.
 - **Search names & content** — the one search box matches document *names* and, since v1.1, the
   *text inside* their current versions. Phrases (`"exact phrase"`) and exclusions (`word -other`)
   work. Content lands in the index a few seconds after a save.
+- **Sort** — documents arrive most-recently-updated first. The sort menu also offers name (A–Z or
+  Z–A) and creation date, either direction. Your choice is part of the page's address, so it survives
+  a reload and can be shared as a link.
 - **Trash** — deleting a document moves it to the trash view, from which it can be restored.
   Nothing in the version history is destroyed by trashing.
 
