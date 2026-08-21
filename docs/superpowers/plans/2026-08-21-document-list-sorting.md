@@ -218,7 +218,7 @@ Add `using System.Text;` to the top of the file. `System.Buffers.Text` is alread
 `Encode((last.CreatedAt, last.Id))`. Change those two lines only:
 
 ```csharp
-        if (Decode(cursor) is { } c && AsTime(c) is { } t)
+        if (Decode(cursor) is { Tag: CreatedTag } c && AsTime(c) is { } t)
             query = descending
                 ? query.Where(x => x.CreatedAt < t || (x.CreatedAt == t && x.Id.CompareTo(c.Id) < 0))
                 : query.Where(x => x.CreatedAt > t || (x.CreatedAt == t && x.Id.CompareTo(c.Id) > 0));
@@ -230,8 +230,14 @@ and
         return new PagedResult<T>(rows, EncodeTime(CreatedTag, last.CreatedAt, last.Id));
 ```
 
-**Do not add a tag check here.** These endpoints have no `sort` parameter, so there is nothing for a
-tag to disagree with, and rejecting a cursor would turn a harmless case into a 400.
+The `{ Tag: CreatedTag }` pattern is load-bearing and is **not** the 400 that Task 3 adds. Without it,
+an 8-byte name key passes `AsTime`: `DateTimeOffset.MaxValue.UtcTicks` is `0x2BCA2875F4373FFF` and
+`BitConverter` is little-endian, so the key's last byte is the most significant, and any 8-byte key
+ending in a byte <= `0x2B` — any 8-character name ending in a space or common punctuation — decodes to
+a year-7398 timestamp. On the ascending call sites (`ListVersions`, `ApprovalEndpoints`) that WHERE
+matches nothing, and the response is empty *with* `nextCursor: null`, which a client cannot tell from
+end-of-list. A foreign tag must land on the no-WHERE path (page one), which is what this pattern does.
+Do **not** turn it into a 400 here: these endpoints have no `sort` parameter for a tag to disagree with.
 
 - [ ] **Step 5: Run the whole pagination suite**
 
