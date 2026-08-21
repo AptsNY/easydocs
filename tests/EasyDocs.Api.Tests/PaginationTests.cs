@@ -96,16 +96,70 @@ public class PaginationTests : IClassFixture<ApiFactory>
     [Fact]
     public void Cursor_is_opaque_and_roundtrips()
     {
-        var key = (DateTimeOffset.UtcNow, Guid.NewGuid());
-        var encoded = Pagination.Encode(key);
-        var decoded = Pagination.Decode(encoded);
+        var when = DateTimeOffset.UtcNow;
+        var id = Guid.NewGuid();
+        var decoded = Pagination.Decode(Pagination.EncodeTime(Pagination.CreatedTag, when, id));
         Assert.NotNull(decoded);
-        Assert.Equal(key, decoded!.Value);
+        Assert.Equal(Pagination.CreatedTag, decoded!.Tag);
+        Assert.Equal(id, decoded.Id);
+        Assert.Equal(when, Pagination.AsTime(decoded));
 
-        // Malformed cursors are ignored, never throw.
+        // A null cursor (no query parameter at all) is not malformed input; it means "page one."
         Assert.Null(Pagination.Decode(null));
-        Assert.Null(Pagination.Decode(""));
-        Assert.Null(Pagination.Decode("!!! not base64 !!!"));
-        Assert.Null(Pagination.Decode("YWJj")); // valid base64url but wrong byte length
+    }
+
+    [Fact]
+    public void A_time_cursor_round_trips()
+    {
+        var when = new DateTimeOffset(2026, 8, 21, 12, 34, 56, TimeSpan.Zero);
+        var id = Guid.NewGuid();
+
+        var decoded = Pagination.Decode(Pagination.EncodeTime(7, when, id));
+
+        Assert.NotNull(decoded);
+        Assert.Equal(7, decoded!.Tag);
+        Assert.Equal(id, decoded.Id);
+        Assert.Equal(when, Pagination.AsTime(decoded));
+    }
+
+    // A name key is variable-length and may be multibyte, which is the whole reason the payload
+    // carries no length field — everything after the tag and before the trailing 16 bytes IS the key.
+    [Fact]
+    public void A_text_cursor_round_trips_including_multibyte_names()
+    {
+        var id = Guid.NewGuid();
+        const string name = "bail à loyer — 賃貸借契約";
+
+        var decoded = Pagination.Decode(Pagination.EncodeText(2, name, id));
+
+        Assert.NotNull(decoded);
+        Assert.Equal(2, decoded!.Tag);
+        Assert.Equal(id, decoded.Id);
+        Assert.Equal(name, Pagination.AsText(decoded));
+    }
+
+    // A cursor is worthless if a client's garbage throws instead of restarting the list: Decode
+    // returning null means "no WHERE clause", which means page one.
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-base64url-!!!")]
+    [InlineData("AAAA")] // decodes, but too short to hold a tag and a Guid
+    public void An_unusable_cursor_decodes_to_null_rather_than_throwing(string cursor)
+    {
+        Assert.Null(Pagination.Decode(cursor));
+    }
+
+    // A zero-length key is legal (an empty document name lower-cases to ""), and must not be
+    // mistaken for a truncated payload.
+    [Fact]
+    public void An_empty_text_key_is_a_valid_cursor()
+    {
+        var id = Guid.NewGuid();
+
+        var decoded = Pagination.Decode(Pagination.EncodeText(2, "", id));
+
+        Assert.NotNull(decoded);
+        Assert.Equal("", Pagination.AsText(decoded!));
+        Assert.Equal(id, decoded!.Id);
     }
 }
