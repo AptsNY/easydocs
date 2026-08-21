@@ -74,8 +74,8 @@ separate `string.Compare(a, b) > 0` path for strings (which is what Npgsql trans
 "general" implementation is therefore both longer than two typed overloads and considerably harder
 to read.
 
-`IKeyed` and the existing three-argument `PageAsync` are left untouched — eight other endpoints page
-through them and none of them need a sort key.
+`IKeyed` and the existing five-argument `PageAsync` are left untouched — the versions, publications,
+share-links, audit and approvals lists all page through it and none of them needs a sort key.
 
 ### Query changes in `ListDocuments`
 
