@@ -604,21 +604,27 @@ columns × two directions, and the cursor minted from whichever key sorted.
     }
 
     // The point of the feature: the document touched last comes first, regardless of when it was
-    // created. "Stale" is created first and never uploaded to; "Fresh" is created last and uploaded.
+    // created.
     [Fact]
     public async Task Sorting_by_last_updated_follows_the_newest_version_not_the_creation_time()
     {
         var acct = await _f.RegisterAsync();
         var folderId = await acct.Client.CreateFolderAsync("Recency");
-        var stale = await acct.Client.CreateDocAsync("Stale", folderId);
-        var fresh = await acct.Client.CreateDocAsync("Fresh", folderId);
-        await acct.Client.UploadAsync(stale, DocxFixtures.Build("only", "version"));
-        await acct.Client.UploadAsync(fresh, DocxFixtures.Build("newest", "version"));
+        // The two orders are deliberately opposed: "Older" is created FIRST but uploaded to LAST. If
+        // `updated` silently fell through to the creation key, both assertions below could not hold at
+        // once — which is the whole point of the feature, and what a same-direction fixture cannot show.
+        var older = await acct.Client.CreateDocAsync("Older", folderId);
+        var newer = await acct.Client.CreateDocAsync("Newer", folderId);
+        await acct.Client.UploadAsync(newer, DocxFixtures.Build("newer", "doc", "first upload"));
+        await acct.Client.UploadAsync(older, DocxFixtures.Build("older", "doc", "last upload"));
 
-        var page = await acct.Client.GetFromJsonAsync<Page>(
+        var byUpdate = await acct.Client.GetFromJsonAsync<Page>(
             $"/api/v1/documents?folderId={folderId}&sort=updated&order=desc&limit=100");
+        Assert.Equal(new[] { "Older", "Newer" }, byUpdate!.Items.Select(t => t.Name));
 
-        Assert.Equal(new[] { "Fresh", "Stale" }, page!.Items.Select(t => t.Name));
+        var byCreation = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=created&order=desc&limit=100");
+        Assert.Equal(new[] { "Newer", "Older" }, byCreation!.Items.Select(t => t.Name));
     }
 
     // A document with no versions has no version time to sort by. It must fall back to its own
