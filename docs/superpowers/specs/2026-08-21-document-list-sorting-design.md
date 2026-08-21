@@ -51,35 +51,52 @@ Current format is `base64url(8B UtcTicks ‖ 16B Guid)` — a fixed 24 bytes who
 `CreatedAt`. New format:
 
 ```
-base64url( 1B sortTag ‖ 2B keyLen ‖ keyBytes ‖ 16B Guid )
+base64url( 1B sortTag ‖ keyBytes ‖ 16B Guid )
 ```
 
-`keyBytes` is 8 bytes of ticks for `created` and `updated`, and `utf8(lower(name))` for `name`.
-
-`Decode` continues to recognise `length == 24` as the legacy `created` form, so a cursor already in
-a client's hand keeps working. `/api/v1` is a published surface; three lines buys not breaking it.
+`keyBytes` is 8 bytes of ticks for `created` and `updated`, and `utf8(lower(name))` for `name`. Its
+length is derived (`payload.Length - 17`), since there is exactly one variable-length field.
 
 The `sortTag` exists so that a cursor minted under one sort and replayed under a different `sort` is
-**detected rather than misinterpreted** → 400. The web UI resets the cursor whenever the sort
-changes, so this guard is for API clients.
+**detected rather than misinterpreted** → 400. The web UI resets the cursor whenever the sort changes,
+so this guard is for API clients. `created`'s tag is the same value `Pagination`'s own `CreatedAt`
+cursors carry, because they mean the same thing.
+
+**Old cursors are deliberately not honoured.** An earlier draft had `Decode` treat a 24-byte payload
+as the legacy `created` form, but that is not safely detectable: a new-format cursor is also exactly
+24 bytes whenever the key is 7 bytes — which is every document whose name lower-cases to 7 UTF-8
+bytes ("invoice", "annex a"). Every length-based discriminator collides at *some* key length, so the
+choice is a magic prefix wide enough to make 24 unreachable, or dropping the compatibility.
+
+Dropping it costs almost nothing: a cursor lives for the seconds between one response and the next
+request, `Decode` already returns `null` for anything it cannot parse, and a `null` cursor means "no
+WHERE clause" — page one. So the worst case for a client mid-pagination across a deploy is that its
+next page restarts at the top. That is self-healing, and cheaper than a format that is wrong for a
+7-byte name.
 
 ### Pagination helpers
 
-`Pagination.PageAsync` gains **two concrete overloads** — one keyed on `DateTimeOffset`, one keyed on
-`string` — rather than one version generic over `IComparable`.
+The keyset mechanics that are genuinely shared — probe with `limit + 1`, trim the probe row, mint the
+next cursor from the last kept row — move into one small generic helper:
 
-Rationale: a generic keyset row-value comparison cannot be written with C# operators inside an
-expression tree. It needs hand-built `Expression.GreaterThan` for the value types plus an entirely
-separate `string.Compare(a, b) > 0` path for strings (which is what Npgsql translates to `>`). The
-"general" implementation is therefore both longer than two typed overloads and considerably harder
-to read.
+```csharp
+Pagination.ProbeAsync<T>(IQueryable<T> ordered, int? limit, Func<T, string> nextCursor, ct)
+```
 
-`IKeyed` and the existing five-argument `PageAsync` are left untouched — the versions, publications,
-share-links, audit and approvals lists all page through it and none of them needs a sort key.
+The caller owns its own `WHERE` and `ORDER BY`. That split is the point: a helper that also owns the
+comparison would have to compose a caller-supplied `Expression<Func<T, TKey>>` into a predicate, and
+EF cannot invoke a lambda inside a predicate. Doing it properly means hand-building
+`Expression.GreaterThan` trees plus a separate `string.CompareTo` path — more code than the six
+explicit `Where` clauses it would replace, and unreadable at 3am.
+
+The existing five-argument `PageAsync` keeps its signature and is re-implemented on top of
+`ProbeAsync`, so there is one probe implementation and one cursor format in the codebase. `IKeyed` is
+untouched — the versions, publications, share-links, audit and approvals lists all page through
+`PageAsync` and none of them needs a sort key.
 
 ### Query changes in `ListDocuments`
 
-- **`updated`** moves out of `DocumentListProjection` and into the query as a correlated subquery,
+- **`updated`** gains a *sort key* in the query — a correlated subquery,
   `db.Versions.Where(v => v.DocumentId == d.Id).Max(v => v.CreatedAt)`, **coalesced to `d.CreatedAt`**
   when the document has no versions. Two reasons: a `NULL` cannot participate in a keyset row-value
   comparison (comparisons against it evaluate to unknown, so those rows would silently vanish from
@@ -143,14 +160,15 @@ in the existing mobile breakpoint.
 - a sorted list stays correctly ordered *across cursor pages* — five documents read at `limit=2`
 - `sort=bogus` returns 400
 - a cursor minted under `sort=name` and replayed under `sort=updated` returns 400
-- a legacy 24-byte cursor still pages correctly
+- an unparseable or stale cursor restarts at page one rather than erroring
 - a document with no versions sorts by its own `CreatedAt` under `sort=updated`, and is not dropped
 - `apple` precedes `Zebra` under `sort=name&order=asc`
 
 **`tests/EasyDocs.Api.Tests/PaginationTests.cs`**
 
-- the two new overloads directly, including an encode/decode round trip for a name containing
-  multibyte characters
+- the cursor encode/decode round trip for a time key and for a text key, including a name containing
+  multibyte characters, and that the existing `PageAsync` still pages after being re-based on
+  `ProbeAsync`
 
 **`web/e2e/dashboard.spec.ts`**
 
