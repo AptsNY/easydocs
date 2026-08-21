@@ -143,8 +143,21 @@ public static class DocumentEndpoints
 
         var after = Pagination.Decode(cursor);
         if (after is not null && after.Tag != tag)
-            return Problem.Of(400, "Cursor mismatch",
-                "This cursor was issued for a different sort order. Drop the cursor when you change sort.");
+        {
+            // A tag this endpoint mints means the caller really did change sort while holding a cursor,
+            // and saying so is more useful than silently restarting them. Any other tag is not a cursor
+            // this endpoint issued -- including one minted before the tag existed, whose tag byte is the
+            // low byte of a tick count -- so it is unusable, and an unusable cursor means page one.
+            if (after.Tag is SortCreated or SortUpdated or SortName)
+                return Problem.Of(400, "Cursor mismatch",
+                    "This cursor was issued for a different sort order. Drop the cursor when you change sort.");
+            after = null;
+        }
+
+        // lower(name) never contains NUL, so a key that does cannot match a row -- and Postgres rejects
+        // NUL outright in a text parameter, which would surface as a 500 rather than a page.
+        if (after is not null && tag == SortName && Pagination.AsText(after).Contains('\0'))
+            after = null;
 
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
@@ -218,6 +231,11 @@ public static class DocumentEndpoints
     // Written out per column rather than composed from a key selector: EF cannot invoke a
     // Func<T, TKey> inside a predicate, so the general version means hand-built expression trees plus
     // a separate string path. That is more code than these branches and far harder to read.
+    //
+    // The cost of that choice: adding a sort means editing four places -- SortTag, both switches below,
+    // and the cursor-minting ternary in ListDocuments -- and only SortTag is checked by the compiler,
+    // because both switches end in a `(_, ...)` wildcard that would silently swallow a new arm and sort
+    // it by creation date while minting a cursor tagged with the new sort.
     private static IQueryable<SortableDoc> Keyset(
         IQueryable<SortableDoc> rows, byte tag, Pagination.CursorKey? after, bool desc)
     {
