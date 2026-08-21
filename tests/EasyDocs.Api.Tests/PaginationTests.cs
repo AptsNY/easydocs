@@ -116,7 +116,7 @@ public class PaginationTests : IClassFixture<ApiFactory>
         Assert.Equal(seen.Count, seen.Distinct().Count());
     }
 
-    // Tag 2 is what `?sort=name` will mint (a later task); "invoice " is deliberately 8 bytes ending in
+    // Tag 2 is what `?sort=name` mints; "invoice " is deliberately 8 bytes ending in
     // 0x20 so it round-trips as a plausible-looking 8-byte time key. PageAsync must not let a cursor
     // minted for a different sort move the page: it either matches its own CreatedTag or falls back to
     // page one -- it must never be treated as a real key and silently produce an empty "end of list".
