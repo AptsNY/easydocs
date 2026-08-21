@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect, disclose } from './fixtures'
+import { test, expect, disclose, register, signIn } from './fixtures'
 
 // The dashboard against the real API: folder tree (E1 nesting/move), tiles (E2 first version is
 // 0.0.1), server-side search, and the trash round trip that only became reachable in M4.5 — before
@@ -189,4 +189,36 @@ test('a trashed document is recoverable from the trash view', async ({ signedIn:
 
   await page.getByRole('link', { name: 'Documents', exact: true }).click()
   await expect(tile(page, 'Minutes')).toBeVisible()
+})
+
+// Sorting has to be server-side and it has to stick: reordering only the tiles already fetched would
+// be a lie the moment the list is longer than one page, and a sort that resets when you come back
+// from a document is not a sort anyone would use.
+test('sorting reorders the tiles and survives a reload', async ({ page, request }) => {
+  const account = await register(request)
+  await signIn(page, account)
+
+  for (const name of ['zulu-sort', 'alpha-sort', 'mike-sort']) {
+    await disclose(newDocumentForm(page))
+    await newDocumentForm(page).getByLabel('Document name').fill(name)
+    await newDocumentForm(page).getByRole('button', { name: 'Create document' }).click()
+    await expect(tile(page, name)).toBeVisible()
+  }
+
+  const names = () => page.locator('[data-testid="document-tile"]').evaluateAll(
+    (tiles) => tiles.map((t) => t.getAttribute('data-name')),
+  )
+
+  await page.getByTestId('sort').selectOption('name:asc')
+  await expect(page).toHaveURL(/[?&]sort=name(&|$)/)
+  await expect(page).toHaveURL(/[?&]order=asc(&|$)/)
+  await expect.poll(names).toEqual(['alpha-sort', 'mike-sort', 'zulu-sort'])
+
+  // The URL is the state, so a hard reload has to come back to the same order.
+  await page.reload()
+  await expect(page.getByTestId('sort')).toHaveValue('name:asc')
+  await expect.poll(names).toEqual(['alpha-sort', 'mike-sort', 'zulu-sort'])
+
+  await page.getByTestId('sort').selectOption('name:desc')
+  await expect.poll(names).toEqual(['zulu-sort', 'mike-sort', 'alpha-sort'])
 })
