@@ -81,6 +81,107 @@ public class DocumentListTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain(trash!.Items, t => t.Id == docId);
     }
 
+    // Names are compared lower-cased. Under the default Postgres collation a raw ORDER BY name puts
+    // every capital ahead of every lowercase letter, so "Zebra" would sort before "apple".
+    [Fact]
+    public async Task Sorting_by_name_is_case_insensitive()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Alphabet");
+        await acct.Client.CreateDocAsync("Zebra", folderId);
+        await acct.Client.CreateDocAsync("apple", folderId);
+        await acct.Client.CreateDocAsync("Mango", folderId);
+
+        var asc = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=name&order=asc&limit=100");
+        Assert.Equal(new[] { "apple", "Mango", "Zebra" }, asc!.Items.Select(t => t.Name));
+
+        var desc = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=name&order=desc&limit=100");
+        Assert.Equal(new[] { "Zebra", "Mango", "apple" }, desc!.Items.Select(t => t.Name));
+    }
+
+    [Fact]
+    public async Task Sorting_by_creation_time_runs_both_ways()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Chronological");
+        await acct.Client.CreateDocAsync("First", folderId);
+        await acct.Client.CreateDocAsync("Second", folderId);
+        await acct.Client.CreateDocAsync("Third", folderId);
+
+        var asc = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=created&order=asc&limit=100");
+        Assert.Equal(new[] { "First", "Second", "Third" }, asc!.Items.Select(t => t.Name));
+
+        var desc = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=created&order=desc&limit=100");
+        Assert.Equal(new[] { "Third", "Second", "First" }, desc!.Items.Select(t => t.Name));
+    }
+
+    // The point of the feature: the document touched last comes first, regardless of when it was
+    // created. "Stale" is created first and never uploaded to; "Fresh" is created last and uploaded.
+    [Fact]
+    public async Task Sorting_by_last_updated_follows_the_newest_version_not_the_creation_time()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Recency");
+        var stale = await acct.Client.CreateDocAsync("Stale", folderId);
+        var fresh = await acct.Client.CreateDocAsync("Fresh", folderId);
+        await acct.Client.UploadAsync(stale, DocxFixtures.Build("only", "version"));
+        await acct.Client.UploadAsync(fresh, DocxFixtures.Build("newest", "version"));
+
+        var page = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=updated&order=desc&limit=100");
+
+        Assert.Equal(new[] { "Fresh", "Stale" }, page!.Items.Select(t => t.Name));
+    }
+
+    // A document with no versions has no version time to sort by. It must fall back to its own
+    // creation time, not vanish: a NULL cannot take part in a keyset row-value comparison, so an
+    // uncoalesced key would silently drop the row from every page.
+    [Fact]
+    public async Task A_document_with_no_versions_still_appears_when_sorting_by_last_updated()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Empties");
+        var withVersion = await acct.Client.CreateDocAsync("Has one", folderId);
+        await acct.Client.UploadAsync(withVersion, DocxFixtures.Build("a", "version", Guid.NewGuid().ToString("N")));
+        var empty = await acct.Client.CreateDocAsync("Has none", folderId);
+
+        var page = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=updated&order=desc&limit=100");
+
+        Assert.Equal(2, page!.Items.Length);
+        // Created after the upload, so its creation time is the later of the two.
+        Assert.Equal(empty, page.Items[0].Id);
+        Assert.Null(page.Items[0].UpdatedAt); // and the tile still says "no versions yet"
+    }
+
+    // A sort that only holds within one page is not a sort. Five names read two at a time must come
+    // back in one alphabetical sequence, with no row repeated and none dropped.
+    [Fact]
+    public async Task A_sorted_list_stays_ordered_across_cursor_pages()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Paged");
+        foreach (var name in new[] { "delta", "Alpha", "echo", "bravo", "Charlie" })
+            await acct.Client.CreateDocAsync(name, folderId);
+
+        var seen = new List<string>();
+        string? cursor = null;
+        do
+        {
+            var url = $"/api/v1/documents?folderId={folderId}&sort=name&order=asc&limit=2"
+                + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var page = await acct.Client.GetFromJsonAsync<Page>(url);
+            seen.AddRange(page!.Items.Select(t => t.Name));
+            cursor = page.NextCursor;
+        } while (cursor is not null);
+
+        Assert.Equal(new[] { "Alpha", "bravo", "Charlie", "delta", "echo" }, seen);
+    }
+
     // Unlike ?order=, a bad ?sort= is not safely ignorable: it decides which column the cursor's key
     // means, so falling back would page a client against a column it did not ask for.
     [Fact]

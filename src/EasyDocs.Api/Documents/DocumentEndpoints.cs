@@ -163,12 +163,95 @@ public static class DocumentEndpoints
                 || db.DocumentTexts.Any(t => t.DocumentId == d.Id
                     && t.SearchVector.Matches(EF.Functions.WebSearchToTsQuery("simple", q))));
 
-        var page = await Pagination.PageAsync(query, cursor, limit, descending: false, ctx.RequestAborted);
+        var rows = query.Select(d => new SortableDoc
+        {
+            Doc = d,
+            Created = d.CreatedAt,
+            Updated = db.Versions.Where(v => v.DocumentId == d.Id).Max(v => (DateTimeOffset?)v.CreatedAt) ?? d.CreatedAt,
+            NameKey = d.Name.ToLower(),
+        });
+
+        var desc = Pagination.Descending(order);
+        var page = await Pagination.ProbeAsync(
+            Keyset(rows, tag, after, desc), limit,
+            r => tag == SortName
+                ? Pagination.EncodeText(tag, r.NameKey, r.Doc.Id)
+                : Pagination.EncodeTime(tag, tag == SortUpdated ? r.Updated : r.Created, r.Doc.Id),
+            ctx.RequestAborted);
+
         return Results.Ok(new
         {
-            items = await DocumentListProjection.BuildAsync(db, page.Items, ctx.RequestAborted),
+            items = await DocumentListProjection.BuildAsync(
+                db, page.Items.Select(r => r.Doc).ToList(), ctx.RequestAborted),
             nextCursor = page.NextCursor,
         });
+    }
+
+    // Every sort key on one row, so the keyset branches below differ only in which member they read.
+    //
+    // Updated coalesces to the document's own CreatedAt. Two reasons: a NULL cannot participate in a
+    // row-value comparison (`x > NULL` is unknown, so a version-less document would silently
+    // disappear from every page), and "last touched when it was created" is true rather than a
+    // sentinel. The tile still REPORTS updatedAt as null — DocumentListProjection is unchanged, so a
+    // document with no versions still reads "No versions yet".
+    //
+    // ponytail: the Updated subquery and lower(Name) have no supporting index, so both sorts are a
+    // sequential scan plus a sort, and Updated is computed for every filtered row. Fine for an org's
+    // library; if a tenant's document count makes the dashboard slow, the upgrade path is a
+    // denormalised Document.UpdatedAt maintained on the version write path plus (OrgId, UpdatedAt, Id)
+    // and (OrgId, lower(Name), Id) indexes.
+    //
+    // Init-only properties rather than a positional record: EF inlines this projection into the
+    // ORDER BY lambda, and it can only reduce `new X { A = e }.A` back to `e`. Given constructor
+    // arguments it gives up and the whole query fails to translate.
+    private sealed record SortableDoc
+    {
+        public required Document Doc { get; init; }
+        public required DateTimeOffset Created { get; init; }
+        public required DateTimeOffset Updated { get; init; }
+        public required string NameKey { get; init; }
+    }
+
+    // Strictly after (or before) the cursor row, with Id breaking ties, and an ORDER BY that matches
+    // the comparison exactly — if the two ever disagree, paging skips or repeats rows.
+    //
+    // Written out per column rather than composed from a key selector: EF cannot invoke a
+    // Func<T, TKey> inside a predicate, so the general version means hand-built expression trees plus
+    // a separate string path. That is more code than these branches and far harder to read.
+    private static IQueryable<SortableDoc> Keyset(
+        IQueryable<SortableDoc> rows, byte tag, Pagination.CursorKey? after, bool desc)
+    {
+        if (after is not null)
+        {
+            var id = after.Id;
+            if (tag == SortName)
+            {
+                var k = Pagination.AsText(after);
+                rows = desc
+                    ? rows.Where(r => r.NameKey.CompareTo(k) < 0 || (r.NameKey == k && r.Doc.Id.CompareTo(id) < 0))
+                    : rows.Where(r => r.NameKey.CompareTo(k) > 0 || (r.NameKey == k && r.Doc.Id.CompareTo(id) > 0));
+            }
+            else if (Pagination.AsTime(after) is { } t)
+            {
+                rows = (tag, desc) switch
+                {
+                    (SortUpdated, true) => rows.Where(r => r.Updated < t || (r.Updated == t && r.Doc.Id.CompareTo(id) < 0)),
+                    (SortUpdated, false) => rows.Where(r => r.Updated > t || (r.Updated == t && r.Doc.Id.CompareTo(id) > 0)),
+                    (_, true) => rows.Where(r => r.Created < t || (r.Created == t && r.Doc.Id.CompareTo(id) < 0)),
+                    (_, false) => rows.Where(r => r.Created > t || (r.Created == t && r.Doc.Id.CompareTo(id) > 0)),
+                };
+            }
+        }
+
+        return (tag, desc) switch
+        {
+            (SortName, true) => rows.OrderByDescending(r => r.NameKey).ThenByDescending(r => r.Doc.Id),
+            (SortName, false) => rows.OrderBy(r => r.NameKey).ThenBy(r => r.Doc.Id),
+            (SortUpdated, true) => rows.OrderByDescending(r => r.Updated).ThenByDescending(r => r.Doc.Id),
+            (SortUpdated, false) => rows.OrderBy(r => r.Updated).ThenBy(r => r.Doc.Id),
+            (_, true) => rows.OrderByDescending(r => r.Created).ThenByDescending(r => r.Doc.Id),
+            (_, false) => rows.OrderBy(r => r.Created).ThenBy(r => r.Doc.Id),
+        };
     }
 
     private static async Task<IResult> Create(CreateDocumentRequest req, HttpContext ctx, EasyDocsDbContext db)
