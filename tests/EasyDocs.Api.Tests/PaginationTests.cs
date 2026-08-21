@@ -66,6 +66,29 @@ public class PaginationTests : IClassFixture<ApiFactory>
         Assert.Equal(created, seen.ToHashSet()); // all returned
     }
 
+    // The probe reads limit+1 to learn whether a next page exists, then must not leak the probe row
+    // into the response. Off by one here means a duplicated document on every "Load more".
+    [Fact]
+    public async Task A_page_returns_exactly_the_limit_and_the_last_page_has_no_cursor()
+    {
+        var c = await AuthedClientAsync();
+        var folderId = (await (await c.PostAsJsonAsync("/api/v1/folders", new { name = "Probe" }))
+            .Content.ReadFromJsonAsync<CreateDto>())!.Id;
+        for (var i = 0; i < 3; i++)
+            (await c.PostAsJsonAsync("/api/v1/documents", new { name = $"P{i}", folderId }))
+                .EnsureSuccessStatusCode();
+
+        var first = await c.GetFromJsonAsync<Page<DocItem>>(
+            $"/api/v1/documents?folderId={folderId}&limit=2");
+        Assert.Equal(2, first!.Items.Count);
+        Assert.NotNull(first.NextCursor);
+
+        var second = await c.GetFromJsonAsync<Page<DocItem>>(
+            $"/api/v1/documents?folderId={folderId}&limit=2&cursor={Uri.EscapeDataString(first.NextCursor!)}");
+        Assert.Single(second!.Items);
+        Assert.Null(second.NextCursor);
+    }
+
     [Fact]
     public async Task Versions_list_paginates()
     {

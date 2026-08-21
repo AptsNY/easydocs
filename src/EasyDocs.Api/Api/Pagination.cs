@@ -81,6 +81,24 @@ public static class Pagination
 
     public static string AsText(CursorKey key) => Encoding.UTF8.GetString(key.Key);
 
+    // The half of keyset paging that does not care what it sorted on: read one row past the limit to
+    // learn whether there is a next page, drop it, and mint the cursor from the last row kept.
+    //
+    // The caller keeps its own WHERE and ORDER BY. Owning those here would mean composing a
+    // caller-supplied Expression<Func<T, TKey>> into a predicate, which EF cannot invoke — doing it
+    // properly needs hand-built Expression.GreaterThan trees plus a separate string.CompareTo path, more
+    // code than the explicit Where clauses it would replace and much harder to read.
+    public static async Task<PagedResult<T>> ProbeAsync<T>(
+        IQueryable<T> ordered, int? limit, Func<T, string> nextCursor, CancellationToken ct)
+    {
+        var take = ClampLimit(limit);
+        var rows = await ordered.Take(take + 1).ToListAsync(ct);
+        if (rows.Count <= take) return new PagedResult<T>(rows, null);
+
+        rows.RemoveAt(rows.Count - 1);
+        return new PagedResult<T>(rows, nextCursor(rows[^1]));
+    }
+
     // Keyset page over an already-filtered query, ordered by (CreatedAt, Id). Fetches limit+1 rows to
     // detect a next page; NextCursor is the last kept row's key (null at end). `descending` flips both
     // the WHERE row-value comparison and the ORDER so encode/decode stay direction-consistent.
@@ -88,7 +106,6 @@ public static class Pagination
         IQueryable<T> query, string? cursor, int? limit, bool descending, CancellationToken ct)
         where T : class, IKeyed
     {
-        var take = ClampLimit(limit);
         if (Decode(cursor) is { Tag: CreatedTag } c && AsTime(c) is { } t)
             query = descending
                 ? query.Where(x => x.CreatedAt < t || (x.CreatedAt == t && x.Id.CompareTo(c.Id) < 0))
@@ -98,11 +115,6 @@ public static class Pagination
             ? query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
             : query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id);
 
-        var rows = await query.Take(take + 1).ToListAsync(ct);
-        if (rows.Count <= take) return new PagedResult<T>(rows, null);
-
-        rows.RemoveAt(rows.Count - 1);
-        var last = rows[^1];
-        return new PagedResult<T>(rows, EncodeTime(CreatedTag, last.CreatedAt, last.Id));
+        return await ProbeAsync(query, limit, x => EncodeTime(CreatedTag, x.CreatedAt, x.Id), ct);
     }
 }
