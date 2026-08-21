@@ -843,6 +843,13 @@ a.button:hover {
   max-width: 100%;
 }
 
+/* .inline-field only gets its row from .tile-actions, so the toolbar copy brings its own. */
+.docs-tools .sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
 /* A link that is a destination, not an action: sans, quiet, no underline until it is asked for. */
 .quiet {
   font-family: var(--sans);
@@ -1615,6 +1622,10 @@ button.danger:focus-visible {
   }
 
   .docs-tools .search input {
+    width: 100%;
+  }
+
+  .docs-tools .sort select {
     width: 100%;
   }
 

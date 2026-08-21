@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { api, problemText, type Paged, type Tile } from '../api'
 import FolderTree, { useFolderTree } from '../components/FolderTree'
 
 // Spec §9's dashboard: folder tree, document tiles, name search — plus the trash view, which is the
 // half that did not exist before M4.5. DELETE soft-deleted and :restore restored, but nothing listed
 // trashed documents, so recovering one meant having kept its GUID.
+
+// One select rather than a key picker plus a direction toggle: six labelled choices is one control
+// and one piece of state, and every label says what you will get rather than naming a column.
+const SORTS = [
+  ['updated:desc', 'Last updated'],
+  ['updated:asc', 'Oldest updated'],
+  ['name:asc', 'Name A–Z'],
+  ['name:desc', 'Name Z–A'],
+  ['created:desc', 'Newest first'],
+  ['created:asc', 'Oldest first'],
+] as const
+
 export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const { folderId } = useParams()
   const tree = useFolderTree()
@@ -17,6 +29,13 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const [docName, setDocName] = useState('')
   const [error, setError] = useState('')
 
+  // In the URL, not in state: a sorted view survives a reload, is shareable as a link, and comes
+  // back when you return from a document. The API's own default is created-asc — the web client opts
+  // into last-updated-first the same way History opts into order=desc.
+  const [params, setParams] = useSearchParams()
+  const sort = params.get('sort') ?? 'updated'
+  const order = params.get('order') ?? 'desc'
+
   // Debounced so a five-letter word is one query, not five. The filter runs server-side (?q=): the
   // list is cursor-paginated, so filtering the loaded page would hide matches that live past it.
   useEffect(() => {
@@ -26,16 +45,18 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
 
   const load = useCallback(
     async (cursor: string | null) => {
-      const params = new URLSearchParams()
-      if (folderId) params.set('folderId', folderId)
-      if (q) params.set('q', q)
-      if (trashed) params.set('trashed', 'true')
-      if (cursor) params.set('cursor', cursor)
-      const page = await api.get<Paged<Tile>>(`/api/v1/documents?${params}`)
+      const search = new URLSearchParams()
+      if (folderId) search.set('folderId', folderId)
+      if (q) search.set('q', q)
+      if (trashed) search.set('trashed', 'true')
+      if (cursor) search.set('cursor', cursor)
+      search.set('sort', sort)
+      search.set('order', order)
+      const page = await api.get<Paged<Tile>>(`/api/v1/documents?${search}`)
       setTiles((prev) => (cursor ? [...prev, ...page.items] : page.items))
       setNextCursor(page.nextCursor)
     },
-    [folderId, q, trashed],
+    [folderId, q, trashed, sort, order],
   )
 
   useEffect(() => {
@@ -93,6 +114,28 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                   onChange={(e) => setTyped(e.target.value)}
                 />
               </form>
+
+              <label className="inline-field sort">
+                <span>Sort</span>
+                <span className="visually-hidden"> documents</span>
+                <select
+                  data-testid="sort"
+                  value={`${sort}:${order}`}
+                  onChange={(e) => {
+                    const [s, o] = e.target.value.split(':')
+                    const next = new URLSearchParams(params)
+                    next.set('sort', s)
+                    next.set('order', o)
+                    setParams(next)
+                  }}
+                >
+                  {SORTS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <details className="disclose" data-testid="new-document">
                 <summary>New document</summary>
