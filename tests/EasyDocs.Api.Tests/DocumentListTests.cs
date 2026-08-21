@@ -83,10 +83,16 @@ public class DocumentListTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain(trash!.Items, t => t.Id == docId);
     }
 
-    // Names are compared lower-cased. Under the default Postgres collation a raw ORDER BY name puts
-    // every capital ahead of every lowercase letter, so "Zebra" would sort before "apple".
+    // Pins the order names come back in, mixed case included.
+    //
+    // It does NOT prove the lower() in the sort key is doing the work, and cannot: under en_US.utf8 --
+    // what the compose stack and the Testcontainers postgres:16 both produce -- a raw ORDER BY name
+    // already yields apple, Mango, Zebra, so this passes with the lower() removed. The lower() earns
+    // its place only on a C/POSIX install, where the raw column would put every capital ahead of every
+    // lowercase letter; nothing here runs under that collation, so that path is unasserted by design
+    // rather than by oversight.
     [Fact]
-    public async Task Sorting_by_name_is_case_insensitive()
+    public async Task Names_come_back_in_alphabetical_order_regardless_of_case()
     {
         var acct = await _f.RegisterAsync();
         var folderId = await acct.Client.CreateFolderAsync("Alphabet");

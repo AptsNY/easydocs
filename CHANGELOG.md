@@ -29,7 +29,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
   silent fallback, because it decides which column a pagination cursor's key means.
 
   Cursors are now tagged with the column that produced them. A cursor issued before this release does
-  not decode; it is treated as unusable, which means the next page restarts at the first one.
+  not decode; almost all of them are treated as unusable, which means the next page restarts at the
+  first one. Roughly one in 128 instead draws a `400` saying the sort changed, because its leading byte
+  happens to collide with a tag this release mints — a one-deploy window, and a reload clears it.
 - **S3 blob credentials can come from the ambient IAM role.** With `BlobStore=s3` and **both**
   `S3__AccessKey`/`S3__SecretKey` unset, easydocs now uses the AWS SDK's default credential chain
   (environment, `~/.aws`, or the EC2 instance / ECS task role), so a role-based AWS deployment

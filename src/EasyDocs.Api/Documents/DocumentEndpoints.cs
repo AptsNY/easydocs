@@ -181,6 +181,10 @@ public static class DocumentEndpoints
             Doc = d,
             Created = d.CreatedAt,
             Updated = db.Versions.Where(v => v.DocumentId == d.Id).Max(v => (DateTimeOffset?)v.CreatedAt) ?? d.CreatedAt,
+            // For a C/POSIX install, where the raw column sorts every capital ahead of every lowercase
+            // letter. Under en_US.utf8 -- the default for the compose stack -- the collation already
+            // orders case-insensitively and this is redundant; it costs one function call to be right
+            // on both.
             NameKey = d.Name.ToLower(),
         });
 
