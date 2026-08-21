@@ -32,6 +32,13 @@ Read these three files end to end. Every task below assumes you have.
 **Running the backend tests requires Docker** — the suite uses Testcontainers to boot a real
 PostgreSQL 16. `dotnet test` with no Docker daemon fails at fixture setup, not at your assertion.
 
+**Adding or renaming a query parameter makes `OpenApiTests.Openapi_snapshot_in_docs_site_matches_the_served_document`
+fail.** `docs-site/docs/api/openapi/v1.json` is a committed snapshot of the generated OpenAPI document,
+and Task 3 changes it. Regenerate with
+`UPDATE_OPENAPI_SNAPSHOT=1 dotnet test --filter Openapi_snapshot_in_docs_site_matches` and commit the
+result, or every later task inherits a red suite. (This is also why the API reference needs no manual
+edit — it is generated from this document.)
+
 **Running the e2e tests requires the API on `:8080`.** Playwright starts Vite itself (see
 `web/playwright.config.ts`) but not the API. Either `docker compose up -d` or
 `dotnet run --project src/EasyDocs.Api`.
@@ -57,6 +64,7 @@ PostgreSQL 16. `dotnet test` with no Docker daemon fails at fixture setup, not a
 | `web/src/routes/Dashboard.tsx` | Modify | The sort select, URL state, and passing `sort`/`order` to `load` |
 | `web/src/index.css` | Modify | Two rules: the label's inline row, and its mobile width |
 | `web/e2e/dashboard.spec.ts` | Modify | One spec: pick a sort, assert order, assert it survives a reload |
+| `docs-site/docs/api/openapi/v1.json` | Regenerate | Committed OpenAPI snapshot. A test asserts it matches the served document, so adding a query parameter makes the suite red until it is regenerated |
 
 Nothing is created. Nothing else is touched.
 
@@ -1063,8 +1071,9 @@ git commit -m "test(e2e): cover sorting the document tiles and its URL state"
 grep -rn "Search names\|trashed=true\|folderId=" docs-site docs --include=*.md --include=*.mdx | grep -v superpowers
 ```
 
-If the API docs are generated from the OpenAPI document, `sort` and `order` appear without any edit
-and only the user guide needs a sentence. If nothing turns up at all, skip this task and say so.
+The API reference is generated from `docs-site/docs/api/openapi/v1.json`, which Task 3 already
+regenerated, so `sort` and `order` are documented there. Only the user-guide prose needs a sentence.
+If nothing turns up at all, skip this task and say so.
 
 - [ ] **Step 2: Add one sentence to the user guide's dashboard section**
 
