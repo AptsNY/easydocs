@@ -117,12 +117,35 @@ public static class DocumentEndpoints
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
+    // Which column a cursor's key came from. `created` reuses Pagination.CreatedTag so a creation-time
+    // cursor means the same thing here as it does on every other paginated endpoint.
+    private const byte SortCreated = Pagination.CreatedTag;
+    private const byte SortUpdated = 1;
+    private const byte SortName = 2;
+
+    private static byte? SortTag(string? sort) => (sort ?? "").ToLowerInvariant() switch
+    {
+        "" or "created" => SortCreated,
+        "updated" => SortUpdated,
+        "name" => SortName,
+        _ => null,
+    };
+
     // Dashboard list (spec §9/§10): documents the caller is a member of, org-scoped, optional
     // folderId/q filters, cursor-paginated. `trashed=true` swaps the DeletedAt filter so the SPA's
     // trash view can reach :restore — membership scoping is identical either way (spec §11).
     private static async Task<IResult> ListDocuments(
-        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit, bool? trashed)
+        HttpContext ctx, EasyDocsDbContext db, Guid? folderId, string? q, string? cursor, int? limit,
+        bool? trashed, string? sort, string? order)
     {
+        if (SortTag(sort) is not { } tag)
+            return Problem.Of(400, "Invalid sort", "sort must be one of: created, updated, name.");
+
+        var after = Pagination.Decode(cursor);
+        if (after is not null && after.Tag != tag)
+            return Problem.Of(400, "Cursor mismatch",
+                "This cursor was issued for a different sort order. Drop the cursor when you change sort.");
+
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
 

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using EasyDocs.Api.Tests.Fixtures;
 
@@ -78,5 +79,52 @@ public class DocumentListTests : IClassFixture<ApiFactory>
         var other = await _f.SeedOrgUserAsync(owner.OrgId);
         var trash = await other.Client.GetFromJsonAsync<Page>("/api/v1/documents?trashed=true&limit=100");
         Assert.DoesNotContain(trash!.Items, t => t.Id == docId);
+    }
+
+    // Unlike ?order=, a bad ?sort= is not safely ignorable: it decides which column the cursor's key
+    // means, so falling back would page a client against a column it did not ask for.
+    [Fact]
+    public async Task An_unknown_sort_is_rejected_rather_than_silently_ignored()
+    {
+        var acct = await _f.RegisterAsync();
+
+        var res = await acct.Client.GetAsync("/api/v1/documents?sort=nonsense");
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("application/problem+json", res.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("updated")]
+    [InlineData("name")]
+    public async Task Every_documented_sort_is_accepted(string sort)
+    {
+        var acct = await _f.RegisterAsync();
+
+        var res = await acct.Client.GetAsync($"/api/v1/documents?sort={sort}");
+
+        res.EnsureSuccessStatusCode();
+    }
+
+    // The cursor carries the column it was built from, so replaying a name cursor under a time sort
+    // is caught. Without this the WHERE would compare a name against a timestamp and quietly return
+    // the wrong page.
+    [Fact]
+    public async Task A_cursor_from_one_sort_is_rejected_under_another()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Mismatch");
+        for (var i = 0; i < 3; i++)
+            await acct.Client.CreateDocAsync($"M{i}", folderId);
+
+        var byName = await acct.Client.GetFromJsonAsync<Page>(
+            $"/api/v1/documents?folderId={folderId}&sort=name&limit=2");
+        Assert.NotNull(byName!.NextCursor);
+
+        var replayed = await acct.Client.GetAsync(
+            $"/api/v1/documents?folderId={folderId}&sort=updated&limit=2&cursor={Uri.EscapeDataString(byName.NextCursor!)}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, replayed.StatusCode);
     }
 }

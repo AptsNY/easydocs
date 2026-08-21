@@ -155,6 +155,13 @@ public static class TestAuth
         return (await res.Content.ReadFromJsonAsync<IdDto>())!.Id;
     }
 
+    public static async Task<Guid> CreateFolderAsync(this HttpClient c, string name, Guid? parentId = null)
+    {
+        var res = await c.PostAsJsonAsync("/api/v1/folders", new { name, parentId });
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<IdDto>())!.Id;
+    }
+
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
 
     // Uploads a .docx and returns the new version id plus its X.Y.Z numbers.
