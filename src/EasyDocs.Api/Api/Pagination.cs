@@ -99,8 +99,7 @@ public static class Pagination
         return new PagedResult<T>(rows, nextCursor(rows[^1]));
     }
 
-    // Keyset page over an already-filtered query, ordered by (CreatedAt, Id). Fetches limit+1 rows to
-    // detect a next page; NextCursor is the last kept row's key (null at end). `descending` flips both
+    // Keyset page over an already-filtered query, ordered by (CreatedAt, Id). `descending` flips both
     // the WHERE row-value comparison and the ORDER so encode/decode stay direction-consistent.
     public static async Task<PagedResult<T>> PageAsync<T>(
         IQueryable<T> query, string? cursor, int? limit, bool descending, CancellationToken ct)
