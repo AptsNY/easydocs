@@ -310,8 +310,122 @@ public static class DocumentEndpoints
         return Results.Created($"/api/v1/documents/{doc.Id}", new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
-    private static Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
-        throw new NotImplementedException();
+    // One call for what used to take two (POST /documents then POST /documents/{id}/versions): create the
+    // document and commit its first version from a single multipart body. The name is optional because the
+    // file already carries one, and the whole reason this endpoint exists is that a client which died
+    // between the two calls left an empty document behind.
+    private static async Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning)
+    {
+        var orgId = CurrentUser.OrgId(ctx.User);
+        var userId = CurrentUser.UserId(ctx.User);
+
+        // Everything below the blob write is validation, and it all happens first on purpose: this endpoint
+        // creates a document, so a request that turns out to be malformed halfway through would leave
+        // exactly the orphan the endpoint was added to eliminate. Same hardening as SaveAsync -- reading
+        // Request.Form throws on a non-multipart or malformed multipart body, which would surface as a 500.
+        if (!ctx.Request.HasFormContentType)
+            return Problem.Of(400, "Invalid request", "Expected a multipart/form-data body with a file field.");
+
+        IFormCollection form;
+        try
+        {
+            form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+        }
+        // Two exception types, both meaning "the bytes on the wire were not the multipart body the header
+        // promised": a bad Content-Disposition raises InvalidDataException from the form reader, while a
+        // body that simply never reaches its closing boundary raises IOException from the body reader
+        // underneath it (verified by request, not by reading -- `boundary=x` plus junk takes the second
+        // path). A disconnected client lands here too, and a 400 nobody is listening for costs nothing.
+        catch (Exception e) when (e is InvalidDataException or IOException)
+        {
+            return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
+        }
+
+        var file = form.Files["file"] ?? form.Files.FirstOrDefault();
+        if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
+
+        // A name field the caller bothered to send is authoritative, so a blank one is their mistake to hear
+        // about rather than something to quietly paper over with the filename (Create rejects it the same
+        // way). Only an absent field falls back to the filename.
+        var given = form["name"].FirstOrDefault();
+        var name = given is null ? NameFromFileName(file.FileName) : given.Trim();
+        if (string.IsNullOrEmpty(name))
+            return Problem.Of(400, "Invalid request", "name is required (the filename yielded no usable name).");
+
+        Guid? folderId = null;
+        if (form["folderId"].FirstOrDefault() is { Length: > 0 } rawFolder)
+        {
+            if (!Guid.TryParse(rawFolder, out var fid) || !await FolderExistsAsync(db, orgId, fid))
+                return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
+            folderId = fid;
+        }
+
+        BlobResult stored;
+        await using (var upload = file.OpenReadStream())
+            stored = await blobs.PutAsync(upload, ctx.RequestAborted);
+
+        // Sniffed from the stored bytes, never from file.ContentType or file.FileName (spec §5.2). That
+        // matters more here than on upload: the filename is now also where the document's name comes from,
+        // so it is attacker-controlled input that reaches two places instead of one.
+        var (mime, _) = await BlobMime.SniffAsync(blobs, stored.Sha256, ctx.RequestAborted);
+
+        var now = DateTimeOffset.UtcNow;
+        var doc = new Document
+        {
+            Id = Guid.NewGuid(), OrgId = orgId, FolderId = folderId, Name = name,
+            VersionCounterMajor = 0, VersionCounterMinor = 0, VersionCounterRev = 0,
+            CreatedBy = userId, CreatedAt = now,
+        };
+        db.Add(doc);
+        db.Add(new Branch { Id = Guid.NewGuid(), DocumentId = doc.Id, Ordinal = 0, Kind = BranchKind.Main, CreatedAt = now });
+        db.Add(new DocumentMember { DocumentId = doc.Id, UserId = userId, Role = DocRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(orgId, doc.Id, userId, "document.created", "document", doc.Id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
+        await db.SaveChangesAsync(ctx.RequestAborted); // single SaveChanges = one transaction
+
+        // Two steps, not one transaction, and deliberately so: CommitSaveAsync opens its own
+        // transaction and takes SELECT ... FOR UPDATE on the document row for the counter increment
+        // (spec §5.1), so it cannot enlist in an outer one. Fork has the same shape for the same
+        // reason. What this buys over the two-call client flow is that a CLIENT can no longer strand an
+        // empty document -- no browser-closed-between-calls orphan -- and what it does not buy is
+        // immunity to a server-side failure between these two steps.
+        //
+        // ponytail: that residual window is accepted, matching Fork. Closing it means changing
+        // CommitSaveAsync's locking for every write path in the product, which is out of proportion to
+        // one convenience endpoint.
+        var first = await versioning.CommitSaveAsync(
+            new CommitInput(doc.Id, stored.Sha256, stored.SizeBytes, VersionSource.Import, userId, Mime: mime),
+            ctx.RequestAborted);
+
+        return Results.Created($"/api/v1/documents/{doc.Id}", new
+        {
+            id = doc.Id,
+            name = doc.Name,
+            folderId = doc.FolderId,
+            versionId = first.VersionId,
+            major = first.Major,
+            minor = first.Minor,
+            revision = first.Revision,
+        });
+    }
+
+    // The filename is a courtesy, not a path: a client may send a Windows-style path and on Linux
+    // Path.GetFileNameWithoutExtension does not treat `\` as a separator, so `C:\docs\lease.docx` would
+    // become a document literally called `C:\docs\lease`. Split on both separators, then strip one
+    // trailing extension. The result is stored as a display name and never used to open anything.
+    private static string? NameFromFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return null;
+        var stem = fileName.AsSpan()[(fileName.LastIndexOfAny(['/', '\\']) + 1)..].ToString();
+        var dot = stem.LastIndexOf('.');
+        // A filename that is nothing but an extension (".docx") has its dot at index 0, so there is no stem
+        // in front of it to name anything after. Refusing here is what makes that request a 400 rather than
+        // a document called ".docx" that nobody chose and nobody would search for. Only a dot with
+        // something before it is an extension worth stripping, hence `> 0` below and not `>= 0`.
+        if (dot == 0) return null;
+        if (dot > 0) stem = stem[..dot];
+        return stem.Trim() is { Length: > 0 } trimmed ? trimmed : null;
+    }
 
     private static async Task<IResult> Get(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
