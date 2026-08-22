@@ -29,6 +29,18 @@
         }
       }
     },
+    "/api/v1/documents:import": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/documents/{id}/merges": {
       "post": {
         "tags": [
@@ -2500,6 +2512,9 @@
       "name": "EasyDocs.Api"
     },
     {
+      "name": "Documents"
+    },
+    {
       "name": "Merging"
     },
     {
@@ -2525,9 +2540,6 @@
     },
     {
       "name": "Folders"
-    },
-    {
-      "name": "Documents"
     },
     {
       "name": "Versions"

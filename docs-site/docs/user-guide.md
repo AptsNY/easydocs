@@ -28,6 +28,8 @@ The dashboard is folders on the left, documents on the right.
 - **Create a folder** to group documents; folders nest freely, and moving a document never touches
   its history or members.
 - **Create document** makes an empty document; its first upload becomes version `0.0.1`.
+- **Import document** does both at once: pick a `.docx` and you get a document already holding it as
+  version `0.0.1`. The name comes from the file, and you can change it before importing.
 - **Search names & content** — the one search box matches document *names* and, since v1.1, the
   *text inside* their current versions. Phrases (`"exact phrase"`) and exclusions (`word -other`)
   work. Content lands in the index a few seconds after a save.
