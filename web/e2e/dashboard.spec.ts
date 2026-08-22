@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect, disclose } from './fixtures'
+import { test, expect, disclose, register, signIn } from './fixtures'
 
 // The dashboard against the real API: folder tree (E1 nesting/move), tiles (E2 first version is
 // 0.0.1), server-side search, and the trash round trip that only became reachable in M4.5 — before
@@ -189,4 +189,71 @@ test('a trashed document is recoverable from the trash view', async ({ signedIn:
 
   await page.getByRole('link', { name: 'Documents', exact: true }).click()
   await expect(tile(page, 'Minutes')).toBeVisible()
+})
+
+// Sorting has to be server-side and it has to stick: reordering only the tiles already fetched would
+// be a lie the moment the list is longer than one page, and a sort that resets when you come back
+// from a document is not a sort anyone would use.
+test('sorting reorders the tiles and survives a reload', async ({ page, request }) => {
+  const account = await register(request)
+  await signIn(page, account)
+
+  for (const name of ['zulu-sort', 'alpha-sort', 'mike-sort']) {
+    await disclose(newDocumentForm(page))
+    await newDocumentForm(page).getByLabel('Document name').fill(name)
+    await newDocumentForm(page).getByRole('button', { name: 'Create document' }).click()
+    await expect(tile(page, name)).toBeVisible()
+  }
+
+  const names = () => page.locator('[data-testid="document-tile"]').evaluateAll(
+    (tiles) => tiles.map((t) => t.getAttribute('data-name')),
+  )
+
+  await page.getByTestId('sort').selectOption('name:asc')
+  await expect(page).toHaveURL(/[?&]sort=name(&|$)/)
+  await expect(page).toHaveURL(/[?&]order=asc(&|$)/)
+  await expect.poll(names).toEqual(['alpha-sort', 'mike-sort', 'zulu-sort'])
+
+  // The URL is the state, so a hard reload has to come back to the same order.
+  await page.reload()
+  await expect(page.getByTestId('sort')).toHaveValue('name:asc')
+  await expect.poll(names).toEqual(['alpha-sort', 'mike-sort', 'zulu-sort'])
+
+  await page.getByTestId('sort').selectOption('name:desc')
+  await expect.poll(names).toEqual(['zulu-sort', 'mike-sort', 'alpha-sort'])
+})
+
+// The URL is the state, which means anyone can arrive with a pair that is not one of the six options
+// — a stale link, an edited query string. Asserting the select's VALUE cannot catch this: a <select>
+// whose value matches no option has its selectedness reset to the first option, so it reads
+// "updated:desc" whether the fallback happened or not. What differs is the LIST — and that is the
+// whole bug, because a control reading "Last updated" over an A–Z list is also a dead control:
+// picking the option it already displays fires no change event.
+test('a sort pair the select cannot show falls back to the default rather than lying', async ({
+  page,
+  request,
+}) => {
+  const account = await register(request)
+  await signIn(page, account)
+
+  // Created in an order that name-ascending would NOT produce, so the two candidate sorts are
+  // distinguishable: no versions here, so `updated` is creation time.
+  for (const name of ['zulu-lie', 'alpha-lie', 'mike-lie']) {
+    await disclose(newDocumentForm(page))
+    await newDocumentForm(page).getByLabel('Document name').fill(name)
+    await newDocumentForm(page).getByRole('button', { name: 'Create document' }).click()
+    await expect(tile(page, name)).toBeVisible()
+  }
+
+  await page.goto('/?sort=name&order=bogus')
+  await expect(page.getByTestId('dashboard')).toBeVisible()
+  await expect(page.getByTestId('sort')).toHaveValue('updated:desc')
+
+  const names = () =>
+    page
+      .locator('[data-testid="document-tile"]')
+      .evaluateAll((tiles) => tiles.map((t) => t.getAttribute('data-name')))
+
+  // What the control says it is doing, not the ?sort=name the URL asked for.
+  await expect.poll(names).toEqual(['mike-lie', 'alpha-lie', 'zulu-lie'])
 })
