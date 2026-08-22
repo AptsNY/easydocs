@@ -31,6 +31,13 @@ public static class DocumentEndpoints
         g.MapDelete("/{id:guid}", Trash);
         g.MapPost("/{id:guid}:restore", Restore);
 
+        // Mapped on `app`, not on `g`: RouteGroupBuilder joins its prefix to a pattern with a slash
+        // unless the pattern is empty, so g.MapPost(":import") would route /api/v1/documents/:import.
+        // A collection-level colon action therefore has to spell out the whole path and re-apply the
+        // three things group membership was giving it.
+        app.MapPost("/api/v1/documents:import", ImportNew)
+            .RequireAuthorization().WithTags("Documents").DisableAntiforgery();
+
         var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
         v.MapGet("/{vid:guid}", GetVersion);
         v.MapGet("/{vid:guid}/download", Download);
@@ -302,6 +309,9 @@ public static class DocumentEndpoints
 
         return Results.Created($"/api/v1/documents/{doc.Id}", new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
+
+    private static Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
+        throw new NotImplementedException();
 
     private static async Task<IResult> Get(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
