@@ -314,7 +314,7 @@ public static class DocumentEndpoints
     // document and commit its first version from a single multipart body. The name is optional because the
     // file already carries one, and the whole reason this endpoint exists is that a client which died
     // between the two calls left an empty document behind.
-    private static async Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning)
+    private static async Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var userId = CurrentUser.UserId(ctx.User);
@@ -336,8 +336,23 @@ public static class DocumentEndpoints
         // body that simply never reaches its closing boundary raises IOException from the body reader
         // underneath it (verified by request, not by reading -- `boundary=x` plus junk takes the second
         // path). A disconnected client lands here too, and a 400 nobody is listening for costs nothing.
+        // Rethrown ahead of the broad clause below because BadHttpRequestException DERIVES from
+        // IOException, so that clause would otherwise eat it -- turning Kestrel's "request body too large"
+        // 413 into a 400 claiming the body was malformed, with the limit never mentioned. Program.cs's
+        // exception handler already renders it as problem+json from the exception's own StatusCode.
+        catch (BadHttpRequestException)
+        {
+            throw;
+        }
+        //
+        // Logged because the remaining types are not separable: a truncated body from a hostile client and
+        // a DirectoryNotFoundException from a full or read-only form-buffering temp dir both arrive as a
+        // plain IOException. Answering 400 is right for the first and wrong for the second, and without
+        // the log the second fails every real upload while telling the operator nothing at all.
         catch (Exception e) when (e is InvalidDataException or IOException)
         {
+            logs.CreateLogger("EasyDocs.Api.Documents").LogWarning(
+                e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }
 
@@ -393,9 +408,15 @@ public static class DocumentEndpoints
         // ponytail: that residual window is accepted, matching Fork. Closing it means changing
         // CommitSaveAsync's locking for every write path in the product, which is out of proportion to
         // one convenience endpoint.
+        // CancellationToken.None, deliberately, and this is the line that makes the paragraph above true.
+        // The document is already committed by the SaveChangesAsync above, so passing ctx.RequestAborted
+        // here means a client that hangs up in the millisecond between the two writes cancels the version
+        // and leaves the document behind -- measured at ~8% of imports under a 0.5-30ms disconnect, which
+        // is precisely the orphan this endpoint exists to prevent, arriving by a different door. Once the
+        // first write lands, finishing the second is no longer the caller's business.
         var first = await versioning.CommitSaveAsync(
             new CommitInput(doc.Id, stored.Sha256, stored.SizeBytes, VersionSource.Import, userId, Mime: mime),
-            ctx.RequestAborted);
+            CancellationToken.None);
 
         return Results.Created($"/api/v1/documents/{doc.Id}", new
         {
@@ -506,15 +527,15 @@ public static class DocumentEndpoints
         });
     }
 
-    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
-        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Upload);
+    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs) =>
+        SaveAsync(id, ctx, db, blobs, versioning, logs, VersionSource.Upload);
 
-    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
-        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Import);
+    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs) =>
+        SaveAsync(id, ctx, db, blobs, versioning, logs, VersionSource.Import);
 
     // The single HTTP write path: store the blob, then route through VersioningService.CommitSaveAsync
     // (spec §5.2). Upload and import differ only by VersionSource.
-    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, VersionSource source)
+    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs, VersionSource source)
     {
         var userId = CurrentUser.UserId(ctx.User);
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
@@ -538,8 +559,23 @@ public static class DocumentEndpoints
         // raises IOException from the body reader. Only the first was caught, so an unterminated body was a
         // 500 on a public endpoint -- found while hardening documents:import, which funnels the same bodies
         // through its own copy of this block.
+        // Rethrown ahead of the broad clause below because BadHttpRequestException DERIVES from
+        // IOException, so that clause would otherwise eat it -- turning Kestrel's "request body too large"
+        // 413 into a 400 claiming the body was malformed, with the limit never mentioned. Program.cs's
+        // exception handler already renders it as problem+json from the exception's own StatusCode.
+        catch (BadHttpRequestException)
+        {
+            throw;
+        }
+        //
+        // Logged because the remaining types are not separable: a truncated body from a hostile client and
+        // a DirectoryNotFoundException from a full or read-only form-buffering temp dir both arrive as a
+        // plain IOException. Answering 400 is right for the first and wrong for the second, and without
+        // the log the second fails every real upload while telling the operator nothing at all.
         catch (Exception e) when (e is InvalidDataException or IOException)
         {
+            logs.CreateLogger("EasyDocs.Api.Documents").LogWarning(
+                e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }
         if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
