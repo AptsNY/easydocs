@@ -119,6 +119,19 @@ export type VersionRow = {
 
 export type Paged<T> = { items: T[]; nextCursor: string | null }
 
+// POST /api/v1/documents:import -- the response names both the document AND the version its bytes
+// landed in, because there is no follow-up read: the dashboard navigates straight to the console with
+// nothing else to ask the API for.
+export type ImportedDocument = {
+  id: string
+  name: string
+  folderId: string | null
+  versionId: string
+  major: number
+  minor: number
+  revision: number
+}
+
 // GET /api/v1/documents/{id} — the console header. Deliberately thinner than Tile: no counts, because
 // the console reads the version list anyway.
 export type DocumentDetail = { id: string; name: string; folderId: string | null; orgId: string }
