@@ -19,6 +19,15 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **A document can be imported in one step.** `POST /api/v1/documents:import` takes a multipart body
+  — a file, an optional `name`, an optional `folderId` — and returns a new document already holding
+  that file as version `0.0.1`. The dashboard gains an **Import a document** control that uses it,
+  taking the name from the filename and letting you edit it before anything is created. Previously
+  this was `POST /documents` followed by a separate upload, which meant typing the name by hand and
+  left an empty document behind if the upload failed.
+
+  Omitting `name` derives it from the filename; a filename with no usable stem (`.docx`) is a `400`
+  rather than a document nobody named.
 - **The dashboard's document list can be sorted.** `GET /api/v1/documents` accepts `sort` (`created`,
   `updated`, `name`) and `order` (`asc`, `desc`), and the dashboard toolbar gains a sort menu whose
   choice lives in the page's address — so it survives a reload and can be shared as a link. The web UI
