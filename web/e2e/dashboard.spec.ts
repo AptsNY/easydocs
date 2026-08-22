@@ -30,6 +30,10 @@ const tile = (page: Page, name: string) =>
 // — one click, exactly where a person clicks. The assertions below are unchanged.
 const newFolderForm = (page: Page) => tree(page).getByTestId('new-folder-form')
 const newDocumentForm = (page: Page) => page.getByTestId('new-document')
+// "New document" and "Import document" both label a field "Document name" -- a bare
+// page.getByLabel('Document name') matches both and fails. Scope to this disclosure, same idea as
+// newDocumentForm above.
+const importDocumentForm = (page: Page) => page.getByTestId('import-document')
 const tileActions = (page: Page, name: string) => tile(page, name).getByTestId('tile-more')
 
 // "New folder" creates inside whatever folder you are looking at, so nesting is just navigate-then-create.
@@ -119,6 +123,40 @@ test('an uploaded first version numbers 0.0.1 (E2)', async ({ signedIn: page }) 
   await disclose(tileActions(page, 'Contract'))
   await tile(page, 'Contract').getByLabel('Upload version').setInputFiles(DOCX)
   await expect(tile(page, 'Contract').getByTestId('tile-version')).toHaveText(/0\.0\.1/)
+})
+
+// Import is the one form on this page the API can partially fill in for you: it already has the
+// bytes, so it can name the document from the filename before anyone types anything. Losing that
+// prefill is the whole reason this form exists over just using "New document" + "Upload version".
+test('importing a document prefills its name from the file and opens on 0.0.1 (E2)', async ({
+  signedIn: page,
+}) => {
+  const form = importDocumentForm(page)
+  await disclose(form)
+  await form.getByTestId('import-input').setInputFiles(DOCX_ECHO)
+  await expect(form.getByLabel('Document name')).toHaveValue('edited-plus-echo')
+  await form.getByRole('button', { name: 'Import', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/)
+  await expect(page.getByRole('heading', { name: 'edited-plus-echo' })).toBeVisible()
+  await expect(page.getByTestId('doc-head-version')).toHaveText(/0\.0\.1/)
+})
+
+// The prefill above is a courtesy, not a requirement -- picking a file must never force the
+// filename on you. Asserting the input still held the typed text would not prove this: the same
+// bug that shipped .ToLower() past its own name test would ship a hardcoded name past a spec that
+// only reads the input. What has to be checked is what the document is actually called once it exists.
+test('editing the prefilled name before importing is what gets created, not the filename', async ({
+  signedIn: page,
+}) => {
+  const form = importDocumentForm(page)
+  await disclose(form)
+  await form.getByTestId('import-input').setInputFiles(DOCX_EDITED)
+  await form.getByLabel('Document name').fill('Renamed On The Way In')
+  await form.getByRole('button', { name: 'Import', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/)
+  await expect(page.getByRole('heading', { name: 'Renamed On The Way In' })).toBeVisible()
 })
 
 test('a document with no versions says so, and never null or 0.0.0', async ({ signedIn: page }) => {
