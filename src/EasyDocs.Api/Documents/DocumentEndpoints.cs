@@ -418,12 +418,10 @@ public static class DocumentEndpoints
         if (string.IsNullOrWhiteSpace(fileName)) return null;
         var stem = fileName.AsSpan()[(fileName.LastIndexOfAny(['/', '\\']) + 1)..].ToString();
         var dot = stem.LastIndexOf('.');
-        // A filename that is nothing but an extension (".docx") has its dot at index 0, so there is no stem
-        // in front of it to name anything after. Refusing here is what makes that request a 400 rather than
-        // a document called ".docx" that nobody chose and nobody would search for. Only a dot with
-        // something before it is an extension worth stripping, hence `> 0` below and not `>= 0`.
-        if (dot == 0) return null;
-        if (dot > 0) stem = stem[..dot];
+        if (dot >= 0) stem = stem[..dot];
+        // Empty is a real outcome, not a guard against one: a filename that is nothing but an extension
+        // (".docx") leaves no stem to name anything after, and returning null is what makes that request a
+        // 400 rather than a document called ".docx" that nobody chose and nobody would search for.
         return stem.Trim() is { Length: > 0 } trimmed ? trimmed : null;
     }
 
@@ -535,7 +533,12 @@ public static class DocumentEndpoints
             var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
             file = form.Files["file"] ?? form.Files.FirstOrDefault();
         }
-        catch (InvalidDataException)
+        // Two different exceptions for "not the multipart you promised": a bad Content-Disposition raises
+        // InvalidDataException from the form reader, while a body that never reaches its closing boundary
+        // raises IOException from the body reader. Only the first was caught, so an unterminated body was a
+        // 500 on a public endpoint -- found while hardening documents:import, which funnels the same bodies
+        // through its own copy of this block.
+        catch (Exception e) when (e is InvalidDataException or IOException)
         {
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }

@@ -225,14 +225,15 @@ test still passes.
         if (string.IsNullOrWhiteSpace(fileName)) return null;
         var stem = fileName.AsSpan()[(fileName.LastIndexOfAny(['/', '\\']) + 1)..].ToString();
         var dot = stem.LastIndexOf('.');
-        if (dot > 0) stem = stem[..dot];
+        if (dot >= 0) stem = stem[..dot];
         return stem.Trim() is { Length: > 0 } trimmed ? trimmed : null;
     }
 ```
 
-`dot > 0` rather than `>= 0` on purpose: a name that is *only* an extension (`.docx`) has its dot at
-index 0, and stripping it would leave an empty string. Returning null there is what makes test 4 a
-`400` instead of a document with no name.
+`>= 0`, so a filename that is *only* an extension (`.docx`) has its dot stripped down to an empty
+string and falls out of the final check as null — which is what makes test 4 a `400` instead of a
+document called `.docx`. An earlier draft of this plan wrote `> 0` here and claimed the same effect; it
+does not, and the test caught it returning `201`.
 
 - [ ] **Step 4: Write the handler**
 
