@@ -344,17 +344,29 @@ public static class DocumentEndpoints
         // Rethrown ahead of the broad clause below because BadHttpRequestException DERIVES from
         // IOException, so that clause would otherwise eat it -- turning Kestrel's "request body too large"
         // 413 into a 400 claiming the body was malformed, with the limit never mentioned. Program.cs's
-        // exception handler already renders it as problem+json from the exception's own StatusCode.
+        // exception handler already renders it as problem+json from the exception's own StatusCode, and
+        // more accurately than this block could: a stalled body comes back 408, a bad chunk header 400
+        // "Bad chunk size data.", each with its own reason instead of one generic message.
+        //
+        // There is no in-process test on this rethrow: the limit is Kestrel's, and TestServer does not
+        // enforce MaxRequestBodySize, so a 40MB body returns 201 under the xUnit fixture. It is pinned
+        // instead in .github/scripts/conformance-smoke.sh, which runs against the real compose stack.
         catch (BadHttpRequestException)
         {
             throw;
         }
+        // DirectoryNotFoundException is excluded because it IS separable, and an earlier version of this
+        // comment wrongly cited it as the case that is not. Form buffering spills parts over 64KB to a
+        // temp file, so an unusable ASPNETCORE_TEMP raises it -- the server's misconfiguration, not the
+        // caller's body, and therefore still a 500. Catching it would fail every real upload with a 400
+        // blaming the uploader while anything alerting on 5xx saw a healthy service. (A read-only dir
+        // raises UnauthorizedAccessException, which is not an IOException at all and never arrives here.)
         //
-        // Logged because the remaining types are not separable: a truncated body from a hostile client and
-        // a DirectoryNotFoundException from a full or read-only form-buffering temp dir both arrive as a
-        // plain IOException. Answering 400 is right for the first and wrong for the second, and without
-        // the log the second fails every real upload while telling the operator nothing at all.
-        catch (Exception e) when (e is InvalidDataException or IOException)
+        // What remains is genuinely ambiguous and does answer 400: a truncated body from a hostile client
+        // and a full disk both surface as a bare IOException with nothing to separate them. The log is an
+        // operator's only handle on the second, at Warning rather than Error because the first is routine
+        // traffic on a public endpoint and would drown the signal.
+        catch (Exception e) when (e is InvalidDataException or (IOException and not DirectoryNotFoundException))
         {
             logs.CreateLogger(IngestLogCategory).LogWarning(
                 e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
@@ -569,20 +581,15 @@ public static class DocumentEndpoints
         // raises IOException from the body reader. Only the first was caught, so an unterminated body was a
         // 500 on a public endpoint -- found while hardening documents:import, which funnels the same bodies
         // through its own copy of this block.
-        // Rethrown ahead of the broad clause below because BadHttpRequestException DERIVES from
-        // IOException, so that clause would otherwise eat it -- turning Kestrel's "request body too large"
-        // 413 into a 400 claiming the body was malformed, with the limit never mentioned. Program.cs's
-        // exception handler already renders it as problem+json from the exception's own StatusCode.
+        // Both clauses are explained at length in ImportNew above: BadHttpRequestException derives from
+        // IOException and must not be swallowed (it carries Kestrel's own status, e.g. 413), and
+        // DirectoryNotFoundException is a server misconfiguration that has to stay a 500 rather than
+        // become a 400 blaming the uploader.
         catch (BadHttpRequestException)
         {
             throw;
         }
-        //
-        // Logged because the remaining types are not separable: a truncated body from a hostile client and
-        // a DirectoryNotFoundException from a full or read-only form-buffering temp dir both arrive as a
-        // plain IOException. Answering 400 is right for the first and wrong for the second, and without
-        // the log the second fails every real upload while telling the operator nothing at all.
-        catch (Exception e) when (e is InvalidDataException or IOException)
+        catch (Exception e) when (e is InvalidDataException or (IOException and not DirectoryNotFoundException))
         {
             logs.CreateLogger(IngestLogCategory).LogWarning(
                 e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);

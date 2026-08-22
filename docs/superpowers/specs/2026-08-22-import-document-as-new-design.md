@@ -57,8 +57,9 @@ new document's.
 **Mapped on `app`, not on the `/api/v1/documents` group.** `RouteGroupBuilder` joins its prefix to a
 pattern with a `/` unless the pattern is empty, so `g.MapPost(":import", …)` would produce
 `/api/v1/documents/:import`. The collection-level action therefore gets `app.MapPost(
-"/api/v1/documents:import", …)` with `.RequireAuthorization()`, `.WithTags("Documents")` and
-`.DisableAntiforgery()` applied explicitly — the three things group membership was providing.
+"/api/v1/documents:import", …)` and re-applies the two things group membership was providing,
+`.RequireAuthorization()` and `.WithTags("Documents")`. `.DisableAntiforgery()` is *not* one of them —
+the group's own multipart routes each opt into it per-route as well.
 
 ### Name derivation
 
@@ -89,6 +90,27 @@ the product that has to survive a hostile multipart body, and its comment says s
 - The stored blob's mime is **sniffed from the bytes** via `BlobMime.SniffAsync`, never read from
   `file.ContentType` or `file.FileName`; both are attacker-controlled. This matters more here than on
   upload, because the filename is now also the source of the document's name.
+
+**Amended during implementation, in both ingest routes.** `catch (InvalidDataException)` alone was not
+enough, and the shared path had shipped with the same gap:
+
+- A body that never reaches its closing boundary raises `IOException` from the body reader, not
+  `InvalidDataException`, so an unterminated body was a **500** on a public endpoint.
+- `BadHttpRequestException` **derives from** `IOException`, so widening the catch swallowed Kestrel's own
+  statuses — a `413` became a `400` that never mentioned the limit. It is rethrown ahead of the broad
+  clause; `Program.cs`'s handler already renders it as problem+json from the exception's own status.
+  Pinned in `.github/scripts/conformance-smoke.sh` rather than the xUnit suite, because `TestServer` does
+  not enforce `MaxRequestBodySize`.
+- `DirectoryNotFoundException` is **excluded** from the broad clause. Form buffering spills parts over
+  64 KB to a temp file, so an unusable temp dir raises it — the server's misconfiguration, which must stay
+  a `500` rather than become a `400` blaming the uploader. What remains genuinely ambiguous (a truncated
+  body versus a full disk) answers `400` and is logged at Warning.
+
+**Amended: the second write is not cancellable.** `CommitSaveAsync` takes `CancellationToken.None`, not
+`ctx.RequestAborted`. Passing the request token stranded an empty document whenever a client hung up
+between the two writes — measured at 23 orphans in ~191 aborted imports, and independently at 31 in 380.
+Once the first write lands, finishing the second is no longer the caller's business. `Fork` still passes
+`ctx.RequestAborted` and now carries a `ponytail:` marker recording the identical exposure.
 
 The endpoint accepts whatever `Upload` accepts. It does not gate on `.docx`: the corpus already holds
 legacy `.doc` and PDFs, `Download` sniffs and labels them accordingly, and rejecting them only here

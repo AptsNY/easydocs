@@ -142,6 +142,20 @@ test('importing a document prefills its name from the file and opens on 0.0.1 (E
   await expect(page.getByTestId('doc-head-version')).toHaveText(/0\.0\.1/)
 })
 
+// Clicking Import with nothing chosen used to return early in silence -- no navigation, no alert, no
+// change of any kind. This file's own comment on act() calls a silent no-op "the worst outcome
+// available", and this was the one write on the screen that dodged it. Asserting `disabled` rather than
+// "nothing happened" is deliberate: "nothing happened" is exactly what the bug looked like too.
+test('Import is not clickable until a file is chosen', async ({ signedIn: page }) => {
+  const form = importDocumentForm(page)
+  await disclose(form)
+  const submit = form.getByRole('button', { name: 'Import', exact: true })
+  await expect(submit).toBeDisabled()
+
+  await form.getByTestId('import-input').setInputFiles(DOCX)
+  await expect(submit).toBeEnabled()
+})
+
 // The prefill above is a courtesy, not a requirement -- picking a file must never force the
 // filename on you. Asserting the input still held the typed text would not prove this: the same
 // bug that shipped .ToLower() past its own name test would ship a hardcoded name past a spec that

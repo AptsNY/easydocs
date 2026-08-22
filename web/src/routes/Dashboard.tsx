@@ -251,7 +251,14 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                       setImportName(e.target.value)
                     }}
                   />
-                  <button type="submit">Import</button>
+                  {/* Disabled rather than validated: a file is this form's one hard requirement, and
+                      clicking Import without one used to return early in silence -- the exact no-op act()
+                      exists to prevent, and the only write on this screen that dodged it. `required` on
+                      the input cannot do the job: it is .visually-hidden, and a browser will not report a
+                      validation message on a control it cannot scroll into view. */}
+                  <button type="submit" disabled={!importFile}>
+                    Import
+                  </button>
                 </form>
               </details>
 
@@ -419,10 +426,10 @@ function whenLocal(iso: string) {
   return new Date(iso).toLocaleString()
 }
 
-// Mirrors DeriveNameFromFileName in DocumentEndpoints.cs for the PREFILL only -- the server still
-// derives its own copy of record if name is omitted, so this only has to be close enough to show the
-// user what they're about to get, not byte-identical. It also gets to skip the server's `\`-separator
-// handling: a browser file input hands back a bare filename, never a path.
+// Mirrors NameFromFileName in DocumentEndpoints.cs, for the PREFILL only: send no name and the server
+// derives the authoritative one itself, so this only has to show the user what they are about to get.
+// It skips the server's `\`-separator handling, because a browser file input hands back a bare filename
+// and never a path.
 function stemOf(fileName: string) {
   const dot = fileName.lastIndexOf('.')
   // `>= 0`, matching the server: a file called just ".docx" has no stem, so this yields '' and the form
