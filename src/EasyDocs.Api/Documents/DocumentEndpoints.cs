@@ -124,6 +124,11 @@ public static class DocumentEndpoints
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
 
+    // Both ingest routes log rejections under one category, named once: two copies of a literal drift
+    // silently, and a category that no longer matches its sibling makes an operator's grep miss half the
+    // evidence.
+    private const string IngestLogCategory = "EasyDocs.Api.Documents.Ingest";
+
     // Which column a cursor's key came from. `created` reuses Pagination.CreatedTag so a creation-time
     // cursor means the same thing here as it does on every other paginated endpoint.
     private const byte SortCreated = Pagination.CreatedTag;
@@ -351,7 +356,7 @@ public static class DocumentEndpoints
         // the log the second fails every real upload while telling the operator nothing at all.
         catch (Exception e) when (e is InvalidDataException or IOException)
         {
-            logs.CreateLogger("EasyDocs.Api.Documents").LogWarning(
+            logs.CreateLogger(IngestLogCategory).LogWarning(
                 e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }
@@ -400,20 +405,25 @@ public static class DocumentEndpoints
 
         // Two steps, not one transaction, and deliberately so: CommitSaveAsync opens its own
         // transaction and takes SELECT ... FOR UPDATE on the document row for the counter increment
-        // (spec §5.1), so it cannot enlist in an outer one. Fork has the same shape for the same
+        // (spec §5.1), so it cannot enlist in an outer one. Fork is shaped the same way for the same
         // reason. What this buys over the two-call client flow is that a CLIENT can no longer strand an
-        // empty document -- no browser-closed-between-calls orphan -- and what it does not buy is
-        // immunity to a server-side failure between these two steps.
+        // empty document, and what it does not buy is immunity to a server-side failure landing between
+        // these two steps.
         //
-        // ponytail: that residual window is accepted, matching Fork. Closing it means changing
-        // CommitSaveAsync's locking for every write path in the product, which is out of proportion to
-        // one convenience endpoint.
-        // CancellationToken.None, deliberately, and this is the line that makes the paragraph above true.
-        // The document is already committed by the SaveChangesAsync above, so passing ctx.RequestAborted
-        // here means a client that hangs up in the millisecond between the two writes cancels the version
-        // and leaves the document behind -- measured at ~8% of imports under a 0.5-30ms disconnect, which
-        // is precisely the orphan this endpoint exists to prevent, arriving by a different door. Once the
-        // first write lands, finishing the second is no longer the caller's business.
+        // ponytail: that server-side window is accepted. Closing it means changing CommitSaveAsync's
+        // locking for every write path in the product, which is out of proportion to one convenience
+        // endpoint.
+        //
+        // DO NOT change CancellationToken.None to ctx.RequestAborted "for consistency with Fork". Fork
+        // does still pass ctx.RequestAborted and is a known follow-up, so the two handlers deliberately
+        // disagree until that lands -- this is the corrected one. The document is already committed by
+        // the SaveChangesAsync above, so cancelling here abandons the version and leaves the document
+        // behind: measured at 23 orphans in ~191 aborted imports, and independently at 31 in 380, under
+        // a 0.5-30ms disconnect. That is exactly the orphan this endpoint exists to prevent, arriving by
+        // a different door. Once the first write lands, finishing the second is no longer the caller's
+        // business, and there is no in-process test guarding this line -- reaching that millisecond
+        // window deterministically needs synthetic throwing code in src/, which this repo has already
+        // ruled out (see the closing comment in ProblemDetailsTests). This paragraph IS the guard.
         var first = await versioning.CommitSaveAsync(
             new CommitInput(doc.Id, stored.Sha256, stored.SizeBytes, VersionSource.Import, userId, Mime: mime),
             CancellationToken.None);
@@ -574,7 +584,7 @@ public static class DocumentEndpoints
         // the log the second fails every real upload while telling the operator nothing at all.
         catch (Exception e) when (e is InvalidDataException or IOException)
         {
-            logs.CreateLogger("EasyDocs.Api.Documents").LogWarning(
+            logs.CreateLogger(IngestLogCategory).LogWarning(
                 e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }
