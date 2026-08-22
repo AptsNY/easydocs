@@ -425,5 +425,9 @@ function whenLocal(iso: string) {
 // handling: a browser file input hands back a bare filename, never a path.
 function stemOf(fileName: string) {
   const dot = fileName.lastIndexOf('.')
-  return dot > 0 ? fileName.slice(0, dot) : fileName
+  // `>= 0`, matching the server: a file called just ".docx" has no stem, so this yields '' and the form
+  // sends no name at all -- letting the endpoint answer with its own 400. With `> 0` the prefill would
+  // be the literal ".docx", which IS a non-empty name, so it would be sent and accepted, and the UI
+  // would create the very document the API exists to refuse.
+  return dot >= 0 ? fileName.slice(0, dot) : fileName
 }

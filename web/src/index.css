@@ -1052,6 +1052,18 @@ a.button:hover {
   color: var(--text);
 }
 
+/* A .filebutton inside a .stack is still a button, but `.stack label` is (0,1,1) to .filebutton's
+   (0,1,0), so it would otherwise win and render the picker as one of the form's uppercase field
+   labels -- muted, 13px, letter-spaced -- rather than as the control it is. Scoped to the child
+   combinator so the tile's own picker, which has no .stack ancestor, is untouched. */
+.stack > .filebutton {
+  margin-block-start: 0;
+  font-size: 14px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+}
+
 /* The styled file picker: the <input> is clipped to the screen-reader box and its own <label> is the
    button, because the OS "Choose File" control is the one thing in the product nobody designed. The
    input keeps its label association, so it is still nameable and still settable. */
