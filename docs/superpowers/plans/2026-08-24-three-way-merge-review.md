@@ -394,8 +394,14 @@ positive."
 
 - [ ] **Step 1: Write the service**
 
+**Usings:** `WmlDocument` and `WmlComparer` live in `Clippit.Word`, not `Clippit`. Both sibling files
+(`WmlComparerDiffService.cs`, `WmlComparerMergeService.cs`) import **both** namespaces — match them, and
+let the build tell you if one is unused, because `TreatWarningsAsErrors` turns an unused `using` into a
+build failure.
+
 ```csharp
 using Clippit;
+using Clippit.Word;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Storage;
