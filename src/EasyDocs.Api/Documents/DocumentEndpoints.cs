@@ -31,6 +31,13 @@ public static class DocumentEndpoints
         g.MapDelete("/{id:guid}", Trash);
         g.MapPost("/{id:guid}:restore", Restore);
 
+        // Mapped on `app`, not on `g`: RouteGroupBuilder joins its prefix to a pattern with a slash
+        // unless the pattern is empty, so g.MapPost(":import") would route /api/v1/documents/:import.
+        // A collection-level colon action therefore has to spell out the whole path and re-apply the
+        // three things group membership was giving it.
+        app.MapPost("/api/v1/documents:import", ImportNew)
+            .RequireAuthorization().WithTags("Documents").DisableAntiforgery();
+
         var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
         v.MapGet("/{vid:guid}", GetVersion);
         v.MapGet("/{vid:guid}/download", Download);
@@ -116,6 +123,11 @@ public static class DocumentEndpoints
 
         return Results.Ok(new { major = req.Major, minor = req.Minor, rev = req.Rev });
     }
+
+    // Both ingest routes log rejections under one category, named once: two copies of a literal drift
+    // silently, and a category that no longer matches its sibling makes an operator's grep miss half the
+    // evidence.
+    private const string IngestLogCategory = "EasyDocs.Api.Documents.Ingest";
 
     // Which column a cursor's key came from. `created` reuses Pagination.CreatedTag so a creation-time
     // cursor means the same thing here as it does on every other paginated endpoint.
@@ -303,6 +315,159 @@ public static class DocumentEndpoints
         return Results.Created($"/api/v1/documents/{doc.Id}", new { id = doc.Id, name = doc.Name, folderId = doc.FolderId });
     }
 
+    // One call for what used to take two (POST /documents then POST /documents/{id}/versions): create the
+    // document and commit its first version from a single multipart body. The name is optional because the
+    // file already carries one, and the whole reason this endpoint exists is that a client which died
+    // between the two calls left an empty document behind.
+    private static async Task<IResult> ImportNew(HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs)
+    {
+        var orgId = CurrentUser.OrgId(ctx.User);
+        var userId = CurrentUser.UserId(ctx.User);
+
+        // Everything below the blob write is validation, and it all happens first on purpose: this endpoint
+        // creates a document, so a request that turns out to be malformed halfway through would leave
+        // exactly the orphan the endpoint was added to eliminate. Same hardening as SaveAsync -- reading
+        // Request.Form throws on a non-multipart or malformed multipart body, which would surface as a 500.
+        if (!ctx.Request.HasFormContentType)
+            return Problem.Of(400, "Invalid request", "Expected a multipart/form-data body with a file field.");
+
+        IFormCollection form;
+        try
+        {
+            form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+        }
+        // Two exception types, both meaning "the bytes on the wire were not the multipart body the header
+        // promised": a bad Content-Disposition raises InvalidDataException from the form reader, while a
+        // body that simply never reaches its closing boundary raises IOException from the body reader
+        // underneath it (verified by request, not by reading -- `boundary=x` plus junk takes the second
+        // path). A disconnected client lands here too, and a 400 nobody is listening for costs nothing.
+        // Rethrown ahead of the broad clause below because BadHttpRequestException DERIVES from
+        // IOException, so that clause would otherwise eat it -- turning Kestrel's "request body too large"
+        // 413 into a 400 claiming the body was malformed, with the limit never mentioned. Program.cs's
+        // exception handler already renders it as problem+json from the exception's own StatusCode, and
+        // more accurately than this block could: a stalled body comes back 408, a bad chunk header 400
+        // "Bad chunk size data.", each with its own reason instead of one generic message.
+        //
+        // There is no in-process test on this rethrow: the limit is Kestrel's, and TestServer does not
+        // enforce MaxRequestBodySize, so a 40MB body returns 201 under the xUnit fixture. It is pinned
+        // instead in .github/scripts/conformance-smoke.sh, which runs against the real compose stack.
+        catch (BadHttpRequestException)
+        {
+            throw;
+        }
+        // DirectoryNotFoundException is excluded because it IS separable, and an earlier version of this
+        // comment wrongly cited it as the case that is not. Form buffering spills parts over 64KB to a
+        // temp file, so an unusable ASPNETCORE_TEMP raises it -- the server's misconfiguration, not the
+        // caller's body, and therefore still a 500. Catching it would fail every real upload with a 400
+        // blaming the uploader while anything alerting on 5xx saw a healthy service. (A read-only dir
+        // raises UnauthorizedAccessException, which is not an IOException at all and never arrives here.)
+        //
+        // What remains is genuinely ambiguous and does answer 400: a truncated body from a hostile client
+        // and a full disk both surface as a bare IOException with nothing to separate them. The log is an
+        // operator's only handle on the second, at Warning rather than Error because the first is routine
+        // traffic on a public endpoint and would drown the signal.
+        catch (Exception e) when (e is InvalidDataException or (IOException and not DirectoryNotFoundException))
+        {
+            logs.CreateLogger(IngestLogCategory).LogWarning(
+                e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
+            return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
+        }
+
+        var file = form.Files["file"] ?? form.Files.FirstOrDefault();
+        if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
+
+        // A name field the caller bothered to send is authoritative, so a blank one is their mistake to hear
+        // about rather than something to quietly paper over with the filename (Create rejects it the same
+        // way). Only an absent field falls back to the filename.
+        var given = form["name"].FirstOrDefault();
+        var name = given is null ? NameFromFileName(file.FileName) : given.Trim();
+        if (string.IsNullOrEmpty(name))
+            return Problem.Of(400, "Invalid request", "name is required (the filename yielded no usable name).");
+
+        Guid? folderId = null;
+        if (form["folderId"].FirstOrDefault() is { Length: > 0 } rawFolder)
+        {
+            if (!Guid.TryParse(rawFolder, out var fid) || !await FolderExistsAsync(db, orgId, fid))
+                return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
+            folderId = fid;
+        }
+
+        BlobResult stored;
+        await using (var upload = file.OpenReadStream())
+            stored = await blobs.PutAsync(upload, ctx.RequestAborted);
+
+        // Sniffed from the stored bytes, never from file.ContentType or file.FileName (spec §5.2). That
+        // matters more here than on upload: the filename is now also where the document's name comes from,
+        // so it is attacker-controlled input that reaches two places instead of one.
+        var (mime, _) = await BlobMime.SniffAsync(blobs, stored.Sha256, ctx.RequestAborted);
+
+        var now = DateTimeOffset.UtcNow;
+        var doc = new Document
+        {
+            Id = Guid.NewGuid(), OrgId = orgId, FolderId = folderId, Name = name,
+            VersionCounterMajor = 0, VersionCounterMinor = 0, VersionCounterRev = 0,
+            CreatedBy = userId, CreatedAt = now,
+        };
+        db.Add(doc);
+        db.Add(new Branch { Id = Guid.NewGuid(), DocumentId = doc.Id, Ordinal = 0, Kind = BranchKind.Main, CreatedAt = now });
+        db.Add(new DocumentMember { DocumentId = doc.Id, UserId = userId, Role = DocRole.Owner, CreatedAt = now });
+        db.Add(Audit.Event(orgId, doc.Id, userId, "document.created", "document", doc.Id.ToString(),
+            new { name = doc.Name, folderId = doc.FolderId }));
+        await db.SaveChangesAsync(ctx.RequestAborted); // single SaveChanges = one transaction
+
+        // Two steps, not one transaction, and deliberately so: CommitSaveAsync opens its own
+        // transaction and takes SELECT ... FOR UPDATE on the document row for the counter increment
+        // (spec §5.1), so it cannot enlist in an outer one. Fork is shaped the same way for the same
+        // reason. What this buys over the two-call client flow is that a CLIENT can no longer strand an
+        // empty document, and what it does not buy is immunity to a server-side failure landing between
+        // these two steps.
+        //
+        // ponytail: that server-side window is accepted. Closing it means changing CommitSaveAsync's
+        // locking for every write path in the product, which is out of proportion to one convenience
+        // endpoint.
+        //
+        // DO NOT change CancellationToken.None to ctx.RequestAborted "for consistency with Fork". Fork
+        // does still pass ctx.RequestAborted and is a known follow-up, so the two handlers deliberately
+        // disagree until that lands -- this is the corrected one. The document is already committed by
+        // the SaveChangesAsync above, so cancelling here abandons the version and leaves the document
+        // behind: measured at 23 orphans in ~191 aborted imports, and independently at 31 in 380, under
+        // a 0.5-30ms disconnect. That is exactly the orphan this endpoint exists to prevent, arriving by
+        // a different door. Once the first write lands, finishing the second is no longer the caller's
+        // business, and there is no in-process test guarding this line -- reaching that millisecond
+        // window deterministically needs synthetic throwing code in src/, which this repo has already
+        // ruled out (see the closing comment in ProblemDetailsTests). This paragraph IS the guard.
+        var first = await versioning.CommitSaveAsync(
+            new CommitInput(doc.Id, stored.Sha256, stored.SizeBytes, VersionSource.Import, userId, Mime: mime),
+            CancellationToken.None);
+
+        return Results.Created($"/api/v1/documents/{doc.Id}", new
+        {
+            id = doc.Id,
+            name = doc.Name,
+            folderId = doc.FolderId,
+            versionId = first.VersionId,
+            major = first.Major,
+            minor = first.Minor,
+            revision = first.Revision,
+        });
+    }
+
+    // The filename is a courtesy, not a path: a client may send a Windows-style path and on Linux
+    // Path.GetFileNameWithoutExtension does not treat `\` as a separator, so `C:\docs\lease.docx` would
+    // become a document literally called `C:\docs\lease`. Split on both separators, then strip one
+    // trailing extension. The result is stored as a display name and never used to open anything.
+    private static string? NameFromFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return null;
+        var stem = fileName.AsSpan()[(fileName.LastIndexOfAny(['/', '\\']) + 1)..].ToString();
+        var dot = stem.LastIndexOf('.');
+        if (dot >= 0) stem = stem[..dot];
+        // Empty is a real outcome, not a guard against one: a filename that is nothing but an extension
+        // (".docx") leaves no stem to name anything after, and returning null is what makes that request a
+        // 400 rather than a document called ".docx" that nobody chose and nobody would search for.
+        return stem.Trim() is { Length: > 0 } trimmed ? trimmed : null;
+    }
+
     private static async Task<IResult> Get(Guid id, HttpContext ctx, EasyDocsDbContext db)
     {
         var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
@@ -384,15 +549,15 @@ public static class DocumentEndpoints
         });
     }
 
-    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
-        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Upload);
+    private static Task<IResult> Upload(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs) =>
+        SaveAsync(id, ctx, db, blobs, versioning, logs, VersionSource.Upload);
 
-    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning) =>
-        SaveAsync(id, ctx, db, blobs, versioning, VersionSource.Import);
+    private static Task<IResult> Import(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs) =>
+        SaveAsync(id, ctx, db, blobs, versioning, logs, VersionSource.Import);
 
     // The single HTTP write path: store the blob, then route through VersioningService.CommitSaveAsync
     // (spec §5.2). Upload and import differ only by VersionSource.
-    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, VersionSource source)
+    private static async Task<IResult> SaveAsync(Guid id, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs, VersioningService versioning, ILoggerFactory logs, VersionSource source)
     {
         var userId = CurrentUser.UserId(ctx.User);
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
@@ -411,8 +576,23 @@ public static class DocumentEndpoints
             var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
             file = form.Files["file"] ?? form.Files.FirstOrDefault();
         }
-        catch (InvalidDataException)
+        // Two different exceptions for "not the multipart you promised": a bad Content-Disposition raises
+        // InvalidDataException from the form reader, while a body that never reaches its closing boundary
+        // raises IOException from the body reader. Only the first was caught, so an unterminated body was a
+        // 500 on a public endpoint -- found while hardening documents:import, which funnels the same bodies
+        // through its own copy of this block.
+        // Both clauses are explained at length in ImportNew above: BadHttpRequestException derives from
+        // IOException and must not be swallowed (it carries Kestrel's own status, e.g. 413), and
+        // DirectoryNotFoundException is a server misconfiguration that has to stay a 500 rather than
+        // become a 400 blaming the uploader.
+        catch (BadHttpRequestException)
         {
+            throw;
+        }
+        catch (Exception e) when (e is InvalidDataException or (IOException and not DirectoryNotFoundException))
+        {
+            logs.CreateLogger(IngestLogCategory).LogWarning(
+                e, "ingest: multipart body rejected on {Path}", ctx.Request.Path);
             return Problem.Of(400, "Invalid request", "The multipart body could not be parsed.");
         }
         if (file is null || file.Length == 0) return Problem.Of(400, "Invalid request", "A non-empty file field is required.");
