@@ -612,16 +612,34 @@ And the handler:
 Run: `dotnet test tests/EasyDocs.Api.Tests --filter "FullyQualifiedName~MergePreviewTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Run the whole C# suite**
+- [ ] **Step 5: Regenerate the committed OpenAPI snapshot — this WILL fail otherwise**
 
-Run: `dotnet test tests/EasyDocs.Api.Tests`
-Expected: PASS, **including `OpenApiTests`**. If `OpenApiTests` asserts a route count or snapshot, update
-that expectation — a new documented endpoint is the intended change.
+`OpenApiTests.Openapi_snapshot_in_docs_site_matches_the_served_document` asserts that
+`docs-site/docs/api/openapi/v1.json` byte-matches the served `/openapi/v1.json`. The docs site publishes
+that committed snapshot because the mkdocs job is Python-only and cannot boot the app, and this test is
+what stops it rotting. **A new endpoint changes the served document, so this test fails until the
+snapshot is regenerated.** That is expected, not a mistake.
 
-- [ ] **Step 6: Commit**
+Run: `UPDATE_OPENAPI_SNAPSHOT=1 dotnet test tests/EasyDocs.Api.Tests --filter Openapi_snapshot_in_docs_site_matches`
+
+Then inspect the diff — it should contain **only** the new `/api/v1/documents/{id}/merges/preview` path
+and its schema. Anything else in the diff means something unintended changed about the API surface;
+stop and report it.
 
 ```bash
-git add src/EasyDocs.Api/Merging/MergeEndpoints.cs tests/EasyDocs.Api.Tests/MergePreviewTests.cs
+git diff --stat docs-site/docs/api/openapi/v1.json
+```
+
+- [ ] **Step 6: Run the whole C# suite**
+
+Run: `dotnet test tests/EasyDocs.Api.Tests`
+Expected: PASS, **0 skipped**. CI fails on a skipped test, so a skip is a failure here too.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/EasyDocs.Api/Merging/MergeEndpoints.cs tests/EasyDocs.Api.Tests/MergePreviewTests.cs \
+       docs-site/docs/api/openapi/v1.json
 git commit -s -m "feat(api): GET /documents/{id}/merges/preview
 
 Editor+, commits nothing. Every field degrades independently; only
@@ -888,15 +906,31 @@ overlap panel that reads as a warning. Reuse existing tokens — do not introduc
 .merge-actions { display: flex; gap: 0.5rem; }
 ```
 
-- [ ] **Step 5: Verify it builds and lints**
+- [ ] **Step 5: Add the route to the e2e route table**
+
+`web/e2e/routes.spec.ts` holds an explicit table asserting every route resolves, so a routing mistake
+is ruled out before a screen's own spec runs. Add the new route to the `authenticated` array, after the
+compare entry:
+
+```ts
+  [`/documents/${id}/merge`, 'merge-review'],
+```
+
+This works with the table's deliberately fake ids: with no `left`/`right` query params the fetch effect
+returns early, so the screen renders its outer `data-testid="merge-review"` section and the
+"Preparing the review…" line. That is exactly what this table checks — the route resolves — and nothing
+more.
+
+- [ ] **Step 6: Verify it builds and lints**
 
 Run: `npm --prefix web run build && npm --prefix web run lint`
 Expected: no errors.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add web/src/api.ts web/src/App.tsx web/src/routes/MergeReview.tsx web/src/index.css
+git add web/src/api.ts web/src/App.tsx web/src/routes/MergeReview.tsx web/src/index.css \
+       web/e2e/routes.spec.ts
 git commit -s -m "feat(web): a three-way review screen for a pending merge"
 ```
 
