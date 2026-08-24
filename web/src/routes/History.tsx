@@ -143,7 +143,13 @@ function BranchGroup({
   const concurrent = group.kind === 'Concurrent'
   // The review link needs the document id, and rowProps already carries the one this page was
   // routed for — threading a second copy of it down would only give the two a way to disagree.
-  const { documentId } = rowProps
+  const { documentId, role } = rowProps
+  // Merging is Editor+ (the preview and the POST both enforce it). The old button had no role test
+  // either, but offering a Viewer a control that 403s got worse when it became navigation: instead of
+  // an inline error beside the branch, they land on a screen headed "Review this merge" that can only
+  // apologise. Spelled out rather than shared with the server's DocumentAuthorization.CanEdit, which
+  // is not reachable from the client.
+  const canMerge = role === 'Owner' || role === 'Editor'
   return (
     <section
       className="branch-group"
@@ -160,7 +166,8 @@ function BranchGroup({
         // Merging is a decision, so it goes through the review screen rather than committing on click
         // (spec: 2026-08-24-three-way-merge-review-design.md). The POST itself is unchanged and still
         // lives on the API for callers that mean it.
-        mainHead && (
+        mainHead &&
+        canMerge && (
           <Link
             className="button"
             to={`/documents/${documentId}/merge?left=${mainHead}&right=${group.rows[0].id}`}

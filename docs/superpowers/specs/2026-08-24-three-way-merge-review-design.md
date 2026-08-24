@@ -116,8 +116,8 @@ fiddly part is unit-testable against fixture `.docx` files directly.
 TouchedBaseParagraphs(compared) → Set<int>
   ordinal = 0
   for each w:p in word/document.xml:
-      if wholly-inserted (has w:ins, no w:t outside w:ins, no w:delText):
-          continue                       # exists only in the target, never in base
+      if the paragraph MARK is inserted (w:pPr/w:rPr/w:ins):
+          continue                       # this paragraph never existed in the base
       if p contains any w:ins or w:del:
           add ordinal
       ordinal += 1
@@ -127,9 +127,18 @@ Overlap = `Touched(base→main) ∩ Touched(base→incoming)`.
 
 **Why the ordinal is the right anchor.** The obvious approach — align paragraphs by index across the
 two redlines — breaks the moment one side inserts a paragraph, because every index after it shifts.
-Skipping wholly-inserted paragraphs removes exactly the paragraphs that do not exist in the base, so
-the remaining count *is* the base document's own paragraph numbering. Both comparisons were run
-against the same base, so the two numberings are identical by construction.
+Skipping the paragraphs that did not exist in the base leaves a count that *is* the base document's own
+paragraph numbering. Both comparisons were run against the same base, so the two numberings are
+identical by construction.
+
+**How "did not exist in the base" is decided, and how it was decided wrongly first.** The shipped test is
+the paragraph MARK being inserted (`w:pPr/w:rPr/w:ins`) — direct evidence from WmlComparer, not an
+inference. The first implementation inferred it from content instead: *has insertions and no surviving
+base text*. Those read as equivalent and are not. An empty base paragraph — a spacer, a blank line under
+a heading — that an author types into satisfies the content test while having existed in the base all
+along; skipping it desynced every ordinal below. The symptom was the worst available: an overlap named
+on a clause **neither** author had touched. Caught in review, pinned by
+`Filling_an_empty_base_paragraph_does_not_invent_an_overlap`.
 
 The rejected alternative was matching on reconstructed base paragraph **text**. It fails on documents
 this product is built for: real leases repeat `"Intentionally omitted."` and blank numbered clauses a
@@ -178,8 +187,12 @@ Both are displayed in iframes reusing `Compare.tsx`'s `sandbox=""` and `REDLINE_
 verbatim, including the reason that pattern exists: the markup is generated from a user-uploaded
 `.docx` and is untrusted, so inlining it would be an XSS path through the headline feature.
 
-Redline fetches are usually free. `version_diffs` is keyed by `(from_sha, to_sha)`, and the eager
-`DiffSummaryWorker` has typically already computed `base→main` as an ordinary parent-child diff.
+Redline fetches are **not** free, and an earlier draft of this section claimed they were. `version_diffs`
+is keyed by `(from_sha, to_sha)`, but the cache-first read lives in `DocumentEndpoints.Compare`, not in
+`WmlComparerDiffService.SummaryAsync` — and the eager `DiffSummaryWorker` never fills the html/redline
+pointers at all, as that service's own comment says. So the first review of a branch costs several full
+comparisons plus blob writes. The `ponytail:` comment in `MergePreviewService` carries the accepted
+ceiling and the ordered upgrade path.
 
 On success the merge navigates back to the document console, where the merged branch now renders as
 *"Merged into the main history."* — the existing behaviour, reached by an existing SSE tick.
@@ -210,8 +223,10 @@ would break every existing client to protect automation that chose to automate.
 
 **`tests/EasyDocs.Api.Tests/MergePreviewTests.cs`** (new)
 
-- Editor gets a preview; Viewer gets `403`; a non-member gets `404`
-- unknown document, and a version id belonging to another document, are `404`
+- Editor gets a preview; Viewer gets `403`; a same-org non-member gets `403`; a cross-org document
+  is `404` (no existence leak) — mirroring `DocumentAuthorization` and `POST /merges` exactly
+- an unknown document is `404`; a version id belonging to **another** document is `409`, because it
+  fails at side-resolution rather than at authorization
 - the fork point returned is the branch's `RootVersionId`, not the parent of the branch's oldest row
 - `base: null` when `RootVersionId` is null, with `available` still true and the Merge button live
 - each leg degrades independently: an uncomparable `base→main` nulls `main.summary` and `overlaps`

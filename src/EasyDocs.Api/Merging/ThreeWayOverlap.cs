@@ -54,20 +54,19 @@ public static class ThreeWayOverlap
         var ordinal = 0;
         foreach (var p in doc.Descendants(W + "p"))
         {
-            var hasBaseContent = p.Descendants(W + "t").Any(t => !t.Ancestors(W + "ins").Any())
-                              || p.Descendants(W + "delText").Any();
-            var hasInsertion = p.Descendants(W + "ins").Any();
-
-            // A paragraph that is ALL insertion never existed in the base, so numbering it would shift
-            // every later ordinal out of step with the other comparison — which is exactly the bug this
-            // anchor exists to avoid. Skipping them is what makes `ordinal` the BASE document's own
-            // paragraph numbering, identical across both comparisons by construction.
+            // A paragraph that never existed in the base must not be numbered, or every ordinal below it
+            // shifts out of step with the other comparison — the precise failure this anchor exists to
+            // prevent. WmlComparer marks a NEW paragraph by inserting its paragraph MARK
+            // (w:pPr/w:rPr/w:ins), so that mark is the direct evidence, not an inference.
             //
-            // The test is "has insertions AND no base content" rather than "has no base content", so a
-            // genuinely EMPTY base paragraph (common in real documents) is still counted.
-            if (hasInsertion && !hasBaseContent) continue;
+            // It replaced one: "has insertions and no surviving base text". That read as equivalent and
+            // is not. An empty base paragraph — a spacer, a blank line under a heading — that an author
+            // types into has insertions and no surviving base text, yet it DID exist in the base. Skipping
+            // it desynced everything below, and the visible symptom was the worst kind: the hint naming a
+            // clause neither author had touched, in the one panel that claims to be specific.
+            if (p.Element(W + "pPr")?.Element(W + "rPr")?.Element(W + "ins") is not null) continue;
 
-            if (hasInsertion || p.Descendants(W + "del").Any())
+            if (p.Descendants(W + "ins").Any() || p.Descendants(W + "del").Any())
                 touched[ordinal] = Label(BaseText(p));
             ordinal++;
         }

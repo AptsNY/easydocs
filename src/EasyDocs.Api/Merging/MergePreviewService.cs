@@ -28,6 +28,18 @@ public sealed class MergePreviewService(
     // would have returned.
     public async Task<Preview?> BuildAsync(Guid documentId, Guid leftId, Guid rightId, CancellationToken ct)
     {
+        // ponytail: the reviewed base is not pinned. MergeSides re-resolves main's head from the database
+        // on every call, and POST /merges does the same at click time with no expected-head — so if
+        // somebody lands a version on main while this screen is open, the merge runs against a head the
+        // reader never saw, and answers 201 without mentioning it. Nothing is lost (ADR-1: the merge is
+        // itself a revertible version), which is why this ships, but a review screen that can review the
+        // wrong thing is a weaker promise than the feature makes. It is the plausible case, not an exotic
+        // one: this whole feature exists because people edit these documents concurrently.
+        //
+        // Upgrade path, cheapest first: have the screen re-fetch this preview immediately before posting
+        // and refuse if main.id moved (client-only, keeps POST /merges byte-identical). Failing that,
+        // give the POST an expected-head parameter — a deliberate change to a frozen endpoint, so it
+        // needs its own decision.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftId, rightId, ct);
         if (sides is null) return null;
         var (incoming, incomingBranch, mainHead, _) = sides;
@@ -74,9 +86,19 @@ public sealed class MergePreviewService(
     // the walker needs the XML. Not cached: the redline cache stores rendered html/docx, not the
     // in-memory WmlDocument, and adding a third cached artefact for a screen this size is not worth it.
     //
-    // ponytail: two extra Compare calls per preview open. Ceiling: on a very large document that is the
-    // slowest thing the screen does. Upgrade path if it bites — cache the overlap list in version_diffs
-    // keyed by the (base, main, incoming) sha triple.
+    // ponytail: these two Compare calls DUPLICATE the two SummaryAsync just ran — five full comparisons
+    // per preview, where three would do. Worse than it looks: WmlComparerDiffService.SummaryAsync does not
+    // read the version_diffs cache at all (the cache-first path lives in its caller,
+    // DocumentEndpoints.Compare, which this bypasses), so base->main is recomputed even though
+    // DiffSummaryWorker almost certainly cached it already. Nothing rate-limits this endpoint, so it is
+    // the most expensive authenticated GET in the app — amplifying /compare's existing exposure rather
+    // than adding a new one.
+    //
+    // Ceiling accepted for now because it is correct and the screen is not hot. Upgrade path, in order:
+    // hoist both base comparisons into BuildAsync, derive the leg summaries from them with
+    // WmlComparer.GetRevisions, and hand the compared documents straight to ThreeWayOverlap.Find — five
+    // compares becomes three and the version_diffs write leaves the GET path. Then, if still needed,
+    // .RequireRateLimiting on the endpoint.
     private async Task<IReadOnlyList<ThreeWayOverlap.Paragraph>?> OverlapsAsync(
         string baseSha, string mainSha, string incomingSha, CancellationToken ct)
     {

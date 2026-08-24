@@ -15,8 +15,10 @@ public static class MergeEndpoints
     {
         app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization().WithTags("Merging");
 
-        // A GET, not ?dryRun= on the POST: the preview is a pure read — cacheable, revisitable,
-        // linkable — and making a read look like a write to save a route entry is a bad trade.
+        // A GET, not ?dryRun= on the POST: previewing is a read of what a merge WOULD do, and making it
+        // look like a write to save a route entry is a bad trade. Note it is not side-effect-free —
+        // computing the summaries populates the version_diffs cache — but it adds no version and no
+        // audit row, which is the property that matters and the one MergePreviewTests pins.
         app.MapGet("/api/v1/documents/{id:guid}/merges/preview", Preview)
             .RequireAuthorization().WithTags("Merging");
     }

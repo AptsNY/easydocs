@@ -92,4 +92,34 @@ public class ThreeWayOverlapTests
         Assert.DoesNotContain("TAIL", text);
         Assert.True(text.Length <= 61);   // 60 chars + the ellipsis
     }
+
+    // A base paragraph that was EMPTY and then typed into still existed in the base, so it must keep its
+    // ordinal. Inferring "did not exist in the base" from "has insertions and no surviving base text"
+    // gets this wrong and desyncs every ordinal below it — which is the precise failure the anchor
+    // exists to prevent, reintroduced by the predicate meant to implement it.
+    [Fact]
+    public void Filling_an_empty_base_paragraph_does_not_shift_the_other_sides_ordinals()
+    {
+        var b = DocxFixtures.Build("Alpha", "", "Bravo", "Charlie");
+        var main = Compare(b, DocxFixtures.Build("Alpha", "FILLED", "Bravo MAIN", "Charlie"));
+        var incoming = Compare(b, DocxFixtures.Build("Alpha", "", "Bravo BRANCH", "Charlie"));
+
+        var overlaps = ThreeWayOverlap.Find(main, incoming);
+
+        Assert.Single(overlaps);
+        Assert.Contains("Bravo", overlaps[0].Text);
+    }
+
+    // The same defect's louder half: the two sides overlap NOWHERE, but a one-paragraph ordinal shift
+    // makes main's edit to Charlie collide with incoming's edit to Bravo. The panel then names a clause
+    // neither pair of edits shares — specifically wrong, in the one place the screen claims precision.
+    [Fact]
+    public void Filling_an_empty_base_paragraph_does_not_invent_an_overlap()
+    {
+        var b = DocxFixtures.Build("Alpha", "", "Bravo", "Charlie");
+        var main = Compare(b, DocxFixtures.Build("Alpha", "FILLED", "Bravo", "Charlie MAIN"));
+        var incoming = Compare(b, DocxFixtures.Build("Alpha", "", "Bravo BRANCH", "Charlie"));
+
+        Assert.Empty(ThreeWayOverlap.Find(main, incoming));
+    }
 }

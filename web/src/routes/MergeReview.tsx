@@ -41,6 +41,12 @@ export default function MergeReview() {
   useEffect(() => {
     if (!id || !left || !right) return
     let live = true
+    // Clear first: without this a refetch keeps the PREVIOUS pair's base, counts and hint on screen
+    // (and `busy && !preview` hides the loading line), while Merge stays live and posts the NEW
+    // left/right. Only reachable by browser back/forward between two merge URLs — every in-app route
+    // here is a Link from History, which remounts — but the failure is "approve one merge, commit
+    // another", which is not a thing to leave to luck.
+    setPreview(null)
     setBusy(true)
     api
       .get<MergePreview>(`/api/v1/documents/${id}/merges/preview?left=${left}&right=${right}`)
