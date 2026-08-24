@@ -62,6 +62,7 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Wr
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<DiffJob>>().Reader);
 builder.Services.AddScoped<WmlComparerDiffService>();
 builder.Services.AddScoped<WmlComparerMergeService>();
+builder.Services.AddScoped<MergePreviewService>(); // read-only three-way review of a pending merge
 builder.Services.AddScoped<EasyDocs.Api.Copies.PushService>();
 builder.Services.AddHostedService<DiffSummaryWorker>();
 
