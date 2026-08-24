@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   api,
   getRaw,
@@ -103,6 +103,14 @@ export default function MergeReview() {
   return (
     <section data-testid="merge-review">
       <h2>Review this merge</h2>
+
+      {/* Outside the `preview &&` block on purpose, like Compare.tsx's own back link. Cancel lives in
+          the actions row, which only renders once a preview arrived — so without this, a 403, a 404, or
+          the documented 409 (neither side on an incoming branch) would leave the reader on an error
+          message with no way back to the document but the browser's own button. */}
+      <p>
+        <Link to={`/documents/${id}`}>Back to the document</Link>
+      </p>
 
       {error && (
         <p role="alert" className="error">
