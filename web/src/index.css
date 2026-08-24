@@ -1523,6 +1523,22 @@ button.danger:focus-visible {
   margin-block-start: var(--s4);
 }
 
+.merge-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+}
+
+.merge-overlaps {
+  border-left: 3px solid currentColor;
+  padding-left: 0.75rem;
+}
+
+.merge-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 /* ------------------------------------------------------ the share landing */
 
 /* The only screen with no app shell around it — the recipient is not a user of

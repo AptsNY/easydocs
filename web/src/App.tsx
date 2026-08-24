@@ -13,6 +13,7 @@ import Editor from './routes/Editor'
 import History from './routes/History'
 import Login from './routes/Login'
 import MajorVersions from './routes/MajorVersions'
+import MergeReview from './routes/MergeReview'
 import Settings from './routes/Settings'
 import ShareLanding from './routes/ShareLanding'
 
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="audit" element={<Audit />} />
           </Route>
           <Route path="/documents/:id/compare" element={<Compare />} />
+          <Route path="/documents/:id/merge" element={<MergeReview />} />
           <Route path="/versions/:vid/edit" element={<Editor />} />
         </Route>
       </Route>
