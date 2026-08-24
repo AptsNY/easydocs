@@ -6,7 +6,7 @@ import {
   register,
   signIn,
   createDocument,
-  fixtureBytes,
+  raceConcurrentBranch,
   uploadVersion,
   type Account,
 } from './fixtures'
@@ -14,9 +14,8 @@ import {
 // The document console against the real API: spec §9's revision history (main spine + grouped
 // concurrent-branch entries + Merge), and the members panel with its invitation and last-owner rules.
 //
-// The concurrent branch is produced the way the C# E4 suite produces it — two edit sessions minted from
-// the same head, then two WOPI saves of different bytes. Collabora is not running here and is not
-// needed: WOPI is a server-to-server contract, so the race is real without any editor UI.
+// The concurrent branch comes from raceConcurrentBranch in ./fixtures, which the merge-review spec also
+// uses; the note on why no editor needs to be running lives with it.
 
 const versionRows = (page: Page) => page.getByTestId('version-row')
 const row = (page: Page, number: string) =>
@@ -32,44 +31,6 @@ const memberRow = (page: Page, email: string) =>
 // selected option IS the statement, so this reads its value); where they may not, it is text. Both
 // carry data-testid="member-role", so "what does this row say the role is" still has one answer.
 const roleOf = (row: ReturnType<typeof memberRow>) => row.getByTestId('member-role')
-
-type Session = { sessionId: string; editorUrl: string; accessToken: string }
-
-async function mintSession(page: Page, versionId: string): Promise<Session> {
-  const res = await page.request.post(`/api/v1/versions/${versionId}/sessions`)
-  expect(res.ok(), `mint session failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-  const session = (await res.json()) as Session
-  // Assert the URL, never anything inside it: nothing serves it in this environment.
-  expect(session.editorUrl).toContain(`WOPISrc=`)
-  return session
-}
-
-// The WOPI routes authorize on the access_token query param, not the session cookie.
-async function wopiSave(page: Page, session: Session, fixture: string) {
-  const q = `access_token=${session.accessToken}`
-  const lock = await page.request.post(`/wopi/files/${session.sessionId}?${q}`, {
-    headers: { 'X-WOPI-Override': 'LOCK', 'X-WOPI-Lock': 'L1' },
-  })
-  expect(lock.ok(), `WOPI lock failed: ${lock.status()} ${await lock.text()}`).toBeTruthy()
-
-  const put = await page.request.post(`/wopi/files/${session.sessionId}/contents?${q}`, {
-    headers: { 'X-WOPI-Lock': 'L1', 'Content-Type': 'application/octet-stream' },
-    data: fixtureBytes(fixture),
-  })
-  expect(put.ok(), `WOPI put failed: ${put.status()} ${await put.text()}`).toBeTruthy()
-}
-
-// Branch-on-stale-base: both sessions open on 0.0.1, the first save fast-forwards main to 0.0.2, the
-// second lands on a Concurrent branch as 0.0.3 rather than overwriting it (E4, zero lost edits).
-async function raceConcurrentBranch(page: Page, name: string) {
-  const documentId = await createDocument(page, name)
-  const head = await uploadVersion(page, documentId, 'base.docx')
-  const mine = await mintSession(page, head)
-  const theirs = await mintSession(page, head)
-  await wopiSave(page, mine, 'edited.docx')
-  await wopiSave(page, theirs, 'edited-plus-echo.docx')
-  return documentId
-}
 
 // DiffSummaryWorker computes parent->child summaries off the request thread, so a freshly uploaded
 // version legitimately has `summary: null` for a moment. Waiting on the API keeps the rendering test
@@ -149,7 +110,7 @@ test('a version with no parent shows a dash, never 0 insertions', async ({ signe
   await expect(first).not.toContainText('0 insertions')
 })
 
-test('a concurrent branch renders as an indented group with a Merge button (E4)', async ({
+test('a concurrent branch renders as an indented group with a Review & merge link (E4)', async ({
   signedIn: page,
 }) => {
   const documentId = await raceConcurrentBranch(page, 'Race')
@@ -164,7 +125,7 @@ test('a concurrent branch renders as an indented group with a Merge button (E4)'
   )
   // Indented, not a sibling list: the group is nested inside the main spine at its fork point.
   await expect(page.locator('[data-testid="branch-spine"] [data-testid="branch-group"]')).toBeVisible()
-  await expect(concurrentGroup(page).getByRole('button', { name: 'Merge' })).toBeVisible()
+  await expect(concurrentGroup(page).getByRole('link', { name: 'Review & merge' })).toBeVisible()
 })
 
 test('merging a concurrent branch adds a version and loses nothing (E4)', async ({
@@ -172,11 +133,15 @@ test('merging a concurrent branch adds a version and loses nothing (E4)', async 
 }) => {
   const documentId = await raceConcurrentBranch(page, 'Merge Me')
   await page.goto(`/documents/${documentId}`)
-  await concurrentGroup(page).getByRole('button', { name: 'Merge' }).click()
+  // Merging is a two-step now: the group's control opens the three-way review, and the commit is the
+  // button on that screen. Everything below this hop is the E4 guarantee, unchanged.
+  await concurrentGroup(page).getByRole('link', { name: 'Review & merge' }).click()
+  await expect(page.getByTestId('merge-review')).toBeVisible()
+  await page.getByRole('button', { name: 'Merge' }).click()
 
   await expect(row(page, '0.0.4')).toBeVisible()
   await expect(concurrentGroup(page)).toHaveAttribute('data-merged', 'true')
-  await expect(concurrentGroup(page).getByRole('button', { name: 'Merge' })).toHaveCount(0)
+  await expect(concurrentGroup(page).getByRole('link', { name: 'Review & merge' })).toHaveCount(0)
 
   // E4: nothing is lost. Both racing versions are still in history after the merge.
   await expect(row(page, '0.0.2')).toBeVisible()

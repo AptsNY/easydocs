@@ -22,32 +22,17 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
 
     public async Task<MergeResult> MergeAsync(Guid documentId, Guid leftVersionId, Guid rightVersionId, Guid actorUserId, CancellationToken ct)
     {
-        var left = await db.Versions.FirstOrDefaultAsync(v => v.Id == leftVersionId && v.DocumentId == documentId, ct);
-        var right = await db.Versions.FirstOrDefaultAsync(v => v.Id == rightVersionId && v.DocumentId == documentId, ct);
-        if (left is null || right is null) return new MergeResult(false, null);
-
-        var leftBranch = await db.Branches.FirstAsync(b => b.Id == left.BranchId, ct);
-        var rightBranch = await db.Branches.FirstAsync(b => b.Id == right.BranchId, ct);
-
-        // The incoming side is the one that is not main; its edits become the tracked redline. Two kinds
-        // qualify: a concurrent branch from a stale-base save (M1, E4) and an incoming_push branch
-        // materialized from a copy (M4, E9) — both are "somebody else's work to bring onto main", and the
-        // merge treats them identically.
+        // Sides live in MergeSides so the preview endpoint resolves them identically (spec:
+        // 2026-08-24-three-way-merge-review-design.md).
         //
-        // ponytail: an incoming_push branch carries the fork point in RootVersionId (spec §8), but nothing
-        // here reads it — merge-into-main (§5.3 [D]) compares the current main head against the incoming
-        // head, so the common ancestor is provenance, not a merge input. Ceiling: a true three-way fuse of
-        // both authors over the ancestor would need it; that is the deferred v1.1 enhancement in §5.3.
-        var (incoming, incomingBranch) = IsIncoming(rightBranch) ? (right, rightBranch)
-            : IsIncoming(leftBranch) ? (left, leftBranch)
-            : (null, null!);
-        if (incoming is null) return new MergeResult(false, null);
-
-        // base = the TARGET (main) branch's current head at merge time — the accepted content.
-        var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == documentId && b.Ordinal == 0, ct);
-        var mainHead = await db.Versions.Where(v => v.BranchId == mainBranch.Id)
-            .OrderByDescending(v => v.SeqInBranch).FirstOrDefaultAsync(ct);
-        if (mainHead is null) return new MergeResult(false, null);
+        // ponytail: an incoming_push branch carries the fork point in RootVersionId (spec §8), and
+        // merge-into-main (§5.3 [D]) still does not read it — it compares the current main head against
+        // the incoming head, so the common ancestor is provenance, not a merge input. The three-way
+        // REVIEW surfaces that ancestor to the user without changing this. Ceiling unchanged: a true
+        // three-way fuse of both authors over the ancestor is the deferred v1.1 enhancement in §5.3.
+        var sides = await MergeSides.ResolveAsync(db, documentId, leftVersionId, rightVersionId, ct);
+        if (sides is null) return new MergeResult(false, null);
+        var (incoming, incomingBranch, mainHead, mainBranch) = sides;
 
         var incomingAuthor = await AuthorNameAsync(incoming.CreatedBy, ct);
 
@@ -77,8 +62,6 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         bus.Publish(documentId, "merge.completed", new { mergeVersionId = commit.VersionId });
         return new MergeResult(true, commit.VersionId);
     }
-
-    private static bool IsIncoming(Branch b) => b.Kind is BranchKind.Concurrent or BranchKind.IncomingPush;
 
     private static WmlComparerSettings SettingsFor(string author) =>
         new() { AuthorForRevisions = author };

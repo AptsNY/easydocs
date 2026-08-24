@@ -17,6 +17,7 @@ const authenticated: [string, string][] = [
   [`/documents/${id}/approvals`, 'approvals'],
   [`/documents/${id}/audit`, 'audit'],
   [`/documents/${id}/compare`, 'compare'],
+  [`/documents/${id}/merge`, 'merge-review'],
   [`/versions/${id}/edit`, 'editor'],
 ]
 

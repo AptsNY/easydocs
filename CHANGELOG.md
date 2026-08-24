@@ -19,6 +19,20 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **Merging a branch now goes through a review.** The history's merge control opens a screen showing
+  the version both branches forked from, what each side changed since that fork, and a hint naming the
+  paragraphs both authors touched — so the decision is made with the other side's work visible, rather
+  than discovered afterwards in the redline. `GET /api/v1/documents/{id}/merges/preview` returns the
+  same information to API callers.
+
+  The merge itself is unchanged: same comparison, same tracked changes, same result. `POST
+  /api/v1/documents/{id}/merges` still merges directly and is untouched, so existing scripts see
+  exactly what they saw before — the review is the UI's route to it, not a new gate on the API.
+
+  The overlap hint is best-effort and never blocks a merge. It anchors on a paragraph's position
+  within the shared ancestor, which a paragraph split on one side can shift, so it is worded as a hint
+  and says so on screen. Insertions and deletions in body text only — formatting and header/footer
+  changes are outside the comparison, as they already are on the compare screen.
 - **A document can be imported in one step.** `POST /api/v1/documents:import` takes a multipart body
   — a file, an optional `name`, an optional `folderId` — and returns a new document already holding
   that file as version `0.0.1`. The dashboard gains an **Import document** control that uses it,

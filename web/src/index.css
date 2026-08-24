@@ -1214,7 +1214,9 @@ a.button:hover {
   color: var(--text);
 }
 
-.branch-group > button {
+/* The merge control is an anchor now (it navigates to the review screen), so this spacing has to
+   follow it there — otherwise the control loses its gap the moment it stops being a <button>. */
+.branch-group > :where(button, a.button) {
   margin-block-start: var(--s2);
 }
 
@@ -1521,6 +1523,22 @@ button.danger:focus-visible {
 
 .compare > button {
   margin-block-start: var(--s4);
+}
+
+.merge-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+}
+
+.merge-overlaps {
+  border-left: 3px solid currentColor;
+  padding-left: 0.75rem;
+}
+
+.merge-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 /* ------------------------------------------------------ the share landing */
