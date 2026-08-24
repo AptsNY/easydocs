@@ -14,6 +14,32 @@ public static class MergeEndpoints
     public static void MapMergeEndpoints(this WebApplication app)
     {
         app.MapPost("/api/v1/documents/{id:guid}/merges", Merge).RequireAuthorization().WithTags("Merging");
+
+        // A GET, not ?dryRun= on the POST: the preview is a pure read — cacheable, revisitable,
+        // linkable — and making a read look like a write to save a route entry is a bad trade.
+        app.MapGet("/api/v1/documents/{id:guid}/merges/preview", Preview)
+            .RequireAuthorization().WithTags("Merging");
+    }
+
+    // GET /api/v1/documents/{id}/merges/preview?left=&right=  — what the merge would do, before doing
+    // it. Editor+, the same role the merge needs: a Viewer who cannot merge has no business enumerating
+    // what a merge would collide with. Commits nothing.
+    private static async Task<IResult> Preview(
+        Guid id, Guid left, Guid right, HttpContext ctx, EasyDocsDbContext db, MergePreviewService preview)
+    {
+        var orgId = CurrentUser.OrgId(ctx.User);
+        var userId = CurrentUser.UserId(ctx.User);
+        var (result, role) = await DocumentAuthorization.ResolveAsync(db, orgId, userId, id, ctx.RequestAborted);
+        if (result == AccessResult.NotFound) return Problem.Of(404, "Not found", "Document not found.");
+        if (result == AccessResult.Forbidden) return Problem.Of(403, "Forbidden", "You do not have access to this document.");
+        if (!DocumentAuthorization.CanEdit(role!.Value)) return Problem.Of(403, "Forbidden", "Editor role required.");
+
+        var p = await preview.BuildAsync(id, left, right, ctx.RequestAborted);
+        // Same title and detail the POST returns, so the screen shows the real message BEFORE the click
+        // rather than after it.
+        return p is null
+            ? Problem.Of(409, "Merge unavailable", "Comparison failed — download both versions and merge manually.")
+            : Results.Ok(p);
     }
 
     private static async Task<IResult> Merge(Guid id, MergeRequest req, HttpContext ctx, EasyDocsDbContext db, WmlComparerMergeService merge)
