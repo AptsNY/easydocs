@@ -1065,10 +1065,15 @@ test('Merge from the review commits and returns to the console', async ({ signed
 Run: `npm --prefix web run e2e -- merge-review.spec.ts`
 Expected: PASS (4 tests).
 
-**Note on the overlap panel:** `edited.docx` and `edited-plus-echo.docx` differ by an *appended*
-paragraph, so they do not overlap and `merge-overlaps` will not render. Do **not** add a fixture pair
-just to exercise it here — that case is already covered properly in `ThreeWayOverlapTests`, which tests
-it directly and without a browser.
+**Note on the overlap panel — an earlier draft of this plan got this wrong.** It claimed the fixtures do
+not overlap and the panel would not render. They do. `raceConcurrentBranch` forks both sides from
+`base.docx` (`Alpha`/`Bravo`/`Charlie`), and *both* `edited.docx` and `edited-plus-echo.docx` change
+`Bravo` → `Bravo EDITED`. Task 4's endpoint test on this exact trio returned
+`"overlaps": [{ "ordinal": 1, "text": "Bravo" }]`.
+
+So the hint panel **must** be asserted here. That makes this spec cover the feature's headline
+behaviour — a clause both authors touched, surfaced *before* the merge — end to end rather than only in
+`ThreeWayOverlapTests`. No new fixture is needed.
 
 - [ ] **Step 3: Run the full web suite**
 
