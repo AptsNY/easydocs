@@ -110,7 +110,7 @@ test('a version with no parent shows a dash, never 0 insertions', async ({ signe
   await expect(first).not.toContainText('0 insertions')
 })
 
-test('a concurrent branch renders as an indented group with a Merge button (E4)', async ({
+test('a concurrent branch renders as an indented group with a Review & merge link (E4)', async ({
   signedIn: page,
 }) => {
   const documentId = await raceConcurrentBranch(page, 'Race')
@@ -125,7 +125,7 @@ test('a concurrent branch renders as an indented group with a Merge button (E4)'
   )
   // Indented, not a sibling list: the group is nested inside the main spine at its fork point.
   await expect(page.locator('[data-testid="branch-spine"] [data-testid="branch-group"]')).toBeVisible()
-  await expect(concurrentGroup(page).getByRole('button', { name: 'Merge' })).toBeVisible()
+  await expect(concurrentGroup(page).getByRole('link', { name: 'Review & merge' })).toBeVisible()
 })
 
 test('merging a concurrent branch adds a version and loses nothing (E4)', async ({
@@ -133,11 +133,15 @@ test('merging a concurrent branch adds a version and loses nothing (E4)', async 
 }) => {
   const documentId = await raceConcurrentBranch(page, 'Merge Me')
   await page.goto(`/documents/${documentId}`)
-  await concurrentGroup(page).getByRole('button', { name: 'Merge' }).click()
+  // Merging is a two-step now: the group's control opens the three-way review, and the commit is the
+  // button on that screen. Everything below this hop is the E4 guarantee, unchanged.
+  await concurrentGroup(page).getByRole('link', { name: 'Review & merge' }).click()
+  await expect(page.getByTestId('merge-review')).toBeVisible()
+  await page.getByRole('button', { name: 'Merge' }).click()
 
   await expect(row(page, '0.0.4')).toBeVisible()
   await expect(concurrentGroup(page)).toHaveAttribute('data-merged', 'true')
-  await expect(concurrentGroup(page).getByRole('button', { name: 'Merge' })).toHaveCount(0)
+  await expect(concurrentGroup(page).getByRole('link', { name: 'Review & merge' })).toHaveCount(0)
 
   // E4: nothing is lost. Both racing versions are still in history after the merge.
   await expect(row(page, '0.0.2')).toBeVisible()
