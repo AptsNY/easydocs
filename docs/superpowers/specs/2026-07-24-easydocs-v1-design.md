@@ -134,6 +134,17 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 
 `POST /documents/{id}/merges {left, right}`: **merge-into-main model** (revised — see note). The base is the **current main-branch head** (which already carries the first author's accepted edits); a single `WmlComparer.Compare(mainHead, incomingBranchHead)` renders the incoming concurrent branch's changes as Word tracked-changes revisions **attributed to the incoming author**, ready to accept/reject on top of current main. Committed as `source=merge` with two parent pointers (parent = main head, merge-parent = incoming). The merged concurrent branch closes (`merged_into_version_id`). Overlapping edits are **not** auto-resolved — the editor's accept-reject UI is the resolver. Every `WmlComparer` call is guarded; failure → `409` "merge unavailable", never a partial commit. Auto-branching *requires* merge, so the **base merge engine ships in M1**; the copy/push cross-document ancestor path is M4.
 
+> **Post-v1.1 deviation: the three-way REVIEW (§10.1 gains `GET /documents/{id}/merges/preview`).** The
+> merge model above is unchanged — still merge-into-main, still one `Compare(mainHead, incoming)`, still
+> the same committed result. What is added is a **read-only** endpoint, and the screen the merge control
+> now routes through, that shows the fork point (`branches.root_version_id`, already stored and until now
+> never read), each side's changes since it, and a best-effort hint naming paragraphs both authors
+> touched. This is deliberately *not* the "both-authors-over-common-ancestor" fuse described in [D]
+> below: that remains a future enhancement, and nothing here makes it easier or harder. The endpoint is
+> recorded here rather than left to drift, per the M4.5 precedent — the spec and the code are never
+> allowed to disagree silently. Full rationale:
+> `docs/superpowers/specs/2026-08-24-three-way-merge-review-design.md`.
+
 > **[D] Merge-model decision (M1).** The original "run `WmlComparer` on `base→left` and `base→right` and consolidate both authors' revisions over the common ancestor" was found **not implementable** with the OSS comparer (Clippit/OpenXmlPowerTools): `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly one `AuthorForRevisions` per call, so dual-author tracked changes over a shared ancestor cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). We therefore adopt **merge-into-main**: the first author's edits are the accepted base, the incoming branch comes in as a clean single-author redline. Nothing is lost (both branch versions persist in history). The "both-authors-over-common-ancestor" redline (a manual XML fuse of two `Compare(base, side)` revision sets) is a possible **future enhancement**, not v1.
 
 ---
@@ -218,7 +229,7 @@ Publish/approvals: `POST /versions/{vid}/publish`, `GET /documents/{id}/publicat
 Approvals (read): `GET /approvals?filter=assigned|requested&status=`, `GET /versions/{vid}/approvals`.
 Sharing: `POST /versions/{vid}/share-links`, `GET /documents/{id}/share-links`, `GET /s/{token}` (public), `DELETE /share-links/{id}`.
 Copies/push: `POST /versions/{vid}/copies`, `GET /documents/{id}/copies`, `POST /documents/{id}/pushes`, `GET /documents/{id}/push-requests`, `POST /push-requests/{id}:accept|reject`.
-Members/merge: `GET/POST /documents/{id}/members`, `PATCH/DELETE /documents/{id}/members/{uid}`, `POST /documents/{id}/merges`.
+Members/merge: `GET/POST /documents/{id}/members`, `PATCH/DELETE /documents/{id}/members/{uid}`, `POST /documents/{id}/merges`, `GET /documents/{id}/merges/preview?left=&right=` (read-only three-way review — see the note in §5.3).
 Tokens: `GET/POST/DELETE /tokens`.
 Org: `GET/PATCH /org`, `GET/POST /org/members`, `PATCH/DELETE /org/members/{uid}`.
 Audit: `GET /documents/{id}/audit`.
