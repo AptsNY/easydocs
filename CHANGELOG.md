@@ -25,7 +25,8 @@ descriptions are **document** versions, produced by the versioning engine. They 
   Claude Code, Cursor, Codex, Gemini CLI and Claude Desktop. It runs on the user's machine with their
   own `ed_` token, so every call is authorized exactly as their `curl` would be. Nothing on the
   server changed. `packages/*` is now real and MIT-licensed, as the licence section always said it
-  would be.
+  would be. The server verifies the token against `/api/v1/me` before it starts, so a mistyped token
+  fails at start-up rather than on the first question.
 - **Merging a branch now goes through a review.** The history's merge control opens a screen showing
   the version both branches forked from, what each side changed since that fork, and a hint naming the
   paragraphs both authors touched — so the decision is made with the other side's work visible, rather

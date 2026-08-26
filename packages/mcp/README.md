@@ -62,7 +62,7 @@ documents have approvals waiting on me?"*
 | `get_document` | one document's name, folder, org |
 | `list_versions` | the history: numbers, authors, branches, change summaries |
 | `get_version` | one version's details |
-| `compare_versions` | redline between two versions — counts, or the HTML with `format=html` |
+| `compare_versions` | redline between two versions of a document (`id`, `from`, `to`) — counts, or the HTML with `format=html` |
 | `list_audit_events` | who did what, when, on a document |
 | `list_members` | who has which role on a document |
 | `list_publications` | published versions and their PDFs |
@@ -85,7 +85,13 @@ command-line flag — those show up in `ps`), and revoke it under **Settings →
 ## Troubleshooting
 
 - **`KeyError: 'EASYDOCS_URL'`** (or `_TOKEN`) — the env var is missing from the client config.
-- **`401` at start-up** — the token is wrong, revoked or expired.
+- **`401 Unauthorized` at start-up** — the token is wrong, revoked or expired. The server checks it
+  against `/api/v1/me` before it starts, so a bad token fails here rather than on your first question.
+- **Long tracebacks in the server log after a "not found"** — that is FastMCP reporting an API `404`/`403`
+  to the model; the model sees the API's own message ("Document not found.") and carries on. Noisy,
+  not a crash.
+- **Every start needs network to GitHub** with the `uv run https://…` form (it re-fetches the script).
+  Clone the repo and point `args` at the file on disk if that bothers you.
 - **A tool is missing** — your install is older than this script and lacks that endpoint. Nothing else
   breaks; upgrade the install to get the tool.
 - **Never log to stdout** if you modify the script: stdout *is* the protocol stream. Use stderr.

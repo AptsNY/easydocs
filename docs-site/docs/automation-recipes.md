@@ -251,9 +251,22 @@ or an Editor of the document may revoke.
 
 ## Other useful calls
 
-Prefer talking to an AI agent instead of `curl`? The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp)
-exposes the read side of this API — every `GET` below — as tools for Claude Code, Cursor and friends,
-authenticated with the same `ed_` token.
+### From an AI agent instead of `curl`
+
+The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp) exposes the read side of
+this API — every `GET` below — as seventeen tools for Claude Code, Claude Desktop, Cursor, Codex and
+Gemini CLI, authenticated with the same `ed_` token and running on your own machine. It cannot write.
+With [`uv`](https://docs.astral.sh/uv/) installed:
+
+```bash
+claude mcp add easydocs \
+  -e EASYDOCS_URL=https://docs.example.com -e EASYDOCS_TOKEN=ed_... \
+  -- uv run https://raw.githubusercontent.com/AptsNY/easydocs/main/packages/mcp/easydocs_mcp.py
+```
+
+Other clients take the same `command` / `args` / `env` in their JSON config — the
+[package README](https://github.com/AptsNY/easydocs/tree/main/packages/mcp#setup) shows each. Then ask
+*"what changed in the lease between 0.0.4 and 0.1.0?"*
 
 ```bash
 # Who am I, and which org is this session bound to?
