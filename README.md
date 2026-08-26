@@ -148,6 +148,8 @@ Everything the UI does, the API does — it is the same surface, not a subset.
 - **Auth:** `ed_`-prefixed personal access tokens as `Authorization: Bearer ed_…`, or the session cookie
   for the browser. A token can never exceed the role of the user who minted it.
 - **Live updates:** server-sent events per document at `/api/v1/documents/{id}/events`.
+- **MCP:** a read-only [MCP server](packages/mcp/) for Claude Code, Cursor and other AI coding agents,
+  generated from the OpenAPI document — install with one command, runs on your machine as you.
 
 Worked end-to-end examples: [automation recipes](https://aptsny.github.io/easydocs/automation-recipes/).
 
@@ -198,18 +200,17 @@ way it started: people who need it, keeping it alive.
 
 ## License
 
-**Everything in this repository today is AGPL-3.0** ([LICENSE](LICENSE)) — server, SPA, tests, deploy
-files, docs.
+**Everything in this repository is AGPL-3.0** ([LICENSE](LICENSE)) — server, SPA, tests, deploy
+files, docs — except `packages/*`, which is MIT.
 
 | Path | License |
 |---|---|
-| Everything in this repo | **AGPL-3.0** — the whole repository right now |
-| `packages/*` — future API client SDKs | **MIT**, when written. The directory does not exist yet. |
+| Everything outside `packages/*` | **AGPL-3.0** |
+| `packages/*` — API clients | **MIT.** Today: [`packages/mcp`](packages/mcp/), the MCP server. |
 
 AGPL is the right licence for a self-hostable server — it keeps modifications to a *hosted* easydocs
-available to its users. It is the wrong licence for a thin client library, so future SDKs will live
-under `packages/*` with their own MIT `LICENSE`. **Until that directory exists, assume AGPL-3.0 for
-anything you take from here.** Full reasoning:
+available to its users. It is the wrong licence for a thin client library, so clients live
+under `packages/*` with their own MIT `LICENSE`. **Anything outside that directory is AGPL-3.0.** Full reasoning:
 [spec §14](docs/superpowers/specs/2026-07-24-easydocs-v1-design.md).
 
 Contributions are under the **Developer Certificate of Origin** — sign off every commit with

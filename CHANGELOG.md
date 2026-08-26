@@ -19,6 +19,13 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **easydocs can be used from AI coding agents.** `packages/mcp/easydocs_mcp.py` is a read-only
+  [MCP](https://modelcontextprotocol.io) server generated from the install's own `/openapi/v1.json`:
+  seventeen tools covering documents, history, redlines, audit trails, approvals and folders, for
+  Claude Code, Cursor, Codex, Gemini CLI and Claude Desktop. It runs on the user's machine with their
+  own `ed_` token, so every call is authorized exactly as their `curl` would be. Nothing on the
+  server changed. `packages/*` is now real and MIT-licensed, as the licence section always said it
+  would be.
 - **Merging a branch now goes through a review.** The history's merge control opens a screen showing
   the version both branches forked from, what each side changed since that fork, and a hint naming the
   paragraphs both authors touched — so the decision is made with the other side's work visible, rather
