@@ -279,8 +279,7 @@ claude mcp add easydocs \
 ```
 
 **Cursor** (`~/.cursor/mcp.json`), **Claude Desktop** (`claude_desktop_config.json`), **Gemini CLI**
-(`~/.gemini/settings.json`), **Codex** (`~/.codex/config.toml`, same three fields) — all take the
-same command / args / env:
+(`~/.gemini/settings.json`) — all take the same command / args / env:
 
 ```json
 {
@@ -295,6 +294,15 @@ same command / args / env:
     }
   }
 }
+```
+
+Codex's `~/.codex/config.toml` is TOML, same three fields:
+
+```toml
+[mcp_servers.easydocs]
+command = "uv"
+args = ["run", "https://raw.githubusercontent.com/AptsNY/easydocs/main/packages/mcp/easydocs_mcp.py"]
+env = { EASYDOCS_URL = "https://docs.example.com", EASYDOCS_TOKEN = "ed_..." }
 ```
 
 Prefer a pinned copy? Clone the repo and point `args` at `packages/mcp/easydocs_mcp.py` on disk.
