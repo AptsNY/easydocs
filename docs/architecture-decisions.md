@@ -208,19 +208,19 @@ trusting. Conformance criteria (E1–E12) encode the spec's promises as executab
 **Consequences.** Green means the artifact users pull works, on both architectures. Trade:
 negative guards age — two of them had to learn that v1.1 legitimately ships WebDAV.
 
-## ADR-13: AGPL server, MIT SDKs (when they exist)
+## ADR-13: AGPL server, MIT clients under `packages/*`
 
 **Context.** A self-hostable server wants copyleft (improvements to *hosted* instances must flow
 back); client libraries want the opposite (copyleft on an SDK punishes the API's own users).
 
 **Decision.** Everything in the repository is AGPL-3.0. Future client SDKs will live under
-`packages/*` with their own MIT license — a directory boundary you can point at. Until that
-directory exists, nothing here is MIT. Contributions are DCO (`git commit -s`), no CLA;
+`packages/*` with their own MIT license — a directory boundary you can point at. The first occupant
+is `packages/mcp`, the MCP server (2026-08). Contributions are DCO (`git commit -s`), no CLA;
 contributors keep their copyright.
 
 **Consequences.** A company can run, modify, and even sell hosted easydocs — as long as its users
 get the source of what's actually serving them. Integrating with the API from proprietary code is
-explicitly intended and will be MIT-smooth once SDKs exist.
+explicitly intended and is MIT where the client code lives.
 
 ---
 

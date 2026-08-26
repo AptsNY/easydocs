@@ -177,6 +177,14 @@ jobs:
       - name: Install MkDocs Material
         run: pip install mkdocs-material mkdocs-swagger-ui-tag
 
+      # packages/mcp is a Python client of the API, and this job already has Python. Its test pins
+      # the read-only tool surface against the committed OpenAPI snapshot (which the .NET job pins
+      # against the served document), so a write endpoint cannot leak into the MCP tool set unnoticed.
+      - name: Test the MCP server package
+        run: |
+          pip install "fastmcp>=3.4,<4" pytest
+          pytest packages/mcp -q
+
       - name: Build the docs site
         working-directory: docs-site
         run: mkdocs build --strict

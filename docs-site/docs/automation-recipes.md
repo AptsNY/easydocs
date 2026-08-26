@@ -251,6 +251,10 @@ or an Editor of the document may revoke.
 
 ## Other useful calls
 
+Prefer talking to an AI agent instead of `curl`? The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp)
+exposes the read side of this API — every `GET` below — as tools for Claude Code, Cursor and friends,
+authenticated with the same `ed_` token.
+
 ```bash
 # Who am I, and which org is this session bound to?
 curl -sS -H "$AUTH" "$BASE/api/v1/me"
