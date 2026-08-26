@@ -78,13 +78,17 @@ def main() -> None:
     token = os.environ["EASYDOCS_TOKEN"]
     headers = {"Authorization": f"Bearer {token}"}
 
+    # /openapi/v1.json is public, so fetching it proves the URL but not the token. Probe /me first:
+    # a mistyped token fails HERE with a 401, not on the first tool call after the client has already
+    # reported "connected".
+    me = httpx.get(f"{base}/api/v1/me", headers=headers, timeout=30).raise_for_status().json()
     spec = httpx.get(f"{base}/openapi/v1.json", headers=headers, timeout=30).raise_for_status().json()
     # 60 s, not httpx's 5 s: compare_versions?format=html renders a redline on demand.
     client = httpx.AsyncClient(base_url=base, headers=headers, timeout=60)
 
     # stdout is the protocol stream from here on; anything we say goes to stderr.
-    print(f"easydocs MCP: {len(NAMES)} read-only tools against {base}", file=sys.stderr)
-    build(spec, client).run()
+    print(f"easydocs MCP: {len(NAMES)} read-only tools against {base} as {me['email']}", file=sys.stderr)
+    build(spec, client).run(show_banner=False)
 
 
 if __name__ == "__main__":
