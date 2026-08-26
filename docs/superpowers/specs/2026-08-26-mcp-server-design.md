@@ -7,7 +7,8 @@
 `Folders/FolderEndpoints.cs`, `Approvals/ApprovalEndpoints.cs`, `Publishing/PublishEndpoints.cs`,
 `Merging/MergeEndpoints.cs`, `Copies/CopyEndpoints.cs`, `Copies/PushEndpoints.cs`,
 `Auth/AuthEndpoints.cs`, `Auth/OrgEndpoints.cs`; `tests/EasyDocs.Api.Tests/OpenApiTests.cs`; the
-OpenAPI snapshot; `.github/workflows/ci.yml`; `README.md` (licence section); `docs-site/`;
+OpenAPI snapshot; `.github/workflows/ci.yml`; `README.md` (licence section); `CONTRIBUTING.md`;
+`docs/architecture-decisions.md` (ADR-13); `docs-site/`;
 `CHANGELOG.md`
 
 ## Problem
@@ -73,13 +74,13 @@ the docs say so.
 
 FastMCP `route_maps` are evaluated in order, first match wins. Ours:
 
-| Rule | Effect |
-|---|---|
-| `GET` + tag ∈ {Documents, Folders, Audit, Members, Approvals, Publishing, Merging, Copies} → **TOOL** | the read surface |
-| `GET /api/v1/me`, `/api/v1/org`, `/api/v1/orgs` → **TOOL** | "who am I, which org" |
-| `GET /api/v1/versions/{vid}/download` → **EXCLUDE** | binary; useless to a model, large |
-| `GET /api/v1/documents/{id}/events` → **EXCLUDE** | SSE stream; never returns |
-| everything else → **EXCLUDE** | all writes; Auth, MFA, SSO, Tokens, Sharing, Editing, WOPI, WebDAV, `/s/`, `/health` |
+| # | Rule | Effect |
+|---|---|---|
+| 1 | `GET /api/v1/versions/{vid}/download` → **EXCLUDE** | binary; useless to a model, large. Must precede rule 3: it carries the `Documents` tag |
+| 2 | `GET /api/v1/documents/{id}/events` → **EXCLUDE** | SSE stream; never returns (tagged `Events`, so rule 5 would catch it too — listed so nobody "fixes" that) |
+| 3 | `GET` + tag ∈ {Documents, Folders, Audit, Members, Approvals, Publishing, Merging, Copies} → **TOOL** | the read surface |
+| 4 | `GET /api/v1/me`, `/api/v1/org`, `/api/v1/orgs` → **TOOL** | "who am I, which org" |
+| 5 | everything else → **EXCLUDE** | all writes; Auth, MFA, SSO, Tokens, Sharing, Editing, WOPI, WebDAV, `/s/`, `/health`, and `GET /api/v1/org/members` (org roster — not needed to work on documents) |
 
 Excluding by a trailing catch-all rather than listing writes means a **new endpoint is excluded by
 default** until someone adds it here on purpose. The resulting tool set, with the names given in the
@@ -147,9 +148,15 @@ claude mcp add easydocs \
 Cursor, Codex and Gemini CLI take the same `command` / `args` / `env` triple in their JSON config;
 the README shows each. Claude Desktop is the same recipe (it is a stdio client).
 
-`packages/mcp` is **MIT**. The README's licence section and CONTRIBUTING already reserve `packages/*`
-for MIT client code and say "no such directory exists yet"; both are updated to say it now does and
-what is in it. Everything else in the repository stays AGPL-3.0.
+`packages/mcp` is **MIT**. The README's licence section, CONTRIBUTING, and ADR-13 in
+`docs/architecture-decisions.md` all reserve `packages/*` for MIT client code and say the directory
+does not exist yet; all three are updated to say it now does and what is in it. Everything else in
+the repository stays AGPL-3.0.
+
+The FastMCP API this design leans on (`from_openapi`, `route_maps`, `RouteMap(methods, pattern,
+tags, mcp_type)`, `MCPType`) was read from the 3.x docs, not exercised. The plan's first task pins
+`fastmcp` to the current 3.x release and confirms those signatures in a scratch script before any C#
+work starts.
 
 ### Failure behaviour
 
