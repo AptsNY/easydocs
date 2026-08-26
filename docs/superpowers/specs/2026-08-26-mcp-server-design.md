@@ -115,11 +115,11 @@ renaming hook (`mcp_names`, or `mcp_component_fn` setting `component.name`, whic
 3.x release supports without an `operationId`). Zero `src/` diff, no snapshot regeneration, and the
 table and the code are the same thing.
 
-Fork, decided by the plan's first task (a scratch script against the pinned release): if FastMCP's
-renaming turns out to *require* an `operationId` to key on, the honest fix is `.WithName("<snake_case>")`
-on the seventeen endpoints — additive OpenAPI metadata, no behaviour change, no GOVERNANCE issue — plus
-a snapshot regeneration. Not the default, because nobody generates a client from the document today and
-`packages/` did not exist until now.
+Resolved 2026-08-26 before implementation: a scratch run against `fastmcp` 3.4.7 confirmed
+`mcp_component_fn` receives `route.method` / `route.path` and a settable `component.name` with
+`operationId` null, and the allowlist matched exactly seventeen routes. No `src/` change was needed.
+(Had it been, the fallback was `.WithName("<snake_case>")` on the seventeen endpoints — additive
+OpenAPI metadata, no GOVERNANCE issue.)
 
 `snake_case` either way: FastMCP slugifies names, and the guidance is letters, digits, underscores.
 
