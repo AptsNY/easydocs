@@ -18,9 +18,18 @@
 # hashed, so this cannot drift out of step with Argon2idPasswordHasher.
 #
 # Usage:
+#   # compose (the default): talks to the Postgres container on this host
 #   deploy/scripts/issue-password-reset.sh someone@example.com
 #
+#   # anywhere else — managed Postgres, a bastion, a one-off task inside the VPC:
+#   DATABASE_URL='postgresql://user:pw@host:5432/easydocs' \
+#   BASE_URL=https://docs.example.com \
+#     deploy/scripts/issue-password-reset.sh someone@example.com
+#
 # Environment:
+#   DATABASE_URL   libpq connection string. When set, psql runs directly and the container
+#                  variables below are ignored — this is the path for RDS, Cloud SQL, or any
+#                  deployment whose database is not a container on this host. Requires psql.
 #   DB_CONTAINER   Postgres container name             (default: compose-postgres-1)
 #   POSTGRES_USER  database user                       (default: easydocs)
 #   POSTGRES_DB    database name                       (default: easydocs)
@@ -39,14 +48,26 @@ POSTGRES_DB="${POSTGRES_DB:-easydocs}"
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 BASE_URL="${BASE_URL%/}"
 
-if ! docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
-  echo "no container named '$DB_CONTAINER' — set DB_CONTAINER to your Postgres container." >&2
-  exit 69
+# Two ways to reach the database, because not every install keeps it in a container on this host —
+# a managed Postgres behind a private subnet is the normal case once an install is more than a
+# laptop. The rest of the script does not care which.
+#
+# :'em', :'hash' and :'org' are psql's own quoting, so an address containing a quote cannot alter
+# the SQL. DATABASE_URL is passed as an argument and never interpolated into it.
+if [ -n "${DATABASE_URL:-}" ]; then
+  command -v psql >/dev/null || {
+    echo "DATABASE_URL is set but psql is not installed here." >&2; exit 69; }
+  psql() { command psql "$DATABASE_URL" \
+             -qtA -v ON_ERROR_STOP=1 -v em="$EMAIL" -v hash="${HASH:-}" -v org="${ORG_ID:-}" "$@"; }
+else
+  if ! docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
+    echo "no container named '$DB_CONTAINER'." >&2
+    echo "Set DB_CONTAINER, or set DATABASE_URL if the database is not a container on this host." >&2
+    exit 69
+  fi
+  psql() { docker exec -i "$DB_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+             -qtA -v ON_ERROR_STOP=1 -v em="$EMAIL" -v hash="${HASH:-}" -v org="${ORG_ID:-}" "$@"; }
 fi
-
-# :'em' and :'hash' are psql's own quoting, so an address containing a quote cannot alter the SQL.
-psql() { docker exec -i "$DB_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-           -qtA -v ON_ERROR_STOP=1 -v em="$EMAIL" -v hash="${HASH:-}" -v org="${ORG_ID:-}" "$@"; }
 
 # Which org the row is stamped with is NOT free choice, and getting it wrong mints a link that dies
 # on use. The consume endpoint re-runs its cross-team check as
