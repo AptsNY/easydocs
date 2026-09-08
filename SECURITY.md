@@ -107,8 +107,11 @@ context. **HTTPS is required in practice, not optional** — terminate TLS at a 
 **A password reset hands over the whole account, and does not end existing sessions.** An org Owner
 (or an Admin, for a plain Member) can mint a reset link for someone else and therefore take over their
 account. That is inherent to admin-issued reset with no mailer to prove control of the address — it is
-why both ends are audited (`password_reset.issued`, `password_reset.consumed`) and why an Admin is
-refused against an Owner or a peer Admin, and anyone active on a second team is refused outright.
+why an Admin is refused against an Owner or a peer Admin, why anyone active on a second team is refused
+outright, and why an outstanding link is killed the moment the target's role changes or their
+membership ends. Both ends are recorded (`password_reset.issued`, `password_reset.consumed`), but like
+every other org-level event these rows carry no `document_id`, and the only audit read surface is the
+per-document one — **reading them today needs database access**, not the API.
 Consuming a reset revokes every `ed_` token the account holds, but **not** its sessions: a stolen
 `ed_session` cookie keeps working until it expires, up to seven days. Session JWTs are not revocable
 (the same limitation sign-out has); a `jti` denylist is the named upgrade path. If you believe a

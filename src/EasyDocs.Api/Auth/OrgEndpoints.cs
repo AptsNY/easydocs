@@ -162,6 +162,10 @@ public static class OrgEndpoints
             return Problem.Of(409, "Last owner", "An organization must keep at least one owner.");
 
         target.Role = role;
+        // A pending password reset was authorized against the role this member held a moment ago. Left
+        // alive, an admin's legitimately-minted link becomes an Owner takeover the instant that member
+        // is promoted — the consume endpoint is anonymous and cannot re-check who issued it.
+        await PasswordResetEndpoints.InvalidateOutstandingAsync(db, uid, DateTimeOffset.UtcNow, ctx.RequestAborted);
         db.Add(Audit.Event(org.Id, null, CurrentUser.UserId(ctx.User), "org_member.role_changed",
             "user", uid.ToString(), new { role = role.ToString() }));
         await db.SaveChangesAsync(ctx.RequestAborted);
@@ -184,6 +188,9 @@ public static class OrgEndpoints
             return Problem.Of(409, "Last owner", "An organization must keep at least one owner.");
 
         db.Remove(target);
+        // Same reason as UpdateRole: an outstanding link must not outlive the membership that justified
+        // it, or whoever issued it keeps a working takeover on someone who has left the org.
+        await PasswordResetEndpoints.InvalidateOutstandingAsync(db, uid, DateTimeOffset.UtcNow, ctx.RequestAborted);
         db.Add(Audit.Event(org.Id, null, CurrentUser.UserId(ctx.User), "org_member.removed", "user", uid.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
 

@@ -144,10 +144,14 @@ membership changes — who, what, when.
     leaves their two-factor authentication switched on — a reset is not a way past someone's MFA. If
     they have also lost their authenticator, they need one of their recovery codes.
 
+    A link also stops working early if that person's **organization role changes** or they are
+    **removed from the organization** — it was issued against who they were at the time. Issue a new
+    one.
+
     Some accounts cannot be reset this way: the **sole owner** of an organization (nobody else can
     issue the link), anyone who is **also a member of another organization that has other people in
-    it**, and **SSO accounts**, which have no password. The button is hidden where it would not work,
-    and the API explains itself if you call it directly.
+    it**, and **SSO accounts**, which have no password. The button is hidden where your own role would
+    not allow it; for the other two cases it is shown and the error explains itself when you click.
 
 ## The API
 

@@ -49,6 +49,19 @@ public static class PasswordResetEndpoints
         db.OrgMembers.AnyAsync(m => m.UserId == uid && m.OrgId != thisOrg
             && db.OrgMembers.Count(x => x.OrgId == m.OrgId) > 1, ct);
 
+    // Kills every outstanding link for a user.
+    //
+    // Called by Mint (a new link supersedes the old one) and by OrgEndpoints wherever the AUTHORITY
+    // behind an outstanding link moves — a role change or a removal. That second caller is the whole
+    // reason this is shared: the consume endpoint is anonymous, so there is no caller there whose role
+    // could be re-checked, and a link minted legitimately against a Member would otherwise still work
+    // after that Member is promoted — handing an Admin exactly the Owner takeover the mint gate refuses.
+    // Enlists in the caller's SaveChanges rather than doing its own.
+    internal static Task InvalidateOutstandingAsync(
+        EasyDocsDbContext db, Guid userId, DateTimeOffset now, CancellationToken ct) =>
+        db.PasswordResets.Where(p => p.UserId == userId && p.UsedAt == null)
+            .ForEachAsync(p => p.UsedAt = now, ct);
+
     private static async Task<IResult> Mint(Guid uid, HttpContext ctx, EasyDocsDbContext db)
     {
         var callerId = CurrentUser.UserId(ctx.User);
@@ -81,9 +94,7 @@ public static class PasswordResetEndpoints
 
         // Re-issuing supersedes any outstanding link: the admin who sent the first one to the wrong
         // chat window expects it to stop working.
-        await db.PasswordResets
-            .Where(p => p.UserId == uid && p.UsedAt == null)
-            .ForEachAsync(p => p.UsedAt = now, ct);
+        await InvalidateOutstandingAsync(db, uid, now, ct);
 
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
         db.Add(new PasswordReset
@@ -141,7 +152,9 @@ public static class PasswordResetEndpoints
 
         // TotpEnabledAt is deliberately untouched: MFA survives a reset, so an admin-issued link is not
         // an MFA bypass. Someone who lost their authenticator too uses their recovery codes.
-        db.Add(Audit.Event(reset.OrgId, null, reset.UserId, "password_reset.consumed",
+        // actorUserId null, per ShareEndpoints' anonymous-recipient convention: whoever opened the link
+        // is unauthenticated and unidentified. targetId already names the account that was reset.
+        db.Add(Audit.Event(reset.OrgId, null, null, "password_reset.consumed",
             "user", reset.UserId.ToString(), null));
         await db.SaveChangesAsync(ct);
 

@@ -258,4 +258,50 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
             new CompleteRequest("bogus-token-b", "a-valid-length-pw"));
         Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
     }
+
+    // ---- the authority behind a link can move while the link is alive -------------------------
+
+    // The mint gate refuses an Admin against an Owner. That gate is worth nothing if a link minted
+    // legitimately against a Member survives that Member's promotion: the Admin consumes the stale
+    // link, signs in as an Owner and promotes themselves. Reproduced against a live install before
+    // this was fixed. The consume endpoint is anonymous and has no caller to re-check, so the
+    // invalidation happens in UpdateRole instead.
+    [Fact]
+    public async Task A_link_minted_before_the_target_was_promoted_is_dead()
+    {
+        var owner = await _f.RegisterAsync();
+        var admin = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Admin);
+        var member = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+
+        // Legitimate when minted: an Admin may reset a Member.
+        var dto = await MintOkAsync(admin.Client, member.UserId);
+
+        var promote = await owner.Client.PatchAsJsonAsync(
+            $"/api/v1/org/members/{member.UserId}", new { role = "Owner" });
+        Assert.Equal(HttpStatusCode.OK, promote.StatusCode);
+
+        // The Admin could not mint this link now, so it must not still work.
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await CompleteAsync(dto.Token, "seized-by-the-admin")).StatusCode);
+
+        // And the account still has the password it had.
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = member.Email, password = "pw-at-least-12" })).StatusCode);
+    }
+
+    // Same root cause, other direction: a link must not outlive the membership that justified it, or
+    // whoever issued it keeps a working takeover on someone who has left the org.
+    [Fact]
+    public async Task A_link_does_not_outlive_the_targets_membership()
+    {
+        var owner = await _f.RegisterAsync();
+        var member = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        var dto = await MintOkAsync(owner.Client, member.UserId);
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await owner.Client.DeleteAsync($"/api/v1/org/members/{member.UserId}")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await CompleteAsync(dto.Token, "works-after-removal")).StatusCode);
+    }
 }
