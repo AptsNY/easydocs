@@ -104,6 +104,16 @@ context. **HTTPS is required in practice, not optional** — terminate TLS at a 
 `Secure` is not the answer; it would hand every session cookie to anyone on the network. See
 [TLS is mandatory in practice](docs-site/docs/self-hosting.md#tls-is-mandatory-in-practice).
 
+**A password reset hands over the whole account, and does not end existing sessions.** An org Owner
+(or an Admin, for a plain Member) can mint a reset link for someone else and therefore take over their
+account. That is inherent to admin-issued reset with no mailer to prove control of the address — it is
+why both ends are audited (`password_reset.issued`, `password_reset.consumed`) and why an Admin is
+refused against an Owner or a peer Admin, and anyone active on a second team is refused outright.
+Consuming a reset revokes every `ed_` token the account holds, but **not** its sessions: a stolen
+`ed_session` cookie keeps working until it expires, up to seven days. Session JWTs are not revocable
+(the same limitation sign-out has); a `jti` denylist is the named upgrade path. If you believe a
+session is compromised, rotate `Jwt__Secret`, which invalidates every session on the install at once.
+
 **WOPI access tokens can be logged.** The WOPI `access_token` travels in the query string, as the WOPI
 protocol requires, and ASP.NET Core's request logging would print the full URL. The only thing
 suppressing that is `"Microsoft.AspNetCore": "Warning"` in `appsettings.json`. Raising it to
@@ -174,6 +184,15 @@ There is no durable broker.
 insertions and deletions only. A move is reported as a deletion plus an insertion, and formatting-only
 edits are not counted. The UI does not display move or format-change counts, so a zero is never
 presented as "no moves occurred".
+
+**Password reset reaches some accounts and not others, and there is no self-service.** easydocs sends
+no email, so a reset is a link an Owner or Admin mints and relays out of band; the login screen says so
+rather than offering a "Forgot password?" button that could not work. Three groups are out of reach:
+the **sole Owner** of an org, because nobody else can mint them a link; anyone **active on a second
+team** (a second org that has other members in it), because the cross-org gate refuses them; and any
+**SSO-only account**, which has no password to reset. Their routes are SSO, another Owner, or an
+operator writing to the database. Separately, a signed-in member **cannot change a password they
+already know** — `PasswordHash` is written only at registration and by a reset.
 
 **Collabora discovery refreshes at most once a day**, on the first request after the stored timestamp
 expires, with no scheduled job. If Collabora's discovery document changes, editing may fail until the
