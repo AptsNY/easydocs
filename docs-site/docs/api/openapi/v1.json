@@ -29,6 +29,29 @@
         }
       }
     },
+    "/api/v1/org/members/{uid}/password-reset": {
+      "post": {
+        "tags": [
+          "Org"
+        ],
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/documents:import": {
       "post": {
         "tags": [
@@ -2553,6 +2576,9 @@
       "name": "EasyDocs.Api"
     },
     {
+      "name": "Org"
+    },
+    {
       "name": "Documents"
     },
     {
@@ -2572,9 +2598,6 @@
     },
     {
       "name": "SSO"
-    },
-    {
-      "name": "Org"
     },
     {
       "name": "Tokens"
