@@ -39,8 +39,9 @@ Out:
   this design does not change that. A signed-in member who simply wants to rotate their password
   still has to ask an Owner. That is a consequence of this design, so it is documented alongside the
   other gaps rather than left implicit.
-- **Recovery for a sole Owner.** Someone who is the only Owner of their org, or who belongs to more
-  than one org, cannot be helped by this flow. See *Deliberate gaps*.
+- **Recovery for a sole Owner.** Someone who is the only Owner of their org has nobody who can mint
+  them a link, and someone active on a second team is refused by the cross-org gate. See
+  *Deliberate gaps*.
 
 ## Decisions
 
@@ -58,7 +59,7 @@ Gates, in order:
 | Caller is not Owner or Admin | 403 | No business here at all |
 | Caller is Admin and target is Owner or Admin | 403 | See below — this is the escalation gate |
 | Target is not a member of the caller's org | 404 | `SwitchOrg`'s rule: a non-member must not learn whether the account exists |
-| Target belongs to more than one org | 409 | The deliberate limitation below — the detail names it explicitly |
+| Target is active on another team | 409 | The cross-org rule below — the detail names it explicitly |
 | Target has no `PasswordHash` (SSO-only) | 409 | There is no password to reset; a link would be a dead end |
 
 **An Admin may reset Members only.** The obvious gate to copy is `Invite`'s
@@ -70,7 +71,23 @@ account takeover, after which an Admin signs in as the Owner and promotes themse
 close that, because `TotpEnabledAt` is nullable and opt-in. So Owners may reset anyone; Admins may
 reset Members, which is the common case and the reason to let Admins do this at all.
 
-This is the same hazard as the multi-org rule below, in its same-org form. Both close it structurally
+**"Active on another team" means a second org that has someone else in it.** The obvious rule —
+refuse any target belonging to more than one org — is unusable here, and the reason is worth stating
+because it is not obvious from the schema. `Register` *always* creates an org, and
+`InvitationEndpoints.Accept` requires a session, so an invited colleague must register (acquiring a
+personal org) before they can accept. Every invited member therefore belongs to at least two orgs,
+and a naive multi-org gate would refuse the entire population this feature exists to serve, admitting
+only founding Owners who were never invited anywhere. Counting *other orgs that have more than one
+member* skips the vestigial personal org registration hands out and still refuses anyone genuinely
+active on a second team. For the same reason, "holds Owner or Admin elsewhere" does not work either:
+everyone is Owner of their own personal org.
+
+What this gives up, deliberately: resetting a colleague also grants access to their personal org.
+That org holds only their own documents, and the reset already hands over their account, so the
+marginal loss is nil. What it keeps: no Admin of one team can take over an account that is active on
+another team.
+
+This is the same hazard as the same-org rule above, in its cross-org form. Both close it structurally
 rather than by policy.
 
 On success the endpoint marks any outstanding unused reset for that user as used, inserts the new row,
@@ -109,10 +126,11 @@ invitation-accept's "a probe learns nothing about which tokens exist." Identical
 bodies are byte-equal, not merely three 404 statuses — `Problem.Of` takes a free-text detail, and
 three helpfully-worded details would rebuild the oracle the uniform status exists to remove.
 
-The multi-org check from the mint is **re-evaluated here**, not only at issue time. The token lives an
-hour, and within that hour the target can accept an invitation to a second org, which would let an
-outstanding token reset a multi-org account — precisely what the gate exists to prevent. One
-`CountAsync` in the handler.
+The cross-org check from the mint is **re-evaluated here**, not only at issue time. The token lives an
+hour, and within that hour the target can accept an invitation to a second team, which would let an
+outstanding token reset an account the gate would now refuse. It returns the same **404** as every
+other failure here, not the mint's 409 — at this endpoint the caller is anonymous, and a distinct
+status would tell an unauthenticated holder something about the account behind the token.
 
 On success, in a single `SaveChangesAsync` (the repo idiom — `// single SaveChanges = one transaction`
 in `AuthEndpoints`):
@@ -188,9 +206,9 @@ Three touches, each reusing a pattern already on screen:
 
 All three go in SECURITY.md, which already separates these categories:
 
-- *Functional limitations* — a sole Owner, or any user who belongs to more than one org, cannot be
-  recovered through this flow; for those accounts the routes are SSO or an operator writing to the
-  database. And a signed-in member cannot change a password they already know.
+- *Functional limitations* — a sole Owner has nobody to mint them a link, and anyone active on a
+  second team is refused by the cross-org gate; for those accounts the routes are SSO or an operator
+  writing to the database. And a signed-in member cannot change a password they already know.
 - *Security-relevant* — a reset revokes `ed_` tokens but not sessions, so a stolen session cookie
   keeps working for up to seven days. This is the same limitation ADR-9 already records for sign-out.
 
@@ -203,8 +221,11 @@ All three go in SECURITY.md, which already separates these categories:
   a Member succeeds; an Owner resetting an Owner succeeds. *(The escalation gate, which is the reason
   this endpoint is not simply Owner/Admin like `Invite`.)*
 - A target in another org gets 404, not 403.
-- A target belonging to two orgs gets 409 — at mint, and again at consume for a token issued while the
-  target was still single-org.
+- A target active on a second team (an org with another member in it) gets 409 at mint, while a target
+  whose only other org is their solo personal one succeeds. *(The second half is the test that fails
+  if anyone "simplifies" the gate back to counting orgs.)*
+- A token issued before the target joined a second team returns **404** at consume, and the target's
+  old password still works.
 - A target with a null `PasswordHash` gets 409.
 - Consuming an unknown, an expired, and an already-consumed token each return 404 with **byte-equal
   response bodies**.
@@ -239,9 +260,15 @@ control only when the configuration keys are present. This design does not forec
 `PasswordResets` table is the same table a mailed link would use.
 
 **Any org Admin may reset any member.** Simpler and matches how most products behave, but lets an
-Admin take over an Owner's account — inside one org by resetting them directly, and across orgs by
-resetting a member who holds Owner rights elsewhere. Rejected in favour of the two gates above, which
-remove both paths instead of documenting them.
+Admin take over an Owner's account inside their own org, and lets an Admin of one team take over an
+account active on another. Rejected in favour of the two gates above, which remove both paths instead
+of documenting them.
+
+**Refusing any target who belongs to more than one org.** The first draft of this design, and wrong:
+registration always creates an org, so every invited member is multi-org and the gate would refuse
+everyone except founding Owners — a feature whose happy path is unreachable. Counting only other orgs
+with more than one member keeps the guarantee that matters and costs the vestigial personal org,
+which the reset hands over anyway.
 
 **Also invalidating sessions.** Would make a reset mean "lock everyone else out," which is what people
 assume it means. Rejected as out of proportion: the JWT path is stateless today, and a
