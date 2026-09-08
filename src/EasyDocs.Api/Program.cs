@@ -292,6 +292,7 @@ app.MapMfaEndpoints();
 app.MapOidcEndpoints();
 app.MapOrgEndpoints();
 app.MapInvitationEndpoints();
+app.MapPasswordResetEndpoints();
 app.MapTokenEndpoints();
 app.MapFolderEndpoints();
 app.MapDocumentEndpoints();

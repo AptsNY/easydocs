@@ -185,6 +185,16 @@ export default function Login() {
             Sign in with SSO
           </a>
         )}
+
+        {/* Text, not a control, because there is nothing self-service to click: easydocs has no mailer,
+            so a reset link is minted by an owner or admin and handed over out of band. Saying so beats
+            leaving people hunting for a "Forgot password?" button that does not exist — which is the
+            report this whole flow came from. */}
+        {!creating && (
+          <p className="muted" data-testid="forgot-password">
+            Forgot your password? Ask an organization owner or admin for a reset link.
+          </p>
+        )}
       </form>
     </main>
   )

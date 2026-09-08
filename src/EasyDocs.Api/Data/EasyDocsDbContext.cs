@@ -12,6 +12,7 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentMember> DocumentMembers => Set<DocumentMember>();
     public DbSet<Invitation> Invitations => Set<Invitation>();
+    public DbSet<PasswordReset> PasswordResets => Set<PasswordReset>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<Blob> Blobs => Set<Blob>();
     public DbSet<DocumentVersion> Versions => Set<DocumentVersion>();
@@ -96,6 +97,15 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
             e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrgId).OnDelete(R);
             e.HasOne<Document>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(R);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.InvitedBy).OnDelete(R);
+        });
+
+        // Admin-issued password resets (spec 2026-09-08). Unique on TokenHash for the same reason as
+        // Invitations and ShareLinks: the hash is a 256-bit CSPRNG digest, so let the schema say so.
+        b.Entity<PasswordReset>(e =>
+        {
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(R);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrgId).OnDelete(R);
         });
 
         b.Entity<Branch>(e =>

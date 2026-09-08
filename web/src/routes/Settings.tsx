@@ -25,6 +25,7 @@ export default function Settings() {
   const [members, setMembers] = useState<OrgMember[]>([])
   const [minted, setMinted] = useState<{ name: string; token: string } | null>(null)
   const [invitation, setInvitation] = useState<{ email: string; token: string } | null>(null)
+  const [resetLink, setResetLink] = useState<{ email: string; url: string } | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
@@ -98,6 +99,17 @@ export default function Settings() {
       form.reset()
     })
   }
+
+  // easydocs sends no email, so the link is handed back here and the admin relays it themselves —
+  // exactly like an invitation. One shot: only the token's hash is stored.
+  const resetPassword = (userId: string, email: string) =>
+    void act(async () => {
+      const created = await api.post<{ url: string }>(
+        `/api/v1/org/members/${userId}/password-reset`,
+        {},
+      )
+      setResetLink({ email, url: created.url })
+    })
 
   return (
     <section className="settings" data-testid="settings">
@@ -254,6 +266,21 @@ export default function Settings() {
                 </span>
               )}
 
+              {/* Gated to match the API so the UI never offers an action that 403s: an Admin may reset
+                  a Member, an Owner may reset anyone. A reset is full account takeover, which is why
+                  it is not simply canAdmin. */}
+              {(isOwner || (canAdmin && m.role === 'Member')) && (
+                <button
+                  type="button"
+                  className="link"
+                  data-testid="reset-password"
+                  aria-label={`Reset the password for ${m.email}`}
+                  onClick={() => resetPassword(m.userId, m.email)}
+                >
+                  Reset password
+                </button>
+              )}
+
               {isOwner && (
                 <button
                   type="button"
@@ -301,6 +328,19 @@ export default function Settings() {
             </p>
             <code data-testid="org-invitation-url">{`${window.location.origin}/invitations/${invitation.token}`}</code>
             <code data-testid="org-invitation-token">{invitation.token}</code>
+          </div>
+        )}
+
+        {/* Same one-shot rule as an invitation or a token: only the hash is stored, so this is the one
+            moment the link exists. easydocs sends no email — relaying it is the admin's job, and the
+            copy says so rather than leaving them waiting for a message that never arrives. */}
+        {resetLink && (
+          <div className="invitation" role="status">
+            <p>
+              Send this password reset link to {resetLink.email} yourself — easydocs does not email it.
+              It works once, expires in an hour, and is shown only now.
+            </p>
+            <code data-testid="password-reset-url">{`${window.location.origin}${resetLink.url}`}</code>
           </div>
         )}
       </section>

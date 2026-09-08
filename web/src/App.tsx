@@ -14,6 +14,7 @@ import History from './routes/History'
 import Login from './routes/Login'
 import MajorVersions from './routes/MajorVersions'
 import MergeReview from './routes/MergeReview'
+import PasswordReset from './routes/PasswordReset'
 import Settings from './routes/Settings'
 import ShareLanding from './routes/ShareLanding'
 
@@ -25,6 +26,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       {/* Public on purpose: the anonymous share landing sits outside RequireAuth (spec §11). */}
       <Route path="/s/:token" element={<ShareLanding />} />
+      {/* Public for the same reason: whoever holds an admin-issued reset link is locked out by
+          definition, so requiring a session here would make the link useless. */}
+      <Route path="/password-reset/:token" element={<PasswordReset />} />
       <Route element={<RequireAuth />}>
         <Route element={<Shell />}>
           <Route path="/" element={<Dashboard />} />

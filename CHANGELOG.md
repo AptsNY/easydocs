@@ -19,6 +19,19 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **A locked-out member can be given their account back.** Until now there was no password reset at
+  all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
+  An org Owner (or an Admin, for a plain Member) now mints a single-use link from **Settings →
+  Members** that expires in an hour, and the member sets a new password on a page that works with no
+  session. easydocs sends no email, so the link is handed over the way an invitation already is — the
+  admin relays it, and the login screen says so instead of offering a "Forgot password?" button that
+  could not work. Consuming a link revokes every `ed_` token the account holds and leaves MFA armed,
+  so a reset is not a way around someone's second factor, and it issues no session, so a link relayed
+  through a chat window cannot become a live login. An Admin is refused against an Owner or a peer
+  Admin, and anyone active on a second organization is refused outright: a reset is full account
+  takeover, not access to one org. Read
+  [the limitations](SECURITY.md#known-v1-limitations-not-vulnerabilities) before relying on it — a
+  sole Owner still cannot be recovered this way.
 - **easydocs can be used from AI coding agents.** `packages/mcp/easydocs_mcp.py` is a read-only
   [MCP](https://modelcontextprotocol.io) server generated from the install's own `/openapi/v1.json`:
   seventeen tools covering documents, history, redlines, audit trails, approvals and folders, for
