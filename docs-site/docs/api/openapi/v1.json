@@ -52,6 +52,28 @@
         }
       }
     },
+    "/api/v1/auth/password-reset:complete": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/documents:import": {
       "post": {
         "tags": [
@@ -2184,6 +2206,27 @@
           }
         }
       },
+      "CompleteRequest": {
+        "required": [
+          "token",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CreateCopyRequest": {
         "required": [
           "name"
@@ -2579,6 +2622,9 @@
       "name": "Org"
     },
     {
+      "name": "Auth"
+    },
+    {
       "name": "Documents"
     },
     {
@@ -2589,9 +2635,6 @@
     },
     {
       "name": "Editing"
-    },
-    {
-      "name": "Auth"
     },
     {
       "name": "MFA"

@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using EasyDocs.Api.Domain;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 
 namespace EasyDocs.Api.Tests;
 
@@ -110,5 +113,149 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         await _f.ClearPasswordHashAsync(target.UserId);
 
         Assert.Equal(HttpStatusCode.Conflict, (await MintAsync(owner.Client, target.UserId)).StatusCode);
+    }
+
+    // ---- consume -------------------------------------------------------------------------------
+
+    private record CompleteRequest(string Token, string Password);
+
+    private Task<HttpResponseMessage> CompleteAsync(string token, string password) =>
+        _f.CreateClient().PostAsJsonAsync("/api/v1/auth/password-reset:complete",
+            new CompleteRequest(token, password));
+
+    [Fact]
+    public async Task Issuing_a_second_link_invalidates_the_first()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+
+        var first = await MintOkAsync(owner.Client, target.UserId);
+        await MintOkAsync(owner.Client, target.UserId);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(first.Token, "brand-new-password")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Consume_sets_a_working_password()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        var dto = await MintOkAsync(owner.Client, target.UserId);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(dto.Token, "a-brand-new-password")).StatusCode);
+
+        var login = await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = target.Email, password = "a-brand-new-password" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+    }
+
+    // The uniform 404 is only uniform if the BODIES match. Problem.Of takes a free-text detail, and
+    // three helpfully-worded details would rebuild the oracle the shared status exists to remove.
+    [Fact]
+    public async Task Unknown_expired_and_used_tokens_are_byte_identical_404s()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+
+        var used = (await MintOkAsync(owner.Client, target.UserId)).Token;
+        await CompleteAsync(used, "first-password-set");
+
+        var expired = (await MintOkAsync(owner.Client, target.UserId)).Token;
+        await _f.ExpireResetsAsync(target.UserId);
+
+        var bodies = new List<string>();
+        foreach (var t in new[] { "totally-unknown-token", used, expired })
+        {
+            var res = await CompleteAsync(t, "another-password1");
+            Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+            bodies.Add(await res.Content.ReadAsStringAsync());
+        }
+        Assert.Single(bodies.Distinct());
+    }
+
+    // The cross-team gate is re-evaluated at consume, because the target can join a team inside the
+    // token's one-hour life. Untested, that check is one careless refactor from vanishing.
+    [Fact]
+    public async Task A_token_issued_before_the_target_joined_a_team_is_dead()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        var dto = await MintOkAsync(owner.Client, target.UserId);
+
+        var other = await _f.RegisterAsync();
+        await _f.AddOrgMemberAsync(other.OrgId, target.UserId, OrgRole.Member);
+
+        // 404, not the mint's 409: this caller is anonymous and must learn nothing about the account.
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(dto.Token, "a-brand-new-password")).StatusCode);
+
+        // And nothing changed — the old password still works.
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = target.Email, password = "pw-at-least-12" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Short_password_is_400()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        var dto = await MintOkAsync(owner.Client, target.UserId);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await CompleteAsync(dto.Token, "short")).StatusCode);
+    }
+
+    // The half of this feature with no visible UI, so it gets the explicit test.
+    [Fact]
+    public async Task Consume_revokes_the_targets_api_tokens()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        var pat = await _f.PatClientAsync(target.Client);
+        Assert.Equal(HttpStatusCode.OK, (await pat.GetAsync("/api/v1/me")).StatusCode);
+
+        var dto = await MintOkAsync(owner.Client, target.UserId);
+        await CompleteAsync(dto.Token, "a-brand-new-password");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await pat.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    // A reset must not be an MFA bypass.
+    [Fact]
+    public async Task Mfa_still_challenges_after_a_reset()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        await _f.ArmMfaAsync(target.UserId);
+
+        var dto = await MintOkAsync(owner.Client, target.UserId);
+        await CompleteAsync(dto.Token, "a-brand-new-password");
+
+        var login = await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = target.Email, password = "a-brand-new-password" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        Assert.Contains("mfaRequired", await login.Content.ReadAsStringAsync());
+    }
+
+    // RateLimits.Auth partitions on request path. If the token ever moves back into the path, each
+    // guess gets its own fresh bucket and the second request below returns 404 instead of 429.
+    [Fact]
+    public async Task Bogus_tokens_share_one_rate_limit_bucket()
+    {
+        using var host = _f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>
+            c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["RateLimit:Auth:BurstLimit"] = "1",
+                ["RateLimit:Auth:TokensPerPeriod"] = "1",
+                ["RateLimit:Auth:ReplenishmentSeconds"] = "3600",
+            })));
+        var c = host.CreateClient();
+
+        var first = await c.PostAsJsonAsync("/api/v1/auth/password-reset:complete",
+            new CompleteRequest("bogus-token-a", "a-valid-length-pw"));
+        Assert.Equal(HttpStatusCode.NotFound, first.StatusCode);
+
+        // A DIFFERENT token, same fixed path: it must draw from the bucket the first guess emptied.
+        var second = await c.PostAsJsonAsync("/api/v1/auth/password-reset:complete",
+            new CompleteRequest("bogus-token-b", "a-valid-length-pw"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
     }
 }
