@@ -319,6 +319,33 @@ When to change them:
   keep working when [forwarded headers](#forwarded-headers-behind-a-proxy) are not configured.
 - **Remember `token-mint` is per user**, not per IP, so a shared proxy address does not collapse it.
 
+## Locked out: password reset for an operator
+
+Ordinary password reset is admin-issued — an org owner mints a link from **Settings → Members** and
+sends it. easydocs has no mailer, so there is no self-service "forgot password" flow, and some
+accounts cannot be reached by an admin at all: the **sole owner** of an organization has nobody who
+could issue their link, and anyone **active on a second organization** is refused by the cross-org
+gate, because a reset is full account takeover rather than access to one org.
+
+For those, use the break-glass script, which needs database access and nothing else:
+
+```bash
+deploy/scripts/issue-password-reset.sh someone@example.com
+```
+
+It prints a link valid for one hour and usable once. Opening it sets a new password through exactly
+the same endpoint an admin-issued link uses, so the same rules apply: the account's `ed_` API tokens
+are revoked, and **two-factor authentication stays armed** — a reset is not a way past someone's MFA.
+If they have also lost their authenticator, they need one of the recovery codes issued at MFA setup.
+
+The script writes a reset row; it never writes a password hash, so it cannot drift out of step with
+how easydocs hashes passwords. Point it at a non-default deployment with `DB_CONTAINER`,
+`POSTGRES_USER`, `POSTGRES_DB` and `BASE_URL`.
+
+Anyone who can run this can take over any account on the install. That is the same authority as
+holding the database credentials, which is what it requires — but it is worth saying out loud when
+deciding who gets shell access to the host.
+
 ## Backup and restore
 
 !!! danger "Two things must be backed up together"

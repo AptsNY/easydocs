@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
 
@@ -303,5 +305,49 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.NotFound,
             (await CompleteAsync(dto.Token, "works-after-removal")).StatusCode);
+    }
+
+    // ---- the operator break-glass path ---------------------------------------------------------
+
+    // deploy/scripts/issue-password-reset.sh does not call the API — it writes a PasswordResets row
+    // straight into the database and prints the link, because the accounts it exists for (a sole
+    // owner, anyone the cross-org gate refuses) are exactly the ones no caller is allowed to mint for.
+    //
+    // That makes the row shape and the token hashing a contract between a shell script and this code,
+    // with nothing in the type system holding the two together. This test is that hold: it builds the
+    // row the way the script does — independently, from the script's own recipe of uppercase hex
+    // SHA-256 — and proves the ordinary endpoint accepts it. If HashToken's encoding or the table's
+    // shape ever moves, the script silently starts minting dead links, and an operator finds out while
+    // locked out of their own install. This fails first instead.
+    [Fact]
+    public async Task A_reset_row_written_the_way_the_operator_script_writes_it_is_consumable()
+    {
+        var owner = await _f.RegisterAsync();
+
+        // The script's recipe, reimplemented rather than reused: openssl base64url of 24 random bytes,
+        // then `openssl dgst -sha256` upper-cased.
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            db.Add(new PasswordReset
+            {
+                UserId = owner.UserId,
+                OrgId = owner.OrgId,
+                TokenHash = hash,
+                ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(token, "set-by-the-operator")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = owner.Email, password = "set-by-the-operator" })).StatusCode);
     }
 }
