@@ -331,23 +331,67 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         var hash = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
 
-        using (var scope = _f.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-            db.Add(new PasswordReset
-            {
-                UserId = owner.UserId,
-                OrgId = owner.OrgId,
-                TokenHash = hash,
-                ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
-                CreatedAt = DateTimeOffset.UtcNow,
-            });
-            await db.SaveChangesAsync();
-        }
+        await SeedResetRowAsync(owner.UserId, owner.OrgId, hash);
 
         Assert.Equal(HttpStatusCode.NoContent,
             (await CompleteAsync(token, "set-by-the-operator")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
             new { email = owner.Email, password = "set-by-the-operator" })).StatusCode);
+    }
+
+    // The helper the operator script's SQL is modelled on.
+    private async Task SeedResetRowAsync(Guid userId, Guid orgId, string tokenHash)
+    {
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        db.Add(new PasswordReset
+        {
+            UserId = userId,
+            OrgId = orgId,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private static (string Token, string Hash) MintTokenTheScriptsWay()
+    {
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        return (token, Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))));
+    }
+
+    // Which org a reset row names is not free choice, and this is the rule the operator script has to
+    // obey. The consume check asks "is this user in some OTHER org — other than the row's — with more
+    // than one member?", so for the ordinary invited colleague (a solo personal org from registration,
+    // plus one real team) the row must name the TEAM. Stamped with the personal org, the team counts as
+    // "another team" and the link 404s on use.
+    //
+    // Shipped wrong once: the script picked the oldest membership, which is the personal org, and every
+    // link it issued for a multi-org account died on arrival. Both directions are asserted so the rule
+    // cannot be half-remembered.
+    [Fact]
+    public async Task A_reset_row_must_name_the_targets_real_team_not_their_personal_org()
+    {
+        var team = await _f.RegisterAsync();
+        var subject = await _f.RegisterAsync();               // registration gives them a solo org
+        var personalOrg = subject.OrgId;
+        await _f.AddOrgMemberAsync(team.OrgId, subject.UserId, OrgRole.Member);
+
+        // Stamped with the personal org: the populated team is now "another team" — refused.
+        var wrong = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, personalOrg, wrong.Hash);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await CompleteAsync(wrong.Token, "stamped-with-the-wrong-org")).StatusCode);
+
+        // Stamped with the team: the only other org is their solo one, which the check ignores.
+        var right = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, team.OrgId, right.Hash);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(right.Token, "stamped-with-the-team")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = subject.Email, password = "stamped-with-the-team" })).StatusCode);
     }
 }

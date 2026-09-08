@@ -46,20 +46,38 @@ fi
 
 # :'em' and :'hash' are psql's own quoting, so an address containing a quote cannot alter the SQL.
 psql() { docker exec -i "$DB_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-           -qtA -v ON_ERROR_STOP=1 -v em="$EMAIL" -v hash="${HASH:-}" "$@"; }
+           -qtA -v ON_ERROR_STOP=1 -v em="$EMAIL" -v hash="${HASH:-}" -v org="${ORG_ID:-}" "$@"; }
 
-STATUS=$(psql <<'SQL'
+# Which org the row is stamped with is NOT free choice, and getting it wrong mints a link that dies
+# on use. The consume endpoint re-runs its cross-team check as
+#   "is this user in some OTHER org — other than the row's — that has more than one member?"
+# so the row must name the account's REAL team, not its oldest membership. Registration hands
+# everyone a solo personal org, and that is usually the oldest one: stamping the row with it makes
+# the actual team count as "another team" and the endpoint returns 404.
+#
+# So: pick the membership with the most members. That leaves only solo orgs as "other", which the
+# check ignores. An account genuinely active on two populated teams cannot be resolved this way at
+# all — every choice leaves a populated org on the other side — and the endpoint would refuse any
+# link we wrote, so say so rather than hand over one that cannot work.
+LOOKUP=$(psql <<'SQL'
+WITH me AS (SELECT "Id", "PasswordHash" FROM "Users" WHERE "Email" = :'em'),
+     mine AS (
+       SELECT m."OrgId", m."CreatedAt",
+              (SELECT count(*) FROM "OrgMembers" x WHERE x."OrgId" = m."OrgId") AS n
+       FROM "OrgMembers" m JOIN me ON me."Id" = m."UserId")
 SELECT CASE
-         WHEN u."Id" IS NULL           THEN 'no-user'
-         WHEN m."UserId" IS NULL       THEN 'no-org'
-         WHEN u."PasswordHash" IS NULL THEN 'sso'
+         WHEN NOT EXISTS (SELECT 1 FROM me)                    THEN 'no-user'
+         WHEN NOT EXISTS (SELECT 1 FROM mine)                  THEN 'no-org'
+         WHEN (SELECT count(*) FROM mine WHERE n > 1) > 1      THEN 'multi-team'
+         WHEN (SELECT "PasswordHash" FROM me) IS NULL          THEN 'sso'
          ELSE 'ok'
        END
-FROM (SELECT 1) AS _
-LEFT JOIN "Users" u ON u."Email" = :'em'
-LEFT JOIN LATERAL (SELECT "UserId" FROM "OrgMembers" WHERE "UserId" = u."Id" LIMIT 1) m ON true;
+       || '|' ||
+       coalesce((SELECT "OrgId"::text FROM mine ORDER BY n DESC, "CreatedAt" LIMIT 1), '');
 SQL
 )
+STATUS="${LOOKUP%%|*}"
+ORG_ID="${LOOKUP##*|}"
 
 case "$STATUS" in
   no-user)
@@ -68,12 +86,18 @@ case "$STATUS" in
     # Login itself cannot cope with this account either — it resolves the session's org from the
     # membership list and there is none — so a reset link would not get anyone in.
     echo "'$EMAIL' belongs to no organization; a reset link would not make it usable." >&2; exit 1 ;;
+  multi-team)
+    echo "'$EMAIL' is an active member of more than one populated organization." >&2
+    echo "easydocs refuses to reset such an account through any link, operator-issued or not: a" >&2
+    echo "password reset hands over the whole account, and that would cross a tenant boundary." >&2
+    echo "Remove them from the other organization(s) first, or recover the account through SSO." >&2
+    exit 1 ;;
   sso)
     echo "note: '$EMAIL' has no password today (it signs in through SSO)." >&2
     echo "      Completing this link gives it a local password as well." >&2 ;;
   ok) ;;
   *)
-    echo "unexpected lookup result: '$STATUS'" >&2; exit 1 ;;
+    echo "unexpected lookup result: '$LOOKUP'" >&2; exit 1 ;;
 esac
 
 # Base64url of 24 random bytes, matching the mint in PasswordResetEndpoints.
@@ -82,8 +106,7 @@ TOKEN=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')
 HASH=$(printf '%s' "$TOKEN" | openssl dgst -sha256 -r | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
 
 # One transaction: supersede whatever was outstanding, then insert — exactly what Mint does, so an
-# operator-issued link and an admin-issued one are the same object. The org is the account's oldest
-# membership, the same one Login binds a session to.
+# operator-issued link and an admin-issued one are the same object.
 INSERTED=$(psql <<'SQL'
 BEGIN;
 
@@ -92,12 +115,9 @@ WHERE "UsedAt" IS NULL
   AND "UserId" = (SELECT "Id" FROM "Users" WHERE "Email" = :'em');
 
 INSERT INTO "PasswordResets" ("Id", "UserId", "OrgId", "TokenHash", "ExpiresAt", "UsedAt", "CreatedAt")
-SELECT gen_random_uuid(), u."Id", m."OrgId", :'hash', now() + interval '1 hour', NULL, now()
+SELECT gen_random_uuid(), u."Id", :'org'::uuid, :'hash', now() + interval '1 hour', NULL, now()
 FROM "Users" u
-JOIN "OrgMembers" m ON m."UserId" = u."Id"
 WHERE u."Email" = :'em'
-ORDER BY m."CreatedAt"
-LIMIT 1
 RETURNING "Id";
 
 COMMIT;
