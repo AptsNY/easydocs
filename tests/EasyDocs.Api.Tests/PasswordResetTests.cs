@@ -72,4 +72,43 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.NotFound, (await MintAsync(owner.Client, stranger.UserId)).StatusCode);
     }
+
+    [Fact]
+    public async Task Target_active_on_another_team_is_409()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+
+        // A second org that has someone else in it: its registering owner, plus the target.
+        var other = await _f.RegisterAsync();
+        await _f.AddOrgMemberAsync(other.OrgId, target.UserId, OrgRole.Member);
+
+        Assert.Equal(HttpStatusCode.Conflict, (await MintAsync(owner.Client, target.UserId)).StatusCode);
+    }
+
+    // The gate counts other orgs THAT HAVE SOMEONE ELSE IN THEM. This is the test that fails if anyone
+    // simplifies it to "belongs to more than one org" — which would refuse every invited member alive,
+    // since Register always hands out a personal org before an invitation can be accepted.
+    [Fact]
+    public async Task Target_whose_only_other_org_is_their_own_solo_one_succeeds()
+    {
+        var owner = await _f.RegisterAsync();
+
+        // Exactly what an invited colleague looks like: registered (creating a solo personal org),
+        // then added to this org.
+        var invitee = await _f.RegisterAsync();
+        await _f.AddOrgMemberAsync(owner.OrgId, invitee.UserId, OrgRole.Member);
+
+        Assert.Equal(HttpStatusCode.OK, (await MintAsync(owner.Client, invitee.UserId)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Sso_only_target_is_409()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        await _f.ClearPasswordHashAsync(target.UserId);
+
+        Assert.Equal(HttpStatusCode.Conflict, (await MintAsync(owner.Client, target.UserId)).StatusCode);
+    }
 }
