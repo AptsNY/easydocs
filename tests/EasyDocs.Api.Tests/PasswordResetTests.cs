@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
 
@@ -303,5 +305,93 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.NotFound,
             (await CompleteAsync(dto.Token, "works-after-removal")).StatusCode);
+    }
+
+    // ---- the operator break-glass path ---------------------------------------------------------
+
+    // deploy/scripts/issue-password-reset.sh does not call the API — it writes a PasswordResets row
+    // straight into the database and prints the link, because the accounts it exists for (a sole
+    // owner, anyone the cross-org gate refuses) are exactly the ones no caller is allowed to mint for.
+    //
+    // That makes the row shape and the token hashing a contract between a shell script and this code,
+    // with nothing in the type system holding the two together. This test is that hold: it builds the
+    // row the way the script does — independently, from the script's own recipe of uppercase hex
+    // SHA-256 — and proves the ordinary endpoint accepts it. If HashToken's encoding or the table's
+    // shape ever moves, the script silently starts minting dead links, and an operator finds out while
+    // locked out of their own install. This fails first instead.
+    [Fact]
+    public async Task A_reset_row_written_the_way_the_operator_script_writes_it_is_consumable()
+    {
+        var owner = await _f.RegisterAsync();
+
+        // The script's recipe, reimplemented rather than reused: openssl base64url of 24 random bytes,
+        // then `openssl dgst -sha256` upper-cased.
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+
+        await SeedResetRowAsync(owner.UserId, owner.OrgId, hash);
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(token, "set-by-the-operator")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = owner.Email, password = "set-by-the-operator" })).StatusCode);
+    }
+
+    // The helper the operator script's SQL is modelled on.
+    private async Task SeedResetRowAsync(Guid userId, Guid orgId, string tokenHash)
+    {
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        db.Add(new PasswordReset
+        {
+            UserId = userId,
+            OrgId = orgId,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private static (string Token, string Hash) MintTokenTheScriptsWay()
+    {
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        return (token, Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))));
+    }
+
+    // Which org a reset row names is not free choice, and this is the rule the operator script has to
+    // obey. The consume check asks "is this user in some OTHER org — other than the row's — with more
+    // than one member?", so for the ordinary invited colleague (a solo personal org from registration,
+    // plus one real team) the row must name the TEAM. Stamped with the personal org, the team counts as
+    // "another team" and the link 404s on use.
+    //
+    // Shipped wrong once: the script picked the oldest membership, which is the personal org, and every
+    // link it issued for a multi-org account died on arrival. Both directions are asserted so the rule
+    // cannot be half-remembered.
+    [Fact]
+    public async Task A_reset_row_must_name_the_targets_real_team_not_their_personal_org()
+    {
+        var team = await _f.RegisterAsync();
+        var subject = await _f.RegisterAsync();               // registration gives them a solo org
+        var personalOrg = subject.OrgId;
+        await _f.AddOrgMemberAsync(team.OrgId, subject.UserId, OrgRole.Member);
+
+        // Stamped with the personal org: the populated team is now "another team" — refused.
+        var wrong = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, personalOrg, wrong.Hash);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await CompleteAsync(wrong.Token, "stamped-with-the-wrong-org")).StatusCode);
+
+        // Stamped with the team: the only other org is their solo one, which the check ignores.
+        var right = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, team.OrgId, right.Hash);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(right.Token, "stamped-with-the-team")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = subject.Email, password = "stamped-with-the-team" })).StatusCode);
     }
 }

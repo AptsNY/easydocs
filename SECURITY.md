@@ -193,9 +193,13 @@ no email, so a reset is a link an Owner or Admin mints and relays out of band; t
 rather than offering a "Forgot password?" button that could not work. Three groups are out of reach:
 the **sole Owner** of an org, because nobody else can mint them a link; anyone **active on a second
 team** (a second org that has other members in it), because the cross-org gate refuses them; and any
-**SSO-only account**, which has no password to reset. Their routes are SSO, another Owner, or an
-operator writing to the database. Separately, a signed-in member **cannot change a password they
-already know** — `PasswordHash` is written only at registration and by a reset.
+**SSO-only account**, which has no password to reset. For the first two, the answer is
+`deploy/scripts/issue-password-reset.sh`, which needs database access and issues a link through the
+very same endpoint — see
+[the self-hosting guide](docs-site/docs/self-hosting.md#locked-out-password-reset-for-an-operator).
+Anyone who can run it can take over any account on the install, which is the same authority as
+holding the database credentials it requires. Separately, a signed-in member **cannot change a
+password they already know** — `PasswordHash` is written only at registration and by a reset.
 
 **Collabora discovery refreshes at most once a day**, on the first request after the stored timestamp
 expires, with no scheduled job. If Collabora's discovery document changes, editing may fail until the

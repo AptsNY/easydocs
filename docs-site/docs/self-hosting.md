@@ -319,6 +319,52 @@ When to change them:
   keep working when [forwarded headers](#forwarded-headers-behind-a-proxy) are not configured.
 - **Remember `token-mint` is per user**, not per IP, so a shared proxy address does not collapse it.
 
+## Locked out: password reset for an operator
+
+Ordinary password reset is admin-issued — an org owner mints a link from **Settings → Members** and
+sends it. easydocs has no mailer, so there is no self-service "forgot password" flow, and some
+accounts cannot be reached by an admin at all: the **sole owner** of an organization has nobody who
+could issue their link, and anyone **active on a second organization** is refused by the cross-org
+gate, because a reset is full account takeover rather than access to one org.
+
+For those, use the break-glass script, which needs database access and nothing else:
+
+```bash
+deploy/scripts/issue-password-reset.sh someone@example.com
+```
+
+It prints a link valid for one hour and usable once. Opening it sets a new password through exactly
+the same endpoint an admin-issued link uses, so the same rules apply: the account's `ed_` API tokens
+are revoked, and **two-factor authentication stays armed** — a reset is not a way past someone's MFA.
+If they have also lost their authenticator, they need one of the recovery codes issued at MFA setup.
+
+The script writes a reset row; it never writes a password hash, so it cannot drift out of step with
+how easydocs hashes passwords. Point it at a non-default deployment with `DB_CONTAINER`,
+`POSTGRES_USER`, `POSTGRES_DB` and `BASE_URL` — or, when the database is not a container on this
+host (RDS, Cloud SQL, a bastion), with a libpq `DATABASE_URL` and `psql` installed:
+
+```bash
+DATABASE_URL='postgresql://easydocs:PASSWORD@db.internal:5432/easydocs?sslmode=require' \
+BASE_URL=https://docs.example.com \
+  deploy/scripts/issue-password-reset.sh someone@example.com
+```
+
+!!! warning "Building `DATABASE_URL` from the app's connection string"
+    `ConnectionStrings__Postgres` is an ADO.NET string, and ADO.NET lets a value be wrapped in
+    matching quotes: `Password='s3cret'` means the password `s3cret`, not `'s3cret'`. Strip those
+    quotes and URL-encode the result before pasting it into `DATABASE_URL`. If `psql` says
+    *password authentication failed* while the app is connecting fine, the problem is your parsing,
+    not the secret — do not "fix" the database password to match your copy.
+
+**Rehearse before you need it.** `DRY_RUN=1 deploy/scripts/issue-password-reset.sh someone@example.com`
+runs the whole path — reaches the database, checks the account is eligible — and writes nothing.
+Run it once after setting up, and again after any change to where the database lives or how its
+credentials are stored.
+
+Anyone who can run this can take over any account on the install. That is the same authority as
+holding the database credentials, which is what it requires — but it is worth saying out loud when
+deciding who gets shell access to the host.
+
 ## Backup and restore
 
 !!! danger "Two things must be backed up together"
