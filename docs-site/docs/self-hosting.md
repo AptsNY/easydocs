@@ -340,7 +340,26 @@ If they have also lost their authenticator, they need one of the recovery codes 
 
 The script writes a reset row; it never writes a password hash, so it cannot drift out of step with
 how easydocs hashes passwords. Point it at a non-default deployment with `DB_CONTAINER`,
-`POSTGRES_USER`, `POSTGRES_DB` and `BASE_URL`.
+`POSTGRES_USER`, `POSTGRES_DB` and `BASE_URL` — or, when the database is not a container on this
+host (RDS, Cloud SQL, a bastion), with a libpq `DATABASE_URL` and `psql` installed:
+
+```bash
+DATABASE_URL='postgresql://easydocs:PASSWORD@db.internal:5432/easydocs?sslmode=require' \
+BASE_URL=https://docs.example.com \
+  deploy/scripts/issue-password-reset.sh someone@example.com
+```
+
+!!! warning "Building `DATABASE_URL` from the app's connection string"
+    `ConnectionStrings__Postgres` is an ADO.NET string, and ADO.NET lets a value be wrapped in
+    matching quotes: `Password='s3cret'` means the password `s3cret`, not `'s3cret'`. Strip those
+    quotes and URL-encode the result before pasting it into `DATABASE_URL`. If `psql` says
+    *password authentication failed* while the app is connecting fine, the problem is your parsing,
+    not the secret — do not "fix" the database password to match your copy.
+
+**Rehearse before you need it.** `DRY_RUN=1 deploy/scripts/issue-password-reset.sh someone@example.com`
+runs the whole path — reaches the database, checks the account is eligible — and writes nothing.
+Run it once after setting up, and again after any change to where the database lives or how its
+credentials are stored.
 
 Anyone who can run this can take over any account on the install. That is the same authority as
 holding the database credentials, which is what it requires — but it is worth saying out loud when

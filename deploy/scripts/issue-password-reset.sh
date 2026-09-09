@@ -34,6 +34,9 @@
 #   POSTGRES_USER  database user                       (default: easydocs)
 #   POSTGRES_DB    database name                       (default: easydocs)
 #   BASE_URL       public origin, for the printed link (default: http://localhost:8080)
+#   DRY_RUN        when set, stop after the eligibility check and write nothing. Run this before you
+#                  need the script for real: it proves the database is reachable, the credentials
+#                  parse, and the account can be reset.
 set -euo pipefail
 
 EMAIL="${1:-}"
@@ -120,6 +123,11 @@ case "$STATUS" in
   *)
     echo "unexpected lookup result: '$LOOKUP'" >&2; exit 1 ;;
 esac
+
+if [ -n "${DRY_RUN:-}" ]; then
+  echo "dry run: '$EMAIL' can be reset (org $ORG_ID). Nothing was written."
+  exit 0
+fi
 
 # Base64url of 24 random bytes, matching the mint in PasswordResetEndpoints.
 TOKEN=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')
