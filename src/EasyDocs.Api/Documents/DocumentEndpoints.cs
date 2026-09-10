@@ -41,6 +41,7 @@ public static class DocumentEndpoints
         var v = app.MapGroup("/api/v1/versions").RequireAuthorization().WithTags("Documents");
         v.MapGet("/{vid:guid}", GetVersion);
         v.MapGet("/{vid:guid}/download", Download);
+        v.MapGet("/{vid:guid}/text", Text);
     }
 
     // Version detail (spec §10.1). Viewer+ suffices, same chokepoint as Download.
@@ -99,6 +100,50 @@ public static class DocumentEndpoints
         var (mime, ext) = await BlobMime.SniffAsync(blobs, version.BlobSha256, ctx.RequestAborted);
         var fileName = Numbering.DownloadFileName(slug, doc!.Name, counter, ext);
         return Results.Stream(await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted), mime, fileName);
+    }
+
+    // One version's plain text (spec 2026-09-10): the model-readable twin of Download, and what makes
+    // the MCP tool set able to answer "what does it say?" rather than only "what happened to it?".
+    // Viewer+ through the same chokepoint — strictly less than downloading the same bytes.
+    //
+    // Extracted per call rather than served from the DocumentTexts index row: that row is the
+    // main-branch head at last indexing time, so it cannot answer for a historical version or a
+    // concurrent branch, and would be silently stale for the poll interval. Correctness over a cache
+    // nobody asked for; the extractor stops at MaxChars either way.
+    private static async Task<IResult> Text(Guid vid, HttpContext ctx, EasyDocsDbContext db, IBlobStore blobs)
+    {
+        var version = await db.Versions.FirstOrDefaultAsync(x => x.Id == vid, ctx.RequestAborted);
+        if (version is null) return Problem.Of(404, "Not found", "Version not found.");
+
+        var (_, failure) = await AuthorizeAsync(db, ctx, version.DocumentId, requireEdit: false);
+        if (failure is not null) return failure;
+
+        // ZipArchive needs a seekable stream and the S3 backend's is not -- TextIndexWorker spools for
+        // the same reason.
+        using var seekable = new MemoryStream();
+        await using (var stream = await blobs.OpenReadAsync(version.BlobSha256, ctx.RequestAborted))
+            await stream.CopyToAsync(seekable, ctx.RequestAborted);
+        seekable.Position = 0;
+
+        var extraction = DocxText.Extract(seekable);
+        if (extraction.Text is null)
+        {
+            // Sniffing cannot GATE this -- Sniff defaults to docx, so arbitrary bytes would sail past a
+            // pre-check and come back as "", the empty document a model would take at face value. Once
+            // the extractor has established the bytes are not a docx, it is the right thing to NAME them.
+            var (mime, _) = await BlobMime.SniffAsync(blobs, version.BlobSha256, ctx.RequestAborted);
+            return Problem.Of(415, "Unsupported media type",
+                $"This version is {mime}; text extraction supports .docx only.");
+        }
+
+        // A docx with nothing in it answers 200 with "" -- an image-only scan is empty, not unsupported.
+        return Results.Ok(new
+        {
+            versionId = version.Id,
+            major = version.Major, minor = version.Minor, revision = version.Revision,
+            text = extraction.Text,
+            truncated = extraction.Truncated,
+        });
     }
 
     // R5 manual override: set the authoritative counter under the same per-document FOR UPDATE lock as

@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Tests;
+using EasyDocs.Api.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -180,5 +182,36 @@ public class DownloadTests : IClassFixture<ApiFactory>
 
         var resp = await c.PutAsJsonAsync($"/api/v1/documents/{docId}/version-counter", new { major = 0, minor = 0, rev = -1 });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    // GET /versions/{vid}/text — the model-readable twin of download.
+    [Fact]
+    public async Task Text_returns_the_versions_plain_text()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Master Lease");
+        var v = await UploadAsync(c, docId, DocxFixtures.Build("Alpha", "Bravo"));
+
+        var resp = await c.GetAsync($"/api/v1/versions/{v.VersionId}/text");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Alpha\nBravo", body.GetProperty("text").GetString());
+        Assert.False(body.GetProperty("truncated").GetBoolean());
+        Assert.Equal(1, body.GetProperty("revision").GetInt32());
+    }
+
+    // The silent-blank case the 415 exists for. These bytes SNIFF as docx — Sniff defaults to it —
+    // so only the extractor knows they are not one, and a model must not read "" as a blank lease.
+    [Fact]
+    public async Task Text_refuses_a_non_docx_version_and_names_the_mime()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Laundry Agreement.pdf");
+        var v = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\nlease body\n%%EOF"));
+
+        var resp = await c.GetAsync($"/api/v1/versions/{v.VersionId}/text");
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode);
+        Assert.Contains("application/pdf", await resp.Content.ReadAsStringAsync());
     }
 }
