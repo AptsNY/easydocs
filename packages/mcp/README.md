@@ -62,6 +62,7 @@ documents have approvals waiting on me?"*
 | `get_document` | one document's name, folder, org |
 | `list_versions` | the history: numbers, authors, branches, change summaries |
 | `get_version` | one version's details |
+| `get_version_text` | the version's text, to read or summarize (`.docx`; anything else answers 415 naming its real type) |
 | `compare_versions` | redline between two versions of a document (`id`, `from`, `to`) — counts, or the HTML with `format=html` |
 | `list_audit_events` | who did what, when, on a document |
 | `list_members` | who has which role on a document |

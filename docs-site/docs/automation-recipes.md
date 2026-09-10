@@ -254,7 +254,7 @@ or an Editor of the document may revoke.
 ### From an AI agent instead of `curl`
 
 The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp) exposes the read side of
-this API — every `GET` below — as seventeen tools for Claude Code, Claude Desktop, Cursor, Codex and
+this API — every `GET` below — as eighteen tools for Claude Code, Claude Desktop, Cursor, Codex and
 Gemini CLI, authenticated with the same `ed_` token and running on your own machine. It cannot write.
 With [`uv`](https://docs.astral.sh/uv/) installed:
 

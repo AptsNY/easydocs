@@ -19,6 +19,13 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **Read a version's text over the API and MCP** — `GET /api/v1/versions/{vid}/text` returns one
+  version's plain text, exposed as the `get_version_text` MCP tool, so an agent can answer "what does
+  this document say?" and not only "what happened to it?". A version that is not a `.docx` answers
+  415 naming what its bytes actually are, rather than an empty string a reader would take for a blank
+  document. Paragraph boundaries now extract as newlines, so a long agreement reads as paragraphs
+  instead of one line — a change invisible to content search, which tokenizes both the same way.
+
 - **A locked-out member can be given their account back.** Until now there was no password reset at
   all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
   An org Owner (or an Admin, for a plain Member) now mints a single-use link from **Settings →
