@@ -254,7 +254,7 @@ or an Editor of the document may revoke.
 ### From an AI agent instead of `curl`
 
 The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp) exposes the read side of
-this API — every `GET` below — as seventeen tools for Claude Code, Claude Desktop, Cursor, Codex and
+this API — every `GET` below — as eighteen tools for Claude Code, Claude Desktop, Cursor, Codex and
 Gemini CLI, authenticated with the same `ed_` token and running on your own machine. It cannot write.
 With [`uv`](https://docs.astral.sh/uv/) installed:
 
@@ -278,6 +278,10 @@ curl -sS -H "$AUTH" "$BASE/api/v1/documents/$DOC/versions?order=desc&limit=50"
 
 # Search documents by name
 curl -sS -H "$AUTH" "$BASE/api/v1/documents?q=supply"
+
+# A version's plain text, to read or summarize. .docx only — a PDF or legacy .doc
+# version answers 409 naming what its bytes actually are, never an empty string.
+curl -sS -H "$AUTH" "$BASE/api/v1/versions/$V1/text"
 
 # Revert: appends a new version equal to an older one; history is untouched
 curl -sS -H "$AUTH" -X POST "$BASE/api/v1/versions/$V1/revert"

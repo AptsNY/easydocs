@@ -42,7 +42,7 @@ public sealed class TextIndexWorker(
             using var seekable = new MemoryStream();
             await stream.CopyToAsync(seekable, ct);
             seekable.Position = 0;
-            text = DocxText.Extract(seekable);
+            text = DocxText.Extract(seekable).Text ?? ""; // a non-docx head clears the row, as before
         }
 
         var row = await db.DocumentTexts.FirstOrDefaultAsync(t => t.DocumentId == documentId, ct);
