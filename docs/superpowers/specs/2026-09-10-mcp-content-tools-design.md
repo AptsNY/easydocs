@@ -154,9 +154,11 @@ ships unrated (`Merging/MergePreviewService.cs:93`).
 
 No new `RouteMap`. The endpoint carries the `Documents` tag, so the tag map at `easydocs_mcp.py:50`
 already promotes it; the download exclusion at `:49` is anchored `/download$` and cannot match
-`/text`; the `_rename` `KeyError` guard at `:63-64` turns a forgotten `NAMES` entry into a loud
-start-up failure instead of an auto-slugged name. Read-only stays a property of the tool set — the
-new tool is a `GET`, so `test_every_tool_is_a_get` continues to hold.
+`/text`. The `_rename` `KeyError` guard at `:63-64` is **not** the safety net this spec first
+claimed: verified against fastmcp 3.4.7, `component_fn` catches it, logs a warning, and registers
+the tool under the slug `GET_apiv1versionsvidtext` anyway — so, exactly as the comment at `:62`
+says, the exact-set test is the real guard. Read-only stays a property of the tool set — the new
+tool is a `GET`, so `test_every_tool_is_a_get` continues to hold.
 
 ## Ripples that fail the build if skipped
 
