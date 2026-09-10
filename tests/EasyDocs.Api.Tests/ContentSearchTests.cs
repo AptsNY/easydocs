@@ -12,18 +12,36 @@ public class DocxTextTests
     [Fact]
     public void Extracts_paragraph_text_with_boundaries()
     {
-        var text = DocxText.Extract(new MemoryStream(DocxFixtures.Build("Alpha", "Bravo", "Charlie")));
+        var text = DocxText.Extract(new MemoryStream(DocxFixtures.Build("Alpha", "Bravo", "Charlie"))).Text;
         Assert.Contains("Alpha", text);
         Assert.Contains("Bravo", text);
         Assert.Contains("Charlie", text);
         Assert.DoesNotContain("AlphaBravo", text); // paragraph boundary must become whitespace
     }
 
+    // null, not "": the /text endpoint answers 415 for these and 200 for a blank docx, and only the
+    // extractor can tell them apart. Sniffing cannot — BlobMime.Sniff defaults to docx.
     [Theory]
     [InlineData("%PDF-1.7 not a zip at all")]
     [InlineData("just plain text")]
-    public void Non_docx_bytes_extract_to_empty(string content)
-        => Assert.Equal("", DocxText.Extract(new MemoryStream(Encoding.UTF8.GetBytes(content))));
+    public void Non_docx_bytes_extract_to_null(string content)
+        => Assert.Null(DocxText.Extract(new MemoryStream(Encoding.UTF8.GetBytes(content))).Text);
+
+    [Fact]
+    public void A_docx_with_no_text_extracts_to_empty_not_null()
+        => Assert.Equal("", DocxText.Extract(new MemoryStream(DocxFixtures.Build())).Text);
+
+    [Fact]
+    public void Truncation_is_reported_by_the_extractor()
+    {
+        // The caller cannot compute this: Extract trims AFTER truncating, and the character at the cap
+        // is usually the paragraph boundary, so a length check reads false on a truncated document.
+        var big = DocxText.Extract(new MemoryStream(DocxFixtures.Build(new string('x', DocxText.MaxChars + 1000))));
+        Assert.True(big.Truncated);
+        Assert.True(big.Text!.Length <= DocxText.MaxChars);
+
+        Assert.False(DocxText.Extract(new MemoryStream(DocxFixtures.Base())).Truncated);
+    }
 }
 
 // Issue #12 end to end: upload a docx whose CONTENT (not name) carries a unique marker, and the
