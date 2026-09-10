@@ -1177,6 +1177,29 @@
         }
       }
     },
+    "/api/v1/versions/{vid}/text": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "parameters": [
+          {
+            "name": "vid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/documents/{id}/members": {
       "get": {
         "tags": [
