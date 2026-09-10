@@ -17,6 +17,7 @@ public class DocxTextTests
         Assert.Contains("Bravo", text);
         Assert.Contains("Charlie", text);
         Assert.DoesNotContain("AlphaBravo", text); // paragraph boundary must become whitespace
+        Assert.Equal("Alpha\nBravo\nCharlie", text); // structure, not one run-on line
     }
 
     // null, not "": the /text endpoint answers 415 for these and 200 for a blank docx, and only the

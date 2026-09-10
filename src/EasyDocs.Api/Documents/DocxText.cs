@@ -47,11 +47,14 @@ public static class DocxText
                     lastWasBreak = false;
                 }
                 // Word encodes structure, not whitespace: without these, "one paragraph" and the
-                // next would concatenate into one searchable pseudo-word.
+                // next would concatenate into one searchable pseudo-word. A newline rather than a
+                // space because a reader gets paragraphs out of it and the index does not care —
+                // SearchVector is a stored to_tsvector('simple', "Text") column, and both characters
+                // are `blank` to the parser: same tokens, same positions, same phrase queries.
                 else if (reader.NodeType == XmlNodeType.Element
                          && reader.LocalName is "p" or "br" or "tab" or "cr" && !lastWasBreak)
                 {
-                    sb.Append(' ');
+                    sb.Append('\n');
                     lastWasBreak = true;
                 }
             }
