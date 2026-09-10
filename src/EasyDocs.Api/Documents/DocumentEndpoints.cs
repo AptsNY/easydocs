@@ -125,25 +125,20 @@ public static class DocumentEndpoints
             await stream.CopyToAsync(seekable, ctx.RequestAborted);
         seekable.Position = 0;
 
-        var extraction = DocxText.Extract(seekable);
-        if (extraction.Text is null)
+        var (text, truncated) = DocxText.Extract(seekable);
+        if (text is null)
         {
-            // Sniffing cannot GATE this -- Sniff defaults to docx, so arbitrary bytes would sail past a
-            // pre-check and come back as "", the empty document a model would take at face value. Once
-            // the extractor has established the bytes are not a docx, it is the right thing to NAME them.
-            var (mime, _) = await BlobMime.SniffAsync(blobs, version.BlobSha256, ctx.RequestAborted);
-            return Problem.Of(415, "Unsupported media type",
-                $"This version is {mime}; text extraction supports .docx only.");
+            // 409, matching "No PDF (publish it first)" above: this version cannot give you the
+            // representation you asked for. Not 415 -- that describes request content, and a GET has
+            // none. Sniffing could not have GATED this (Sniff defaults to docx, so arbitrary bytes
+            // sail past a pre-check), but it names the bytes accurately now the extractor has ruled
+            // them out. Sniffed from the copy already in hand rather than re-fetching the blob.
+            var (mime, _) = BlobMime.Sniff(seekable.GetBuffer().AsSpan(0, Math.Min(8, (int)seekable.Length)));
+            return Problem.Of(409, "Not a .docx", $"This version is {mime}; text extraction supports .docx only.");
         }
 
         // A docx with nothing in it answers 200 with "" -- an image-only scan is empty, not unsupported.
-        return Results.Ok(new
-        {
-            versionId = version.Id,
-            major = version.Major, minor = version.Minor, revision = version.Revision,
-            text = extraction.Text,
-            truncated = extraction.Truncated,
-        });
+        return Results.Ok(new { versionId = version.Id, text, truncated });
     }
 
     // R5 manual override: set the authoritative counter under the same per-document FOR UPDATE lock as

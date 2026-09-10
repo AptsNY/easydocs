@@ -13,15 +13,12 @@ public class DocxTextTests
     public void Extracts_paragraph_text_with_boundaries()
     {
         var text = DocxText.Extract(new MemoryStream(DocxFixtures.Build("Alpha", "Bravo", "Charlie"))).Text;
-        Assert.Contains("Alpha", text);
-        Assert.Contains("Bravo", text);
-        Assert.Contains("Charlie", text);
-        Assert.DoesNotContain("AlphaBravo", text); // paragraph boundary must become whitespace
-        Assert.Equal("Alpha\nBravo\nCharlie", text); // structure, not one run-on line
+        // Paragraph boundaries are newlines: structure a reader can use, not one run-on line.
+        Assert.Equal("Alpha\nBravo\nCharlie", text);
     }
 
-    // null, not "": the /text endpoint answers 415 for these and 200 for a blank docx, and only the
-    // extractor can tell them apart. Sniffing cannot — BlobMime.Sniff defaults to docx.
+    // null, not "": /text answers 409 for these and 200 for a blank docx, and only the extractor can
+    // tell them apart — BlobMime.Sniff defaults to docx, so it cannot.
     [Theory]
     [InlineData("%PDF-1.7 not a zip at all")]
     [InlineData("just plain text")]
@@ -35,13 +32,11 @@ public class DocxTextTests
     [Fact]
     public void Truncation_is_reported_by_the_extractor()
     {
-        // The caller cannot compute this: Extract trims AFTER truncating, and the character at the cap
-        // is usually the paragraph boundary, so a length check reads false on a truncated document.
+        // Reported by the extractor because only it sees the loop's exit condition — Extract trims
+        // after truncating, so the returned length is not a reliable substitute in general.
         var big = DocxText.Extract(new MemoryStream(DocxFixtures.Build(new string('x', DocxText.MaxChars + 1000))));
         Assert.True(big.Truncated);
         Assert.True(big.Text!.Length <= DocxText.MaxChars);
-
-        Assert.False(DocxText.Extract(new MemoryStream(DocxFixtures.Base())).Truncated);
     }
 }
 

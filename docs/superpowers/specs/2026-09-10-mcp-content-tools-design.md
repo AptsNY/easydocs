@@ -77,7 +77,7 @@ blank", and a model handed `""` cannot tell which.
 Sniffing first does **not** fix this, and this is the gate's one correctness finding. `BlobMime.Sniff`
 (`Storage/BlobMime.cs:52-56`) recognizes only `%PDF-` and the OLE2 signature and **defaults to
 docx**, so arbitrary bytes sniff as docx, reach the extractor, and come back as an empty string —
-exactly the silent blank a 415 was meant to prevent. `DownloadTests.cs:66` already stores such a
+exactly the silent blank the error answer was meant to prevent. `DownloadTests.cs:66` already stores such a
 blob.
 
 So `Extract` returns the answer instead of a bare string:
@@ -128,8 +128,11 @@ The shape of `Download` (`DocumentEndpoints.cs:76`):
 3. open the blob and spool it to a `MemoryStream` — `ZipArchive` needs a seekable stream and the S3
    backend's is not, the same reason `TextIndexWorker.cs:42` spools;
 4. `DocxText.Extract`;
-5. `Text is null` → **415**, naming what `BlobMime.Sniff` says the bytes actually are: "this version
-   is `application/pdf`; text extraction supports `.docx`";
+5. `Text is null` → **409**, naming what `BlobMime.Sniff` says the bytes actually are: "this version
+   is `application/pdf`; text extraction supports `.docx` only." 409 rather than 415 because 415
+   describes *request* content and a GET has none, and because `Download` already answers 409 for the
+   same shape of problem — "This version has no PDF (publish it first)" (`:91`). Sniffed from the copy
+   already spooled in memory, not by re-fetching the blob;
 6. otherwise **200** `{ versionId, major, minor, revision, text, truncated }` — the same three
    number fields `GetVersion` already returns (`DocumentEndpoints.cs:59-61`) rather than a second
    shape, and no `mime`, which at this point is always the docx constant.
@@ -138,7 +141,7 @@ Nothing here is more privileged than downloading the same bytes, which any Viewe
 
 PDF extraction stays a later decision, not a hidden one. LibreOffice is already in the image for
 rendering, so `soffice --convert-to txt` is available if the corpus needs it — a subprocess, a
-temp-file dance and a second failure mode, none of it justified before someone hits the 415.
+temp-file dance and a second failure mode, none of it justified before someone hits the 409.
 
 ### No rate limit
 
@@ -186,13 +189,13 @@ pin every document read (`Conformance/E12_Security.cs:60` member-allowed, `:73`/
 - a paragraph boundary is `'\n'` specifically, not merely whitespace;
 - non-docx bytes give `Text is null`, not `""` — the existing `[Theory]` at `:22` becomes this
   assertion;
-- a docx with no text nodes gives `Text is ""` — the case that must not 415;
+- a docx with no text nodes gives `Text is ""` — the case that must not 409;
 - `Truncated` is `false` for an ordinary fixture.
 
 **Endpoint** (integration):
 
 - a docx version's marker text comes back in `text`;
-- a version whose blob is not a docx returns 415 with the sniffed mime in the detail — reuse the
+- a version whose blob is not a docx returns 409 with the sniffed mime in the detail — reuse the
   raw-bytes upload from `DownloadTests.cs:66`.
 
 ## Verification before implementation
@@ -203,3 +206,22 @@ two versions. If it returns redline markup, this spec is the entire remaining ga
 One pre-existing wart to note in passing, not to fix here: `DocumentEndpoints.cs:636` answers **200**
 with `<p>Comparison unavailable.</p>` when a comparison cannot be rendered, so a model cannot
 distinguish "no changes" from "compare failed".
+
+## Corrections from the pre-merge gate
+
+Recorded because the plan document keeps what it got wrong, and this belongs with it:
+
+- **409, not 415.** 415 was the only one in `src/`, describes request content a GET does not have, and
+  sat forty-four lines below the same file's 409 for the identical "this version cannot give you that"
+  case. Changed, along with its four echoes in tests and prose.
+- **`Extraction` was a record struct; it is now a named tuple.** `(string? Text, bool Truncated)` reads
+  the same at every call site and deletes a type plus its doc comment.
+- **The response body dropped `major`/`minor`/`revision`.** `get_version` already serves them.
+- **The error path sniffs the bytes already in memory** rather than re-opening the blob for eight of
+  them.
+- **`_rename`'s `KeyError` is not a start-up failure** on fastmcp 3.4.7 — a warning plus an
+  auto-slugged tool name. The exact-set test is the guard, as `easydocs_mcp.py:62` always said.
+
+Known and left alone: a document whose text is exactly `MaxChars` long reports `truncated: true`
+having lost nothing, and `reader.Value` still materializes one text node before the `MaxChars` guard —
+pre-existing, equally reachable through `TextIndexWorker`, and not this change's to fix.
