@@ -26,6 +26,10 @@ public class DocxTextTests
         => Assert.Null(DocxText.Extract(new MemoryStream(Encoding.UTF8.GetBytes(content))).Text);
 
     [Fact]
+    public void A_tab_stop_is_a_tab_not_a_line_break()
+        => Assert.Equal("Section 1\tPage 4", DocxText.Extract(new MemoryStream(DocxFixtures.WithTab("Section 1", "Page 4"))).Text);
+
+    [Fact]
     public void A_docx_with_no_text_extracts_to_empty_not_null()
         => Assert.Equal("", DocxText.Extract(new MemoryStream(DocxFixtures.Build())).Text);
 
@@ -36,7 +40,7 @@ public class DocxTextTests
         // after truncating, so the returned length is not a reliable substitute in general.
         var big = DocxText.Extract(new MemoryStream(DocxFixtures.Build(new string('x', DocxText.MaxChars + 1000))));
         Assert.True(big.Truncated);
-        Assert.True(big.Text!.Length <= DocxText.MaxChars);
+        Assert.Equal(DocxText.MaxChars, big.Text!.Length); // capped, and nothing beyond the cap kept
     }
 }
 

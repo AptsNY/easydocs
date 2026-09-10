@@ -133,8 +133,14 @@ public static class DocumentEndpoints
             // none. Sniffing could not have GATED this (Sniff defaults to docx, so arbitrary bytes
             // sail past a pre-check), but it names the bytes accurately now the extractor has ruled
             // them out. Sniffed from the copy already in hand rather than re-fetching the blob.
-            var (mime, _) = BlobMime.Sniff(seekable.GetBuffer().AsSpan(0, Math.Min(8, (int)seekable.Length)));
-            return Problem.Of(409, "Not a .docx", $"This version is {mime}; text extraction supports .docx only.");
+            var (mime, _) = BlobMime.Sniff(
+                seekable.GetBuffer().AsSpan(0, Math.Min(BlobMime.HeadBytes, (int)seekable.Length)));
+            // Sniff defaults to docx, so garbage bytes, a non-docx zip and an empty blob all land on that
+            // constant -- and "this version is ...wordprocessingml.document; .docx only" would be nonsense
+            // to the model reading it. Only name the mime when the sniff actually recognized something.
+            return Problem.Of(409, "Not a .docx", mime == BlobMime.Docx
+                ? "These bytes are not a readable .docx."
+                : $"This version is {mime}; text extraction supports .docx only.");
         }
 
         // A docx with nothing in it answers 200 with "" -- an image-only scan is empty, not unsupported.

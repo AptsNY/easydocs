@@ -51,7 +51,8 @@ public static class DocxText
                 else if (reader.NodeType == XmlNodeType.Element
                          && reader.LocalName is "p" or "br" or "tab" or "cr" && !lastWasBreak)
                 {
-                    sb.Append('\n');
+                    // A <w:tab/> is a tab, not the end of a line — only the other three break.
+                    sb.Append(reader.LocalName == "tab" ? '\t' : '\n');
                     lastWasBreak = true;
                 }
             }

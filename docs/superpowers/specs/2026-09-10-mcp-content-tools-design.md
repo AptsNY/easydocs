@@ -133,9 +133,8 @@ The shape of `Download` (`DocumentEndpoints.cs:76`):
    describes *request* content and a GET has none, and because `Download` already answers 409 for the
    same shape of problem — "This version has no PDF (publish it first)" (`:91`). Sniffed from the copy
    already spooled in memory, not by re-fetching the blob;
-6. otherwise **200** `{ versionId, major, minor, revision, text, truncated }` — the same three
-   number fields `GetVersion` already returns (`DocumentEndpoints.cs:59-61`) rather than a second
-   shape, and no `mime`, which at this point is always the docx constant.
+6. otherwise **200** `{ versionId, text, truncated }` — no `mime` (always the docx constant by
+   then), and no version numbers, which `GetVersion` already serves.
 
 Nothing here is more privileged than downloading the same bytes, which any Viewer can already do.
 

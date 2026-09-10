@@ -22,9 +22,10 @@ descriptions are **document** versions, produced by the versioning engine. They 
 - **Read a version's text over the API and MCP** — `GET /api/v1/versions/{vid}/text` returns one
   version's plain text, exposed as the `get_version_text` MCP tool, so an agent can answer "what does
   this document say?" and not only "what happened to it?". A version that is not a `.docx` answers
-  409 naming what its bytes actually are — the same answer `download` already gives for a version
-  with no PDF — rather than an empty string a reader would take for a blank document. Paragraph boundaries now extract as newlines, so a long agreement reads as paragraphs
-  instead of one line — a change invisible to content search, which tokenizes both the same way.
+  409 naming what its bytes actually are — the answer `download` already gives for a version with no
+  PDF — rather than an empty string a reader would take for a blank document. Paragraph boundaries
+  now extract as newlines, so a long agreement reads as paragraphs instead of one line — a change
+  invisible to content search, which tokenizes both the same way.
 
 - **A locked-out member can be given their account back.** Until now there was no password reset at
   all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
