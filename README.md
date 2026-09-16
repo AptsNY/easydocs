@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-      **Git-style history for `.docx` — without asking anyone to learn Git.**
+<p align="center"><strong>Git-style history for <code>.docx</code> — without asking anyone to learn Git.</strong></p>
 
 <p align="center">
   <a href="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml"><img src="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
