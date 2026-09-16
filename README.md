@@ -7,10 +7,12 @@
 
 **Git-style history for `.docx` — without asking anyone to learn Git.**
 
-[![CI](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml)
-[![Conformance](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml)
-[![Release](https://img.shields.io/github/v/release/AptsNY/easydocs)](https://github.com/AptsNY/easydocs/releases/latest)
-[![License: AGPL-3.0](https://img.shields.io/github/license/AptsNY/easydocs)](LICENSE)
+<p align="center">
+  <a href="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml"><img src="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml"><img src="https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml/badge.svg" alt="Conformance"></a>
+  <a href="https://github.com/AptsNY/easydocs/releases/latest"><img src="https://img.shields.io/github/v/release/AptsNY/easydocs" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/AptsNY/easydocs" alt="License: AGPL-3.0"></a>
+</p>
 
 Open-source, self-hostable version control for Word documents. Every save becomes an immutable,
 numbered version. Two people editing at once branch instead of overwriting each other, and merge in one
