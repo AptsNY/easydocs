@@ -5,8 +5,11 @@ name: deploy-aws
 # deploy-gcp.yml is the deploy path for version tags from then on. This workflow still builds
 # to ECR and rolls the ECS service, so it is what puts an image on ECS if that cutover is
 # reverted -- but it must not fire on a tag, or every release would roll a service that is
-# meant to sit at desired_count 0. Dispatch it by hand after a rollback (pick the ref in the
-# Run workflow dialog; clear smoke_url unless DNS already points back at the edge ALB).
+# meant to sit at desired_count 0. Dispatch it by hand after a rollback. The AWS deploy role
+# trusts ONLY refs/heads/main and refs/tags/v* (infra-platform tofu/iam_app_roles.tf + the
+# easydocs deploy_refs entry), so pick `main` or a `v*` tag in the Run workflow dialog -- any
+# other branch fails at configure-aws-credentials. Leave smoke_url empty unless DNS already
+# points back at the edge ALB.
 #
 # Deploys easydocs onto AptsNY's shared ECS Fargate platform (AptsNY/infra-platform).
 #
@@ -18,7 +21,7 @@ name: deploy-aws
 #
 # Auth is GitHub OIDC against the platform's per-app deploy role — no stored AWS keys.
 # The role trusts refs/heads/main and refs/tags/v* (tofu/iam_app_roles.tf + the easydocs
-# deploy_refs entry in the platform repo), which is exactly this workflow's trigger set.
+# deploy_refs entry in the platform repo); a dispatch at any other ref is refused there.
 on:
   workflow_dispatch:   # no push trigger any more -- see the header. Pick the ref to build in the dialog.
     inputs:
@@ -85,7 +88,7 @@ jobs:
       IMAGE: ${{ needs.build.outputs.image }}
       TIMEOUT_SECONDS: 900
       # /health/ready pings Postgres; the shallow /health smoked green through a DB-credentials outage.
-      SMOKE_URL: ${{ github.event_name == 'push' && 'https://easydocs.aptsny.net/health/ready' || inputs.smoke_url }}
+      SMOKE_URL: ${{ inputs.smoke_url }}   # dispatch-only now; empty skips the smoke step
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:

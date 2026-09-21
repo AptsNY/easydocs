@@ -6,11 +6,12 @@
 # AptsNY/infra-platform (gcp/easydocs/). Collabora is NOT touched here -- it is pinned by digest
 # in infra-platform and bumped by hand.
 #
-# Triggers: version tags, same as deploy-aws.yml did, plus a manual dispatch. This becomes the
-# only deploy path once infra-platform#104 (the cutover) is merged; deploy-aws.yml stays on
-# workflow_dispatch as the ECS rollback path. The image goes to the platform's Artifact Registry,
-# amd64-only (Cloud Run), per-commit tag; the multi-arch GHCR image from release.yml stays the
-# self-hosters' artifact.
+# Triggers: version tags, same as deploy-aws.yml did, plus a manual dispatch. Only `main` or a
+# `v*` tag may deploy (the `if:` below) -- the AWS deploy role enforced that in its trust policy
+# and the WIF provider only pins the repository, so the guard lives here. This is the only deploy
+# path since infra-platform#104 (the cutover); deploy-aws.yml stays on workflow_dispatch as the
+# ECS rollback path. The image goes to the platform's Artifact Registry, amd64-only (Cloud Run),
+# per-commit tag; the multi-arch GHCR image from release.yml stays the self-hosters' artifact.
 name: deploy-gcp
 on:
   push:
@@ -26,7 +27,39 @@ env:
   IMAGE_BASE: us-east4-docker.pkg.dev/aptsny/platform/easydocs
 
 jobs:
+  # Same gate as release.yml's verify job: a tag must not be able to put an image on production
+  # that CI would have rejected. Runs in parallel with release.yml on the same tag; neither waits
+  # for the other, so the deploy carries its own copy of the gate.
+  verify:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # E6 asserts a rendered PDF; without soffice the test skips itself and reads as coverage.
+      - name: Install LibreOffice (so the PDF tests run instead of skipping)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer
+      - name: Build and test
+        run: |
+          dotnet build easydocs.slnx -c Release
+          dotnet test easydocs.slnx --no-build -c Release
+      - name: Build frontend
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
   build-deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     concurrency:
@@ -41,25 +74,48 @@ jobs:
           service_account: github-deploy-easydocs@aptsny.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v3
       - run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # Reuse an image already built for this commit (a tag pushed after a manual dispatch of
+      # the same sha): the Dockerfile apt-installs LibreOffice, so a rebuild is not reproducible
+      # and would roll a "new" revision of identical source.
       - id: build
         run: |
           set -euo pipefail
           IMAGE="${IMAGE_BASE}:${GITHUB_SHA}"
-          docker build --platform linux/amd64 -t "$IMAGE" .
-          docker push "$IMAGE"
+          if gcloud artifacts docker images describe "$IMAGE" >/dev/null 2>&1; then
+            echo "image for ${GITHUB_SHA} already in Artifact Registry -- reusing it"
+          else
+            docker build --platform linux/amd64 -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       # Boot runs the EF migrations against Cloud SQL and the image bundles LibreOffice, so a
       # revision takes ~2 minutes to pass its startup probe; the old revision serves until then.
-      - run: gcloud run services update easydocs-web --region "$REGION" --image "${{ steps.build.outputs.image }}"
+      # `services update` returns once the new revision is Ready and holds 100% of traffic.
+      - id: deploy
+        run: |
+          set -euo pipefail
+          gcloud run services update easydocs-web --region "$REGION" --image "${{ steps.build.outputs.image }}"
+          latest=$(gcloud run services describe easydocs-web --region "$REGION" --format='value(status.latestReadyRevisionName)')
+          serving=$(gcloud run services describe easydocs-web --region "$REGION" --format='value(status.traffic[0].revisionName)')
+          image=$(gcloud run revisions describe "$serving" --region "$REGION" --format='value(spec.containers[0].image)')
+          echo "latest=$latest serving=$serving image=$image"
+          [ "$latest" = "$serving" ] || { echo "::error::traffic is on $serving, not the new revision $latest"; exit 1; }
+          case "$image" in *"${GITHUB_SHA}"*) ;; *) echo "::error::serving revision runs $image, not this commit"; exit 1;; esac
 
       # Ingress is internal-and-cloud-load-balancing, so the run.app URL is not reachable from
       # here; go through the load balancer. /health/ready pings Postgres -- the shallow /health
-      # smoked green through a DB-credentials outage once.
+      # smoked green through a DB-credentials outage once. Several probes over a minute, so the
+      # answer comes from the revision that now holds the traffic, not a connection still pinned
+      # to the previous one.
       - name: smoke
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://easydocs.aptsny.net/health/ready || echo 000)
-          case "$code" in
-            200) echo "smoke OK ($code)" ;;
-            *) echo "::error::smoke FAILED: https://easydocs.aptsny.net/health/ready ($code)"; exit 1 ;;
-          esac
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://easydocs.aptsny.net/health/ready)
+            echo "probe $i: $code"
+            [ "$code" = 200 ] && ok=$((ok+1))
+            sleep 10
+          done
+          [ "$ok" -ge 5 ] && echo "smoke OK ($ok/6)" || { echo "::error::smoke FAILED: only $ok/6 probes returned 200"; exit 1; }
