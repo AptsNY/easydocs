@@ -134,6 +134,55 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(header));
     }
 
+    // The publish -> PDF -> search chain exactly as a client sees it over the API, with no peeking
+    // at the database: publish, poll `hasPdf` on GET /versions/{vid}, download ?format=pdf, then find
+    // the document by a word that appears only in its body. Both halves are background workers
+    // (PdfRenderBackgroundService, TextIndexWorker) draining the durable BackgroundJobs table between
+    // requests — which is what instance-based billing on Cloud Run exists to keep alive, and what the
+    // 2026-09-21 production check proved (R4/R5). The DB-level test above proves the blob is
+    // registered; this proves the two client-visible results arrive.
+    [SkippableFact]
+    public async Task Publish_then_pdf_download_then_content_search_over_the_api()
+    {
+        Skip.IfNot(SofficeAvailable(), "soffice not installed on this host");
+
+        var c = await AuthedClientAsync();
+        var marker = $"quokka{Guid.NewGuid():N}";
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Plain Name" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions",
+            Docx(DocxFixtures.Build("Alpha", $"the {marker} clause", "Charlie")));
+        var vid = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+
+        (await c.PostAsJsonAsync($"/api/v1/versions/{vid}/publish", new { kind = "minor" })).EnsureSuccessStatusCode();
+
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var hasPdf = false;
+        while (!hasPdf && DateTime.UtcNow < deadline)
+        {
+            hasPdf = (await c.GetFromJsonAsync<VersionDto>($"/api/v1/versions/{vid}"))!.HasPdf;
+            if (!hasPdf) await Task.Delay(500);
+        }
+        Assert.True(hasPdf, "GET /versions/{vid} never reported hasPdf");
+
+        var pdf = await c.GetAsync($"/api/v1/versions/{vid}/download?format=pdf");
+        pdf.EnsureSuccessStatusCode();
+        Assert.Equal("application/pdf", pdf.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString((await pdf.Content.ReadAsByteArrayAsync())[..4]));
+
+        var found = false;
+        while (!found && DateTime.UtcNow < deadline)
+        {
+            var hits = await c.GetFromJsonAsync<ListDto>($"/api/v1/documents?q={marker}");
+            found = hits!.Items.Any(d => d.Id == docId);
+            if (!found) await Task.Delay(250);
+        }
+        Assert.True(found, "content search never found the published document's text");
+    }
+
+    private record VersionDto(bool HasPdf);
+    private record ListDto(List<DocDto> Items);
+
     // Spec §12.2 robustness: garbage in must not take the renderer down. The contract is the method
     // NAME — it returns rather than throwing or hanging — and that whatever comes back is honest.
     //

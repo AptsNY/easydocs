@@ -5,6 +5,7 @@ using Amazon.S3;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Tests.Fixtures;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Testcontainers.Minio;
 
@@ -50,7 +51,7 @@ public sealed class MinioFixture : IAsyncLifetime
     };
 }
 
-public class S3BlobStoreTests(MinioFixture minio) : IClassFixture<MinioFixture>
+public class S3BlobStoreTests(ApiFactory f, MinioFixture minio) : IClassFixture<ApiFactory>, IClassFixture<MinioFixture>
 {
     private S3BlobStore Store() => new(minio.CreateClient(), MinioFixture.Bucket);
 
@@ -115,6 +116,42 @@ public class S3BlobStoreTests(MinioFixture minio) : IClassFixture<MinioFixture>
         }
     }
 
+    // The production shape since the Cloud Run move (2026-09-21): BlobStore=s3 with NO S3__AccessKey /
+    // S3__SecretKey, credentials arriving as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the
+    // environment (a bridge IAM user's key from Secret Manager) and picked up by the SDK's default
+    // chain. The store-level test above proves the chain is consulted; this proves the whole host
+    // boots and serves an upload/download round trip that way, which is what the deploy relies on.
+    //
+    // Same class as the other env-mutating test on purpose: xUnit runs a class's tests sequentially,
+    // so the process-wide AWS_* variables are never reset underneath a booting host.
+    [Fact]
+    public async Task Host_boots_and_roundtrips_a_blob_with_env_credentials_only()
+    {
+        var prevAccess = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID");
+        var prevSecret = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
+        try
+        {
+            Environment.SetEnvironmentVariable("AWS_ACCESS_KEY_ID", minio.Container.GetAccessKey());
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", minio.Container.GetSecretKey());
+
+            using var host = f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>
+                c.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["BlobStore"] = "s3",
+                    ["S3:ServiceUrl"] = minio.Container.GetConnectionString(),
+                    ["S3:Bucket"] = MinioFixture.Bucket,
+                    ["S3:AccessKey"] = null, // explicitly unset: the chain, not the config keys
+                    ["S3:SecretKey"] = null,
+                })));
+            await S3ApiTests.AssertRoundTripAsync(host);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AWS_ACCESS_KEY_ID", prevAccess);
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", prevSecret);
+        }
+    }
+
     // Exactly one key set is a config error, not a silent fall-through to the ambient chain.
     [Theory]
     [InlineData("S3:AccessKey")]
@@ -143,6 +180,13 @@ public class S3ApiTests(ApiFactory f, MinioFixture minio) : IClassFixture<ApiFac
     {
         using var host = f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>
             c.AddInMemoryCollection(minio.ApiConfig)));
+        await AssertRoundTripAsync(host);
+    }
+
+    // Register -> create -> upload -> download, bytes identical. Shared with the env-credentials
+    // variant in S3BlobStoreTests, which must live in that class for env-var sequencing.
+    internal static async Task AssertRoundTripAsync(WebApplicationFactory<Program> host)
+    {
         var client = host.CreateClient();
 
         var email = $"s3-{Guid.NewGuid():N}@example.com";

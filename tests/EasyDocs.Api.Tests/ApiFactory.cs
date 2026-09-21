@@ -16,6 +16,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public new Task DisposeAsync() => _pg.DisposeAsync().AsTask();
 
+    // Simulates a database outage for a host that is already up (ReadinessTests). Not reversible.
+    public Task StopDatabaseAsync() => _pg.StopAsync();
+
     protected override void ConfigureWebHost(IWebHostBuilder b) =>
         b.ConfigureAppConfiguration((_, cfg) => cfg.AddInMemoryCollection(new Dictionary<string, string?>
         {
