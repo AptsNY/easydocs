@@ -1,4 +1,13 @@
 name: deploy-aws
+# RETIRED as the normal path, KEPT as the rollback path.
+#
+# easydocs runs on Google Cloud Run once AptsNY/infra-platform#104 (the cutover) is merged;
+# deploy-gcp.yml is the deploy path for version tags from then on. This workflow still builds
+# to ECR and rolls the ECS service, so it is what puts an image on ECS if that cutover is
+# reverted -- but it must not fire on a tag, or every release would roll a service that is
+# meant to sit at desired_count 0. Dispatch it by hand after a rollback (pick the ref in the
+# Run workflow dialog; clear smoke_url unless DNS already points back at the edge ALB).
+#
 # Deploys easydocs onto AptsNY's shared ECS Fargate platform (AptsNY/infra-platform).
 #
 # Split from release.yml on purpose: a version tag first has to pass release.yml's verify
@@ -11,15 +20,13 @@ name: deploy-aws
 # The role trusts refs/heads/main and refs/tags/v* (tofu/iam_app_roles.tf + the easydocs
 # deploy_refs entry in the platform repo), which is exactly this workflow's trigger set.
 on:
-  push:
-    tags: ["v*"]
-  workflow_dispatch:
+  workflow_dispatch:   # no push trigger any more -- see the header. Pick the ref to build in the dialog.
     inputs:
       smoke_url:
-        description: "Public URL curled after rollout (expects 2xx/3xx). Clear it before the DNS cutover — easydocs.aptsny.net does not resolve yet."
+        description: "Public URL curled after rollout (expects 2xx/3xx). Leave EMPTY unless easydocs.aptsny.net points back at the edge ALB (the Cloud Run cutover was reverted)."
         required: false
         type: string
-        default: "https://easydocs.aptsny.net/health/ready"
+        default: ""
 
 permissions:
   id-token: write

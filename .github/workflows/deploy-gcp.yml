@@ -1,0 +1,65 @@
+# Deploy easydocs to Google Cloud Run (service easydocs-web, project aptsny, us-east4).
+#
+# Auth: Workload Identity Federation pinned to this repo (provider `easydocs` in pool `github`,
+# attribute condition assertion.repository == 'AptsNY/easydocs'); no stored keys. Image-only
+# updates: env vars, secrets, sizes, the Collabora service and the load balancer are owned by
+# AptsNY/infra-platform (gcp/easydocs/). Collabora is NOT touched here -- it is pinned by digest
+# in infra-platform and bumped by hand.
+#
+# Triggers: version tags, same as deploy-aws.yml did, plus a manual dispatch. This becomes the
+# only deploy path once infra-platform#104 (the cutover) is merged; deploy-aws.yml stays on
+# workflow_dispatch as the ECS rollback path. The image goes to the platform's Artifact Registry,
+# amd64-only (Cloud Run), per-commit tag; the multi-arch GHCR image from release.yml stays the
+# self-hosters' artifact.
+name: deploy-gcp
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGION: us-east4
+  IMAGE_BASE: us-east4-docker.pkg.dev/aptsny/platform/easydocs
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: deploy-gcp-easydocs
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: aptsny
+          workload_identity_provider: projects/964985917360/locations/global/workloadIdentityPools/github/providers/easydocs
+          service_account: github-deploy-easydocs@aptsny.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      - id: build
+        run: |
+          set -euo pipefail
+          IMAGE="${IMAGE_BASE}:${GITHUB_SHA}"
+          docker build --platform linux/amd64 -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      # Boot runs the EF migrations against Cloud SQL and the image bundles LibreOffice, so a
+      # revision takes ~2 minutes to pass its startup probe; the old revision serves until then.
+      - run: gcloud run services update easydocs-web --region "$REGION" --image "${{ steps.build.outputs.image }}"
+
+      # Ingress is internal-and-cloud-load-balancing, so the run.app URL is not reachable from
+      # here; go through the load balancer. /health/ready pings Postgres -- the shallow /health
+      # smoked green through a DB-credentials outage once.
+      - name: smoke
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://easydocs.aptsny.net/health/ready || echo 000)
+          case "$code" in
+            200) echo "smoke OK ($code)" ;;
+            *) echo "::error::smoke FAILED: https://easydocs.aptsny.net/health/ready ($code)"; exit 1 ;;
+          esac
