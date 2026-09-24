@@ -140,8 +140,8 @@ public static class ServiceAccountEndpoints
         var now = DateTimeOffset.UtcNow;
         var manager = svc.ManagedBy!.Value;
 
-        // Documents it created are solely its own. Hand them to the manager rather than orphan them —
-        // no new access: the manager could already reach them by minting a token.
+        // Documents it still solely owns (only its own creations can be) go to the manager rather than
+        // being orphaned. No new access: the manager could already reach them by minting a token.
         var solelyOwned = await db.DocumentMembers
             .Where(m => m.UserId == uid && m.Role == DocRole.Owner
                 && db.Documents.Any(d => d.Id == m.DocumentId && d.OrgId == orgId)

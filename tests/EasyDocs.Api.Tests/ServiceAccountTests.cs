@@ -219,6 +219,8 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/invitations/anything:accept", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.GetAsync("/api/v1/account/mfa")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/account/mfa/setup", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync("/api/v1/account/mfa/enable", new { code = "000000" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync("/api/v1/account/mfa/disable", new { code = "000000" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync($"/api/v1/versions/{vid}/share-links", new { })).StatusCode);
     }
 

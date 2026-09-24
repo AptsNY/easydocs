@@ -25,7 +25,10 @@ other people added it to. "Org membership grants no implicit document access"
 (`DocumentAuthorization.cs`) must keep holding, so minting cannot follow org role. A document owner
 who adds a service account sees who manages it and is knowingly trusting that person, the same way
 they trust any member they add. Revoking a token or deleting the account grants nothing, so org
-Owners and Admins can also do those, as an emergency brake.
+Owners and Admins can also do those, as an emergency brake. One indirect path remains, and it is the
+existing "a reset is a takeover" trust rather than a new one: whoever may reset the manager's password
+(an Owner, or an Admin when the manager is a Member) can sign in as the manager and mint. MFA survives a
+reset, which blunts it.
 
 Rejected alternative: user-less tokens (`ApiToken.UserId = null` + `ServiceName`, as the v1 schema
 sketched). Every authorization path — `DocumentAuthorization`, `CurrentUser.UserId`, audit actors,
@@ -126,7 +129,8 @@ Settings gains **Service accounts**, visible to Owner/Admin and to anyone managi
 account — name, email (copyable, for adding it to documents), live tokens, last used, **New token**,
 **Remove**. A new token is shown once, like personal tokens. **New token** shows only for the account's manager.
 Member lists render service accounts as `<name> (service, managed by <manager>)`, including in the
-add-member result, and hide the password-reset and role controls for them.
+add-member result. The document members panel keeps the role select for them but never offers Owner;
+the org roster hides the password-reset and role controls for them.
 
 ## Testing
 
