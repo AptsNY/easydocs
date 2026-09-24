@@ -345,14 +345,14 @@ export default function Settings() {
               It works once, expires in an hour, and is shown only now.
             </p>
             <code data-testid="password-reset-url">{`${window.location.origin}${resetLink.url}`}</code>
-            {/* Consuming the link revokes these — an integration on this person's token stops working. */}
             {resetLink.revokesApiTokens.count > 0 && (
               <p className="error" data-testid="password-reset-revokes-tokens">
                 Using this link revokes {resetLink.email}'s {resetLink.revokesApiTokens.count} API token
                 {resetLink.revokesApiTokens.count === 1 ? '' : 's'}
                 {resetLink.revokesApiTokens.lastUsedAt &&
                   ` (last used ${new Date(resetLink.revokesApiTokens.lastUsedAt).toLocaleString()})`}
-                . Anything running on them will stop working until a new token is created.
+                . Anything running on {resetLink.revokesApiTokens.count === 1 ? 'it' : 'them'} will stop working
+                until a new token is created.
               </p>
             )}
           </div>

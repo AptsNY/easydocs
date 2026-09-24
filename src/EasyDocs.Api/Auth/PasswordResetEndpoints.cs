@@ -109,8 +109,8 @@ public static class PasswordResetEndpoints
         await db.SaveChangesAsync(ct);
 
         // Complete revokes these, so the admin learns it BEFORE sending the link: an integration running
-        // on this person's token (the 2026-09-22 docassemble outage) otherwise dies with no warning.
-        var live = db.ApiTokens.Where(t => t.UserId == uid && t.RevokedAt == null);
+        // on this person's token otherwise dies with no warning. Expired ones already fail auth — not counted.
+        var live = db.ApiTokens.Where(t => t.UserId == uid && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > now));
         var revokesApiTokens = new { count = await live.CountAsync(ct), lastUsedAt = await live.MaxAsync(t => t.LastUsedAt, ct) };
 
         // Relative, like ShareEndpoints' `/s/{token}`: synthesizing an absolute URL means trusting Host

@@ -218,8 +218,7 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, (await pat.GetAsync("/api/v1/me")).StatusCode);
     }
 
-    // Consuming a link revokes the target's tokens, so minting one says so up front — an integration
-    // running on a person's token (the 2026-09-22 docassemble outage) otherwise dies with no warning.
+    // Consuming a link revokes the target's tokens, so minting one says so up front.
     private record RevokesDto(int Count, DateTimeOffset? LastUsedAt);
     private record MintWithWarningDto(RevokesDto RevokesApiTokens);
 
