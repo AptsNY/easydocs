@@ -39,7 +39,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
   Admin, and anyone active on a second organization is refused outright: a reset is full account
   takeover, not access to one org. Read
   [the limitations](SECURITY.md#known-v1-limitations-not-vulnerabilities) before relying on it — a
-  sole Owner still cannot be recovered this way.
+  sole Owner still cannot be recovered this way. Minting a link reports how many working tokens
+  consuming it will revoke (`revokesApiTokens`), and Settings warns before the link is sent, so an
+  integration running on that person's token is not broken by surprise.
 - **easydocs can be used from AI coding agents.** `packages/mcp/easydocs_mcp.py` is a read-only
   [MCP](https://modelcontextprotocol.io) server generated from the install's own `/openapi/v1.json`:
   seventeen tools covering documents, history, redlines, audit trails, approvals and folders, for

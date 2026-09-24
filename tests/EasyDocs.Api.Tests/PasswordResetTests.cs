@@ -218,6 +218,27 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, (await pat.GetAsync("/api/v1/me")).StatusCode);
     }
 
+    // Consuming a link revokes the target's tokens, so minting one says so up front.
+    private record RevokesDto(int Count, DateTimeOffset? LastUsedAt);
+    private record MintWithWarningDto(RevokesDto RevokesApiTokens);
+
+    [Fact]
+    public async Task Mint_reports_the_api_tokens_consuming_it_will_revoke()
+    {
+        var owner = await _f.RegisterAsync();
+        var target = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+
+        var none = (await (await MintAsync(owner.Client, target.UserId)).Content.ReadFromJsonAsync<MintWithWarningDto>())!;
+        Assert.Equal(new RevokesDto(0, null), none.RevokesApiTokens);
+
+        var pat = await _f.PatClientAsync(target.Client);
+        Assert.Equal(HttpStatusCode.OK, (await pat.GetAsync("/api/v1/me")).StatusCode); // stamps LastUsedAt
+
+        var some = (await (await MintAsync(owner.Client, target.UserId)).Content.ReadFromJsonAsync<MintWithWarningDto>())!;
+        Assert.Equal(1, some.RevokesApiTokens.Count);
+        Assert.NotNull(some.RevokesApiTokens.LastUsedAt);
+    }
+
     // A reset must not be an MFA bypass.
     [Fact]
     public async Task Mfa_still_challenges_after_a_reset()
