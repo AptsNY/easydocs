@@ -239,6 +239,8 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
 
         var res = await member.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "x" });
         Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        var svcId = (await owner.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts"))!.Single().UserId;
+        Assert.Equal(HttpStatusCode.Forbidden, (await MintAsync(member.Client, svcId)).StatusCode);
         var list = await member.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts");
         Assert.Empty(list!);
     }
@@ -400,7 +402,7 @@ public static class ServiceAccountEndpoints
                 name = u.DisplayName,
                 email = u.Email,
                 managedBy = db.Users.Where(x => x.Id == u.ManagedBy)
-                    .Select(x => new { userId = x.Id, displayName = x.DisplayName }).First(),
+                    .Select(x => new { userId = x.Id, displayName = x.DisplayName }).FirstOrDefault(),
                 liveTokens = db.ApiTokens.Count(t => t.UserId == u.Id && t.OrgId == orgId
                     && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > now)),
                 lastUsedAt = db.ApiTokens.Where(t => t.UserId == u.Id && t.OrgId == orgId).Max(t => t.LastUsedAt),
@@ -726,14 +728,14 @@ and immediately before the invitation branch (the `var token = Base64Url...` lin
 
 ```csharp
         // An invitation hands out a raw token; an integration must not mint them, even on its own document.
-        if (await Auth.ServiceAccounts.IsServiceAsync(db, CurrentUser.UserId(ctx.User), ctx.RequestAborted))
+        if (await ServiceAccounts.IsServiceAsync(db, CurrentUser.UserId(ctx.User), ctx.RequestAborted))
             return Problem.Of(403, "Forbidden", "A service account cannot invite people.");
 ```
 
 `MemberEndpoints.Update` — after the `member is null` 404 line:
 
 ```csharp
-        if (role == DocRole.Owner && await Auth.ServiceAccounts.IsServiceAsync(db, uid, ctx.RequestAborted))
+        if (role == DocRole.Owner && await ServiceAccounts.IsServiceAsync(db, uid, ctx.RequestAborted))
             return Problem.Of(400, "Invalid request", "A service account can be at most an Editor.");
 ```
 
@@ -1080,13 +1082,17 @@ Add handlers after `createToken`:
       )}
 ```
 
-- [ ] **Step 5: Settings — org roster.** In the org member row, change the name rendering so a service account says so, and hide the role select, reset and remove controls for it. Find the `org-member-row` `<li>`; wrap the existing role-control block, the reset-password block and the remove block each in `{!m.managedBy && (...)}` (they are already conditional — add `!m.managedBy &&` to each existing condition), and after the display name add:
+- [ ] **Step 5: Settings — org roster.** In the `org-member-row` `<li>`:
+  - the role control is a ternary `isOwner ? <select …> : <span …>` — change its condition to `isOwner && !m.managedBy`, so a service row still shows "Member" as text;
+  - the reset-password button's condition `(isOwner || (canAdmin && m.role === 'Member'))` becomes `!m.managedBy && (isOwner || (canAdmin && m.role === 'Member'))`;
+  - the remove button's condition `isOwner` becomes `isOwner && !m.managedBy` (service accounts are removed from their own section);
+  - after the display name add:
 
 ```tsx
                 {m.managedBy && <span className="muted"> (service, managed by {m.managedBy.displayName})</span>}
 ```
 
-- [ ] **Step 6: MembersPanel.** After `{m.displayName} <span className="muted">{m.email}</span>` (line ~61) add the same `(service, managed by …)` span. In the add-member role `<select>`, nothing changes — the API's 400 on Owner surfaces through the existing error display.
+- [ ] **Step 6: MembersPanel.** After `{m.displayName} <span className="muted">{m.email}</span>` (line ~61) add the same `(service, managed by …)` span — the roster reloads after an add, so the just-added row carries the label too. In the add-member role `<select>`, nothing changes — the API's 400 on Owner surfaces through the existing error display.
 
 - [ ] **Step 7: Approvals picker.** In `Approvals.tsx`, change `{members.map((m) => (` inside the `approvers` fieldset to `{members.filter((m) => !m.managedBy).map((m) => (` and add to the comment above it: `Service accounts are left out: the API refuses them as approvers.`
 
@@ -1205,7 +1211,7 @@ Org: `GET/PATCH /org`, `GET/POST /org/members`, `PATCH/DELETE /org/members/{uid}
 
 Run: `UPDATE_OPENAPI_SNAPSHOT=1 dotnet test tests/EasyDocs.Api.Tests --filter Openapi_snapshot_in_docs_site_matches`
 then: `dotnet test tests/EasyDocs.Api.Tests --filter Openapi_snapshot_in_docs_site_matches`
-Expected: second run PASS; `git diff --stat docs-site` shows `v1.json` changed with the four new paths.
+Expected: second run PASS; `git diff --stat docs-site` shows `v1.json` changed: three new path keys (`/api/v1/org/service-accounts`, `…/{uid}`, `…/{uid}/tokens`) carrying four operations, plus the new response fields.
 
 - [ ] **Step 4: Commit**
 
