@@ -361,4 +361,27 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         var member = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
         Assert.Empty((await member.Client.GetFromJsonAsync<TokenRowDto[]>("/api/v1/tokens"))!);
     }
+
+    private record ResetDto(string Token);
+
+    // The reason this feature exists: a person's password reset revokes THEIR tokens, never the
+    // integration's.
+    [Fact]
+    public async Task Resetting_the_managers_password_leaves_the_service_token_working()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var doc = await CreateDocAsync(owner.Client);
+        await AddMemberAsync(owner.Client, doc, svc.Email, "Viewer");
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+        var personal = await _f.PatClientAsync(owner.Client);
+
+        var mint = await owner.Client.PostAsync($"/api/v1/org/members/{owner.UserId}/password-reset", null);
+        var link = (await mint.Content.ReadFromJsonAsync<ResetDto>())!.Token;
+        (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/password-reset:complete",
+            new { token = link, password = "a-brand-new-password" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await personal.GetAsync("/api/v1/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await bot.GetAsync($"/api/v1/documents/{doc}/versions")).StatusCode);
+    }
 }
