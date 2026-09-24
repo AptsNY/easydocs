@@ -168,6 +168,9 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         // the manager gets no new access, and the colleague keeps theirs.
         Assert.Equal(HttpStatusCode.Forbidden, (await owner.Client.GetAsync($"/api/v1/documents/{doc}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await colleague.Client.GetAsync($"/api/v1/documents/{doc}")).StatusCode);
+        var members = await colleague.Client.GetFromJsonAsync<MemberRowDto[]>($"/api/v1/documents/{doc}/members");
+        var colleagueRow = Assert.Single(members!, m => m.UserId == colleague.UserId);
+        Assert.Equal("Owner", colleagueRow.Role);
     }
 
     [Fact]
@@ -192,7 +195,7 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}")).StatusCode);
     }
 
-    // switch-org mints a 7-day ed_session: a service token must never be able to trade itself for one.
+    // Every person-only route refuses a service token (RequirePerson).
     [Fact]
     public async Task A_service_token_cannot_reach_person_only_routes()
     {
@@ -202,12 +205,15 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         var doc = await CreateDocAsync(bot);
         var vid = await UploadAsync(bot, doc);
 
+        // switch-org mints a 7-day ed_session: a service token must never be able to trade itself for one.
         var switched = await bot.PostAsJsonAsync("/api/v1/auth/switch-org", new { orgId = owner.OrgId });
         Assert.Equal(HttpStatusCode.Forbidden, switched.StatusCode);
         Assert.False(switched.Headers.Contains("Set-Cookie"));
 
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync("/api/v1/tokens", new { name = "self", scopes = Array.Empty<string>() })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.GetAsync("/api/v1/tokens")).StatusCode);
+        // Only the filter can 403 here — the handler itself would 404 on a made-up id.
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.DeleteAsync($"/api/v1/tokens/{Guid.NewGuid()}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/invitations/anything:accept", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.GetAsync("/api/v1/account/mfa")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/account/mfa/setup", null)).StatusCode);
