@@ -222,4 +222,92 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         res.EnsureSuccessStatusCode();
         return (await res.Content.ReadFromJsonAsync<VersionDto>())!.VersionId;
     }
+
+    [Fact]
+    public async Task A_service_account_is_capped_at_editor_on_documents()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var doc = await CreateDocAsync(owner.Client);
+        Assert.Equal(HttpStatusCode.BadRequest, (await AddMemberAsync(owner.Client, doc, svc.Email, "Owner")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await AddMemberAsync(owner.Client, doc, svc.Email, "Editor")).StatusCode);
+        var promote = await owner.Client.PatchAsJsonAsync($"/api/v1/documents/{doc}/members/{svc.UserId}", new { role = "Owner" });
+        Assert.Equal(HttpStatusCode.BadRequest, promote.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_service_token_cannot_mint_invitations_even_on_its_own_document()
+    {
+        var owner = await _f.RegisterAsync();
+        var colleague = await _f.SeedOrgUserAsync(owner.OrgId);
+        var svc = await CreateAsync(owner.Client);
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+        var doc = await CreateDocAsync(bot);
+        Assert.Equal(HttpStatusCode.Forbidden, (await AddMemberAsync(bot, doc, "outsider@example.com", "Viewer")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await AddMemberAsync(bot, doc, colleague.Email, "Viewer")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Org_member_routes_refuse_to_treat_a_service_account_as_a_person()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.Client.PatchAsJsonAsync($"/api/v1/org/members/{svc.UserId}", new { role = "Admin" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.Client.DeleteAsync($"/api/v1/org/members/{svc.UserId}")).StatusCode);
+        // Resetting it is already refused: it has no password.
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.Client.PostAsync($"/api/v1/org/members/{svc.UserId}/password-reset", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_manager_cannot_be_removed_from_the_org_while_managing()
+    {
+        var owner = await _f.RegisterAsync();
+        var admin = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Admin);
+        var svc = await CreateAsync(admin.Client);
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.Client.DeleteAsync($"/api/v1/org/members/{admin.UserId}")).StatusCode);
+        await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}");
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/members/{admin.UserId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_service_account_cannot_be_an_approver()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var doc = await CreateDocAsync(owner.Client);
+        var vid = await UploadAsync(owner.Client, doc);
+        await AddMemberAsync(owner.Client, doc, svc.Email, "Viewer");
+        (await owner.Client.PostAsJsonAsync($"/api/v1/versions/{vid}/publish", new { kind = "minor" })).EnsureSuccessStatusCode();
+
+        var res = await owner.Client.PostAsJsonAsync($"/api/v1/versions/{vid}/approvals", new { approverIds = new[] { svc.UserId } });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_refuses_the_service_domain()
+    {
+        var res = await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = "svc-x-12345678@service.invalid", displayName = "X", password = "pw-at-least-12", orgName = "X",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    // OnAnotherTeamAsync counts members per org; a service account in your personal org must not make
+    // you "active on another team" and so un-resettable from the team you actually work in.
+    [Fact]
+    public async Task A_service_account_in_your_personal_org_keeps_you_resettable_from_a_team()
+    {
+        var team = await _f.RegisterAsync();
+        var person = await _f.RegisterAsync(); // owns their personal org
+        var invite = await team.Client.PostAsJsonAsync("/api/v1/org/members", new { email = person.Email, role = "Member" });
+        var token = (await invite.Content.ReadFromJsonAsync<InviteDto>())!.InvitationToken;
+        (await person.Client.PostAsync($"/api/v1/invitations/{token}:accept", null)).EnsureSuccessStatusCode();
+
+        await CreateAsync(person.Client); // person.Client's JWT is still bound to their personal org
+
+        Assert.Equal(HttpStatusCode.OK, (await team.Client.PostAsync($"/api/v1/org/members/{person.UserId}/password-reset", null)).StatusCode);
+    }
+
+    private record InviteDto(string InvitationToken);
 }

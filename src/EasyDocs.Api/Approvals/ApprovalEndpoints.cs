@@ -142,6 +142,11 @@ public static class ApprovalEndpoints
         if (ids.Except(memberIds).Any())
             return Problem.Of(400, "Invalid request", "Every approverId must be a member of this document.");
 
+        // Respond authorizes on ApproverId alone, so a service approver would let its token holder
+        // approve their own request.
+        if (await db.Users.AnyAsync(u => ids.Contains(u.Id) && u.ManagedBy != null, ctx.RequestAborted))
+            return Problem.Of(400, "Invalid request", "A service account cannot be an approver.");
+
         var now = DateTimeOffset.UtcNow;
         var rows = ids.Select(a => new ApprovalRequest
         {

@@ -74,6 +74,10 @@ public static class MemberEndpoints
         // Already an org member -> grant document membership now.
         if (user is not null && inOrg)
         {
+            // Ownership of a document is only ever its own creation (handed to its manager on delete).
+            if (role == DocRole.Owner && user.ManagedBy is not null)
+                return Problem.Of(400, "Invalid request", "A service account can be at most an Editor.");
+
             if (await db.DocumentMembers.AnyAsync(m => m.DocumentId == id && m.UserId == user.Id, ctx.RequestAborted))
                 return Problem.Of(409, "Already a member", "That user is already a member of this document.");
 
@@ -88,6 +92,10 @@ public static class MemberEndpoints
             return Results.Created($"/api/v1/documents/{id}/members/{user.Id}",
                 new { userId = user.Id, email, role = role.ToString() });
         }
+
+        // An invitation hands out a raw token; an integration must not mint them, even on its own document.
+        if (await ServiceAccounts.IsServiceAsync(db, CurrentUser.UserId(ctx.User), ctx.RequestAborted))
+            return Problem.Of(403, "Forbidden", "A service account cannot invite people.");
 
         // Unknown email, or a user outside this org: mint an invitation. Only the hash is stored (§11);
         // the raw token is returned exactly once, like share links.
@@ -122,6 +130,9 @@ public static class MemberEndpoints
 
         var member = await db.DocumentMembers.FirstOrDefaultAsync(m => m.DocumentId == id && m.UserId == uid, ctx.RequestAborted);
         if (member is null) return Problem.Of(404, "Not found", "That user is not a member of this document.");
+
+        if (role == DocRole.Owner && await ServiceAccounts.IsServiceAsync(db, uid, ctx.RequestAborted))
+            return Problem.Of(400, "Invalid request", "A service account can be at most an Editor.");
 
         if (member.Role == DocRole.Owner && role != DocRole.Owner && !await HasAnotherOwnerAsync(db, id, uid, ctx.RequestAborted))
             return Problem.Of(409, "Last owner", "A document must keep at least one owner.");
