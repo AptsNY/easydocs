@@ -382,6 +382,7 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         await AddMemberAsync(owner.Client, doc, svc.Email, "Viewer");
         var bot = await SvcClientAsync(owner.Client, svc.UserId);
         var personal = await _f.PatClientAsync(owner.Client);
+        Assert.Equal(HttpStatusCode.OK, (await personal.GetAsync("/api/v1/me")).StatusCode);
 
         var mint = await owner.Client.PostAsync($"/api/v1/org/members/{owner.UserId}/password-reset", null);
         var link = (await mint.Content.ReadFromJsonAsync<ResetDto>())!.Token;
@@ -390,5 +391,29 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await personal.GetAsync("/api/v1/me")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await bot.GetAsync($"/api/v1/documents/{doc}/versions")).StatusCode);
+    }
+
+    // Role is read from the DB per request — the demoted manager's JWT still only carries an `org`
+    // claim — so the demotion takes effect without them having to log back in.
+    [Fact]
+    public async Task A_demoted_manager_keeps_listing_and_revoking_their_service_tokens()
+    {
+        var owner = await _f.RegisterAsync();
+        var admin = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Admin);
+        var svc = await CreateAsync(admin.Client);
+        await SvcClientAsync(admin.Client, svc.UserId);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await owner.Client.PatchAsJsonAsync($"/api/v1/org/members/{admin.UserId}", new { role = "Member" })).StatusCode);
+
+        var list = await admin.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts");
+        Assert.Equal(svc.UserId, Assert.Single(list!).UserId);
+
+        var row = (await admin.Client.GetFromJsonAsync<TokenRowDto[]>("/api/v1/tokens"))!
+            .Single(t => t.ServiceAccount?.UserId == svc.UserId);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.Client.DeleteAsync($"/api/v1/tokens/{row.Id}")).StatusCode);
+
+        var plain = await _f.SeedOrgUserAsync(owner.OrgId);
+        Assert.Empty((await plain.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts"))!);
     }
 }
