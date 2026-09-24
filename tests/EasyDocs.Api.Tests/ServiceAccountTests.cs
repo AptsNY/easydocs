@@ -299,6 +299,13 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
             email = "svc-x-12345678@service.invalid", displayName = "X", password = "pw-at-least-12", orgName = "X",
         });
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+
+        // The refusal is case-insensitive: the domain check must not be fooled by casing.
+        var mixedCase = await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = "SVC-Y-12345678@SERVICE.INVALID", displayName = "Y", password = "pw-at-least-12", orgName = "Y",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, mixedCase.StatusCode);
     }
 
     // OnAnotherTeamAsync counts members per org; a service account in your personal org must not make
