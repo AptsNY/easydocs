@@ -17,9 +17,9 @@ public static class TokenEndpoints
         var g = app.MapGroup("").WithTags("Tokens");
         // Per-user rate limit (spec §11, see RateLimits): a stolen session should not be able to mint an
         // unbounded pile of long-lived PATs that survive a password change.
-        g.MapPost("/api/v1/tokens", Create).RequireAuthorization().RequireRateLimiting(RateLimits.TokenMint);
-        g.MapGet("/api/v1/tokens", List).RequireAuthorization();
-        g.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization();
+        g.MapPost("/api/v1/tokens", Create).RequireAuthorization().RequireRateLimiting(RateLimits.TokenMint).RequirePerson();
+        g.MapGet("/api/v1/tokens", List).RequireAuthorization().RequirePerson();
+        g.MapDelete("/api/v1/tokens/{id:guid}", Revoke).RequireAuthorization().RequirePerson();
     }
 
     private static async Task<IResult> Create(CreateTokenRequest req, HttpContext ctx, EasyDocsDbContext db, ApiTokenService tokens)
@@ -54,9 +54,9 @@ public static class TokenEndpoints
     // is its owner's too — a Member enumerating a colleague's token names, scopes and last-used times is
     // not part of that, and neither is an org Owner doing it. Seniority is not ownership.
     //
-    // ApiToken.UserId is nullable for org-level service accounts (spec §4): those have no owning user, so
-    // `own tokens only` would orphan them. They belong to whoever runs the org — Owner/Admin, the same pair
-    // OrgEndpoints gates org management on.
+    // Service accounts (spec 2026-09-24) are Users rows with ManagedBy set; their tokens are visible to
+    // their manager and to Owner/Admin — the pair OrgEndpoints gates org management on. UserId == null
+    // tokens (the v1 schema's sketch, minted by nothing today) stay Owner/Admin-visible for the same reason.
     private static async Task<IQueryable<ApiToken>> VisibleAsync(HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
@@ -67,7 +67,12 @@ public static class TokenEndpoints
             .FirstOrDefaultAsync(ctx.RequestAborted);
         var manages = role is OrgRole.Owner or OrgRole.Admin;
 
-        return db.ApiTokens.Where(t => t.OrgId == orgId && (t.UserId == userId || (manages && t.UserId == null)));
+        // Service-account tokens (owned by a Users row with ManagedBy set) belong to its manager and to
+        // whoever runs the org. Listing and revoking grant nothing, so Owner/Admin may; minting stays with
+        // the manager on POST /api/v1/org/service-accounts/{uid}/tokens.
+        return db.ApiTokens.Where(t => t.OrgId == orgId && (t.UserId == userId
+            || (manages && t.UserId == null)
+            || db.Users.Any(u => u.Id == t.UserId && u.ManagedBy != null && (manages || u.ManagedBy == userId))));
     }
 
     private static async Task<IResult> List(HttpContext ctx, EasyDocsDbContext db)
@@ -78,6 +83,8 @@ public static class TokenEndpoints
             {
                 id = t.Id,
                 serviceName = t.ServiceName,
+                serviceAccount = db.Users.Where(u => u.Id == t.UserId && u.ManagedBy != null)
+                    .Select(u => new { userId = u.Id, name = u.DisplayName }).FirstOrDefault(),
                 scopes = t.Scopes,
                 expiresAt = t.ExpiresAt,
                 lastUsedAt = t.LastUsedAt,

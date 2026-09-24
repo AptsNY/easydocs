@@ -231,7 +231,7 @@ Sharing: `POST /versions/{vid}/share-links`, `GET /documents/{id}/share-links`, 
 Copies/push: `POST /versions/{vid}/copies`, `GET /documents/{id}/copies`, `POST /documents/{id}/pushes`, `GET /documents/{id}/push-requests`, `POST /push-requests/{id}:accept|reject`.
 Members/merge: `GET/POST /documents/{id}/members`, `PATCH/DELETE /documents/{id}/members/{uid}`, `POST /documents/{id}/merges`, `GET /documents/{id}/merges/preview?left=&right=` (read-only three-way review — see the note in §5.3).
 Tokens: `GET/POST/DELETE /tokens`.
-Org: `GET/PATCH /org`, `GET/POST /org/members`, `PATCH/DELETE /org/members/{uid}`.
+Org: `GET/PATCH /org`, `GET/POST /org/members`, `PATCH/DELETE /org/members/{uid}`, `GET/POST /org/service-accounts`, `POST /org/service-accounts/{uid}/tokens`, `DELETE /org/service-accounts/{uid}` (service accounts — see `2026-09-24-service-accounts-design.md`).
 Audit: `GET /documents/{id}/audit`.
 
 **Removed vs source §9:** exports, cloud-connections, tasks, `auth/sso`, `sessions {mode:webdav}`, `versions:initiate`/`:commit`, `WS /realtime`.

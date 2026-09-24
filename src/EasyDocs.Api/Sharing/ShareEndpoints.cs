@@ -22,7 +22,7 @@ public static class ShareEndpoints
     public static void MapShareEndpoints(this WebApplication app)
     {
         var g = app.MapGroup("").WithTags("Sharing");
-        g.MapPost("/api/v1/versions/{vid:guid}/share-links", Create).RequireAuthorization();
+        g.MapPost("/api/v1/versions/{vid:guid}/share-links", Create).RequireAuthorization().RequirePerson();
         // Document-scoped, not version-scoped: the person asking "what have I shared?" is thinking about
         // the document, and without SOME list the row id is unreachable, which made DELETE below dead code
         // for every client (spec §11 — a share is revocable).

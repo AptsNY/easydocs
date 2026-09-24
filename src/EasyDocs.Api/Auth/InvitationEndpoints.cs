@@ -19,7 +19,7 @@ public static class InvitationEndpoints
     public static void MapInvitationEndpoints(this WebApplication app)
     {
         var g = app.MapGroup("").WithTags("Auth");
-        g.MapPost("/api/v1/invitations/{token}:accept", Accept).RequireAuthorization();
+        g.MapPost("/api/v1/invitations/{token}:accept", Accept).RequireAuthorization().RequirePerson();
     }
 
     private static async Task<IResult> Accept(

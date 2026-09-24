@@ -36,7 +36,7 @@ public static partial class AuthEndpoints
         g.MapPost("/api/v1/auth/logout", Logout);
         g.MapGet("/api/v1/me", Me).RequireAuthorization();
         g.MapGet("/api/v1/orgs", MyOrgs).RequireAuthorization();
-        g.MapPost("/api/v1/auth/switch-org", SwitchOrg).RequireAuthorization();
+        g.MapPost("/api/v1/auth/switch-org", SwitchOrg).RequireAuthorization().RequirePerson();
     }
 
     private static async Task<IResult> Register(
@@ -49,6 +49,8 @@ public static partial class AuthEndpoints
 
         if (email.Length == 0 || displayName.Length == 0 || orgName.Length == 0)
             return Problem.Of(400, "Invalid request", "email, displayName and orgName are required.");
+        if (email.EndsWith("@" + ServiceAccounts.ServiceDomain, StringComparison.OrdinalIgnoreCase))
+            return Problem.Of(400, "Invalid request", "That email domain is reserved.");
         if ((req.Password?.Length ?? 0) < 12)
             return Problem.Of(400, "Invalid request", "password must be at least 12 characters.");
 

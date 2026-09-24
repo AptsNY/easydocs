@@ -52,6 +52,11 @@ public static class OidcEndpoints
             return Problem.Of(403, "SSO sign-in failed", "The identity provider reports this email as unverified.");
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+        // Defence in depth behind the reserved domain: no IdP should ever assert it, but refuse if one does.
+        if (user?.ManagedBy is not null)
+            return Problem.Of(403, "SSO sign-in failed", "Service accounts cannot sign in.");
+        if (user is null && email.EndsWith("@" + ServiceAccounts.ServiceDomain, StringComparison.OrdinalIgnoreCase))
+            return Problem.Of(403, "SSO sign-in failed", "That email domain is reserved.");
         if (user is null)
         {
             var displayName = handshake.Principal.FindFirst("name")?.Value?.Trim();

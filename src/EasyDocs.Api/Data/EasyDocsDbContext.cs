@@ -49,6 +49,7 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         {
             e.Property(x => x.Email).HasColumnType("citext");
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ManagedBy).OnDelete(R);
         });
 
         b.Entity<OrgMember>(e =>
