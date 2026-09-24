@@ -1,6 +1,6 @@
 # Service accounts — design
 
-*Status: approved 2026-09-24. RFC: see the linked issue.*
+*Status: approved 2026-09-24. RFC: AptsNY/easydocs#60.*
 
 ## Problem
 
