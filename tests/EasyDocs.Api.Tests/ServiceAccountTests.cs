@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EasyDocs.Api.Domain;
 
 namespace EasyDocs.Api.Tests;
@@ -15,6 +16,7 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
     private record IdDto(Guid Id);
     private record ManagerDto(Guid UserId, string DisplayName);
     private record SvcRowDto(Guid UserId, string Name, string Email, ManagerDto ManagedBy, int LiveTokens);
+    private record MemberRowDto(Guid UserId, string Role);
 
     private static async Task<SvcDto> CreateAsync(HttpClient c, string name = "docassemble")
     {
@@ -139,6 +141,46 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, (await bot.GetAsync("/api/v1/me")).StatusCode);
         // The manager was not a member before; now they own it, so the document is not orphaned.
         Assert.Equal(HttpStatusCode.OK, (await owner.Client.GetAsync($"/api/v1/documents/{created}")).StatusCode);
+        var members = await owner.Client.GetFromJsonAsync<MemberRowDto[]>($"/api/v1/documents/{created}/members");
+        var ownerRow = Assert.Single(members!, m => m.UserId == owner.UserId);
+        Assert.Equal("Owner", ownerRow.Role);
+
+        var remaining = await owner.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts");
+        Assert.DoesNotContain(remaining!, r => r.UserId == svc.UserId);
+    }
+
+    [Fact]
+    public async Task Delete_does_not_hand_over_a_document_the_service_account_co_owns_with_a_person()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+        var colleague = await _f.SeedOrgUserAsync(owner.OrgId);
+        var doc = await CreateDocAsync(bot, "Shared"); // the bot is this document's sole Owner, for now
+
+        // Direct-grant branch: the colleague is already an org member, so this grants membership immediately.
+        Assert.Equal(HttpStatusCode.Created, (await AddMemberAsync(bot, doc, colleague.Email, "Editor")).StatusCode);
+        await _f.SetRoleAsync(doc, colleague.UserId, DocRole.Owner);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}")).StatusCode);
+
+        // A co-Owner already existed, so the document was never solely owned by the service account —
+        // the manager gets no new access, and the colleague keeps theirs.
+        Assert.Equal(HttpStatusCode.Forbidden, (await owner.Client.GetAsync($"/api/v1/documents/{doc}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await colleague.Client.GetAsync($"/api/v1/documents/{doc}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_service_token_gets_the_filters_own_message_not_the_handlers()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+
+        var res = await bot.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "nested" });
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("A service account cannot do this.", body.GetProperty("detail").GetString());
     }
 
     [Fact]
