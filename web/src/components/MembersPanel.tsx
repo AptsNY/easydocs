@@ -84,7 +84,9 @@ export default function MembersPanel({
                     )
                   }}
                 >
-                  {ROLES.map((r) => (
+                  {/* A service account can never be Owner — the API 400s it — so a managed row never
+                      offers the option, the same idiom as Settings' approver picker. */}
+                  {ROLES.filter((r) => r !== 'Owner' || !m.managedBy).map((r) => (
                     <option key={r} value={r}>
                       {r}
                     </option>

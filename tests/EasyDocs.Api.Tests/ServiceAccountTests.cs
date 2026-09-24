@@ -415,5 +415,7 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
 
         var plain = await _f.SeedOrgUserAsync(owner.OrgId);
         Assert.Empty((await plain.Client.GetFromJsonAsync<SvcRowDto[]>("/api/v1/org/service-accounts"))!);
+
+        Assert.Equal(HttpStatusCode.Created, (await MintAsync(admin.Client, svc.UserId)).StatusCode);
     }
 }

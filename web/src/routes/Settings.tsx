@@ -105,7 +105,7 @@ export default function Settings() {
       setSvcMinted({ name: s.name, token: created.token })
     })
 
-  const rename =(e: FormEvent<HTMLFormElement>) => {
+  const rename = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const name = String(new FormData(e.currentTarget).get('name') ?? '').trim()
     if (!name) return
@@ -260,7 +260,12 @@ export default function Settings() {
                   {s.lastUsedAt && ` · last used ${new Date(s.lastUsedAt).toLocaleDateString()}`}
                 </span>
                 {s.managedBy.userId === me?.id && (
-                  <button type="button" className="link" onClick={() => mintService(s)}>
+                  <button
+                    type="button"
+                    className="link"
+                    aria-label={`New token for ${s.name}`}
+                    onClick={() => mintService(s)}
+                  >
                     New token
                   </button>
                 )}
@@ -268,7 +273,12 @@ export default function Settings() {
                   type="button"
                   className="link danger"
                   aria-label={`Remove service account ${s.name}`}
-                  onClick={() => void act(() => api.del(`/api/v1/org/service-accounts/${s.userId}`))}
+                  onClick={() =>
+                    void act(async () => {
+                      await api.del(`/api/v1/org/service-accounts/${s.userId}`)
+                      setSvcMinted(null)
+                    })
+                  }
                 >
                   Remove
                 </button>
