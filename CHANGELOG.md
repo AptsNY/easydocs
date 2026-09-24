@@ -95,6 +95,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   to the platform's private ECR via GitHub OIDC, and rolls the service with zero downtime via the
   shared `AptsNY/infra-platform` deploy workflow. Fires on `v*` tags and manual dispatch. Only
   relevant to that install; self-hosters' release pipeline (GHCR, cosign) is untouched.
+- **Service accounts: integrations get an identity no person can lose.** An org Owner or Admin creates
+  one in **Settings → Service accounts**; it cannot sign in, joins documents by its email like a person
+  (at most as Editor), and only the person who created it can mint its tokens. Resetting anyone's
+  password — including its manager's — no longer breaks the integration running on it. Its tokens
+  cannot mint sessions, invitations or share links, and it cannot be named an approver. RFC #60.
 
 ### Fixed
 
