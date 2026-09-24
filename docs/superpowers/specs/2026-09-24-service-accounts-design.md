@@ -45,30 +45,53 @@ plus one `OrgMembers` row, role `Member`, in the creating org. No personal org i
 
 All under the existing `/api/v1/org` group (session or `ed_` token, `org` claim required). All four
 are gated to the caller's org role **Owner or Admin** — the gate `OrgEndpoints` already uses for
-org management, and the pair `TokenEndpoints.VisibleAsync` already treats as owning service tokens.
+org management.
 
 | Route | Behaviour |
 |---|---|
 | `POST /service-accounts` `{name}` | 400 on blank name. Creates the user + org membership. Audit `service_account.created`. 201 `{userId, name, email}` |
-| `GET /service-accounts` | This org's service accounts: `{userId, name, email, liveTokens, lastUsedAt, createdAt}`. `liveTokens` counts not revoked and not expired. |
+| `GET /service-accounts` | This org's service accounts (queried from `Users.IsService` joined to this org's `OrgMembers`): `{userId, name, email, liveTokens, lastUsedAt, createdAt}`. `liveTokens` counts not revoked and not expired. |
 | `POST /service-accounts/{uid}/tokens` `{name}` | 404 if `uid` is not a service account in this org. Mints an `ed_` token owned by `uid`, org = this org. Audit `token.created` (actor = the caller). Rate-limited with `RateLimits.TokenMint`. 201 `{id, token}` — raw value returned once. |
 | `DELETE /service-accounts/{uid}` | 404 as above. Revokes all its live tokens, removes its `OrgMembers` and `DocumentMembers` rows in this org. The `Users` row stays — audit rows and version authorship reference it (`ON DELETE RESTRICT`). Audit `service_account.removed`. 204. |
 
 Existing routes that change:
 
 - `GET /org/members` and `GET /documents/{id}/members` add `isService` to each row.
-- `POST /documents/{id}/members {email, role}` needs no change: the service account is already an
-  org member, so it takes the direct-grant branch.
+- `POST /documents/{id}/members {email, role}` takes the existing direct-grant branch (the service
+  account is an org member), but **caps the role at Editor**: `Owner` for a service account is 400.
+  `PATCH /documents/{id}/members/{uid}` applies the same cap. An Owner grant would let a token
+  re-share the document and mint invitations, and a service account could become a document's last
+  owner — which `DELETE /service-accounts` would then strip, orphaning the document.
+- `DELETE /org/members/{uid}` on a service account is 409 "Use DELETE /service-accounts/{uid}".
+  Plain removal deletes only the `OrgMembers` row; `DocumentAuthorization` never reads `OrgMembers`,
+  so the tokens would keep full document access while dropping out of every list.
+- `TokenEndpoints.VisibleAsync`: `manages` today covers only `UserId == null` tokens, which no code
+  path creates. It widens to tokens whose owner is an `IsService` member of this org, so an
+  Owner/Admin can list and revoke a single leaked service token through the existing
+  `GET/DELETE /api/v1/tokens` without deleting the account. The stale comment is updated.
+- `POST /versions/{vid}/approvals`: an `IsService` id in `approverIds` is 400. Respond authorizes on
+  `ApproverId` alone, so a token holder could otherwise approve their own request.
+- `PasswordResetEndpoints.OnAnotherTeamAsync` excludes `IsService` users from its per-org member
+  count. Otherwise creating a service account in your personal org makes you "active on another
+  team" and un-resettable from every other org.
+- `POST /auth/register` refuses emails ending `@service.invalid`, so that domain means "service" only.
 
 ## Refusals — a service account cannot act as a person
 
-A service user can hold no session: it has no password, and its `.invalid` email matches no IdP.
-But its `ed_` token authenticates it on every `RequireAuthorization()` route, so the person-only
-routes refuse `IsService` callers explicitly (403, one shared helper):
+A service user cannot *sign in*: it has no password, and its `.invalid` email matches no IdP. But
+its `ed_` token authenticates it on every `RequireAuthorization()` route — and some of those mint a
+session. `POST /auth/switch-org` writes a 7-day `ed_session` JWT for any member, which would turn a
+service token into a credential that survives the token's revocation.
 
-- `POST /api/v1/tokens` — it must not mint its own tokens
-- `POST /api/v1/invitations/{token}:accept`
-- MFA setup / enable / disable
+So person-only routes refuse `IsService` callers with 403. Mechanism: one endpoint filter,
+`PersonOnly()` (`.AddEndpointFilter`), that loads the caller's `Users.IsService` — applied per route
+so the hot document/version paths pay no extra read. Applied to:
+
+- `POST /api/v1/auth/switch-org` — mints a session
+- `POST /api/v1/invitations/{token}:accept` — mints a session
+- `GET/POST/DELETE /api/v1/tokens` — its own tokens are managed by an Owner/Admin, never by itself
+- every `/api/v1/account/mfa*` route
+- `POST /versions/{vid}/share-links` — an integration has no need to mint anonymous links
 
 And as a **target**:
 
@@ -88,10 +111,19 @@ as `<name> (service)` and hide the password-reset and role controls for them.
 
 - `ServiceAccountTests` (xUnit, Testcontainers): create/list/mint/remove happy paths; Member caller
   gets 403 on all four; cross-org `uid` is 404; the token authenticates and reaches exactly the
-  documents it was added to; each refusal above; remove revokes tokens (next call 401).
+  documents it was added to; remove revokes tokens (next call 401).
+- One test per refusal and per changed route above — including: switch-org with a service token is
+  403 and sets no cookie; Owner grant is 400; `DELETE /org/members` is 409; an Owner can list and
+  revoke one service token via `/api/v1/tokens`; a service approver is 400; a person with a service
+  account in their personal org is still resettable from a team org.
 - The decisive test: the creator's password reset does **not** affect a service-account token.
 - e2e: `reset-kills-integration-token.spec.ts` gains a companion — create a service account in
   Settings, add it to a document, mint its token, reset the creator's password, the token still 200s.
+
+## Also in this change (GOVERNANCE.md)
+
+An RFC issue before code; spec §10.1, the committed OpenAPI document and `CHANGELOG.md` updated in the
+same PR. The SPA's approver picker hides service accounts, matching the 400.
 
 ## Out of scope
 
