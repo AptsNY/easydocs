@@ -59,6 +59,9 @@ export default function MembersPanel({
           <li key={m.userId} className="member-row" data-testid="member-row" data-email={m.email}>
             <span className="member-who">
               {m.displayName} <span className="muted">{m.email}</span>
+              {m.managedBy && (
+                <span className="muted"> (service, managed by {m.managedBy.displayName})</span>
+              )}
             </span>
 
             {/* ONE role element per row, not two. The role used to be stated twice — as text and as a

@@ -166,6 +166,8 @@ export type Member = {
   displayName: string
   role: DocRole
   createdAt: string
+  // Non-null = a service account (an integration's identity), managed by this person.
+  managedBy: { userId: string; displayName: string } | null
 }
 
 // GET /api/v1/documents/{id}/publications — the Major Versions tab. `publishedByName` is resolved
@@ -264,6 +266,8 @@ export type ApiTokenRow = {
   lastUsedAt: string | null
   revokedAt: string | null
   createdAt: string
+  // Set when the token belongs to a service account this caller manages or, as Owner/Admin, can revoke.
+  serviceAccount: { userId: string; name: string } | null
 }
 
 // GET /api/v1/documents/{id}/share-links — paged, newest first, and DOCUMENT-scoped even though a link
@@ -291,5 +295,18 @@ export type OrgMember = {
   email: string
   displayName: string
   role: OrgRole
+  createdAt: string
+  // Non-null = a service account (an integration's identity), managed by this person.
+  managedBy: { userId: string; displayName: string } | null
+}
+
+// GET /api/v1/org/service-accounts — BARE array. Owner/Admin see all; anyone else sees what they manage.
+export type ServiceAccount = {
+  userId: string
+  name: string
+  email: string
+  managedBy: { userId: string; displayName: string }
+  liveTokens: number
+  lastUsedAt: string | null
   createdAt: string
 }

@@ -6,6 +6,7 @@ import {
   type OrgMember,
   type OrgRole,
   type Org,
+  type ServiceAccount,
 } from '../api'
 import { useSession } from '../auth'
 import MfaSection from '../components/MfaSection'
@@ -24,6 +25,8 @@ export default function Settings() {
   const [tokens, setTokens] = useState<ApiTokenRow[]>([])
   const [members, setMembers] = useState<OrgMember[]>([])
   const [minted, setMinted] = useState<{ name: string; token: string } | null>(null)
+  const [services, setServices] = useState<ServiceAccount[]>([])
+  const [svcMinted, setSvcMinted] = useState<{ name: string; token: string } | null>(null)
   const [invitation, setInvitation] = useState<{ email: string; token: string } | null>(null)
   const [resetLink, setResetLink] = useState<{
     email: string
@@ -33,14 +36,16 @@ export default function Settings() {
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    const [ts, ms] = await Promise.all([
+    const [ts, ms, ss] = await Promise.all([
       api.get<ApiTokenRow[]>('/api/v1/tokens'),
       api.get<OrgMember[]>('/api/v1/org/members'),
+      api.get<ServiceAccount[]>('/api/v1/org/service-accounts'),
     ])
     // Revoking is a soft revoke server-side (the row stays, with revokedAt set). A revoked token is dead —
     // it authenticates nothing — so listing it would only invite someone to try it.
     setTokens(ts.filter((t) => t.revokedAt === null))
     setMembers(ms)
+    setServices(ss)
   }, [])
 
   useEffect(() => {
@@ -79,7 +84,28 @@ export default function Settings() {
     })
   }
 
-  const rename = (e: FormEvent<HTMLFormElement>) => {
+  const createService = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const form = e.currentTarget
+    const name = String(new FormData(form).get('name') ?? '').trim()
+    if (!name) return
+    void act(async () => {
+      await api.post('/api/v1/org/service-accounts', { name })
+      form.reset()
+    })
+  }
+
+  // Same one-shot rule as a personal token: only the hash is stored.
+  const mintService = (s: ServiceAccount) =>
+    void act(async () => {
+      const created = await api.post<{ id: string; token: string }>(
+        `/api/v1/org/service-accounts/${s.userId}/tokens`,
+        { name: `${s.name} token` },
+      )
+      setSvcMinted({ name: s.name, token: created.token })
+    })
+
+  const rename =(e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const name = String(new FormData(e.currentTarget).get('name') ?? '').trim()
     if (!name) return
@@ -175,7 +201,10 @@ export default function Settings() {
         <ul className="rows">
           {tokens.map((t) => (
             <li key={t.id} data-testid="token-row" data-name={t.serviceName}>
-              <span>{t.serviceName}</span>
+              <span>
+                {t.serviceName}
+                {t.serviceAccount && <span className="muted"> — {t.serviceAccount.name} (service)</span>}
+              </span>
               <time dateTime={t.createdAt}>{new Date(t.createdAt).toLocaleDateString()}</time>
               <span className="muted">
                 {t.lastUsedAt ? `Last used ${new Date(t.lastUsedAt).toLocaleDateString()}` : 'Never used'}
@@ -193,6 +222,61 @@ export default function Settings() {
         </ul>
         {tokens.length === 0 && <p className="muted">No tokens.</p>}
       </section>
+
+      {(canAdmin || services.length > 0) && (
+        <section data-testid="service-accounts">
+          <h3>Service accounts</h3>
+          <p className="muted">
+            An integration’s own identity. It cannot sign in and no one’s password reset affects it. Only
+            its manager can create its tokens; add it to documents by its email, like a person.
+          </p>
+          {canAdmin && (
+            <details className="disclose" data-testid="new-service-account">
+              <summary>New service account</summary>
+              <form className="stack" onSubmit={createService}>
+                <label className="visually-hidden" htmlFor="service-name">
+                  Service account name
+                </label>
+                <input id="service-name" name="name" placeholder="Service account name" required />
+                <button type="submit">Create service account</button>
+              </form>
+            </details>
+          )}
+          {svcMinted && (
+            <div className="invitation" role="status">
+              <p>Copy the token for “{svcMinted.name}” now — it is shown once and cannot be recovered.</p>
+              <code data-testid="service-token-value">{svcMinted.token}</code>
+            </div>
+          )}
+          <ul className="rows">
+            {services.map((s) => (
+              <li key={s.userId} data-testid="service-account-row" data-name={s.name}>
+                <span>
+                  {s.name} <span className="muted">managed by {s.managedBy.displayName}</span>
+                </span>
+                <code data-testid="service-account-email">{s.email}</code>
+                <span className="muted">
+                  {s.liveTokens} token{s.liveTokens === 1 ? '' : 's'}
+                  {s.lastUsedAt && ` · last used ${new Date(s.lastUsedAt).toLocaleDateString()}`}
+                </span>
+                {s.managedBy.userId === me?.id && (
+                  <button type="button" className="link" onClick={() => mintService(s)}>
+                    New token
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="link danger"
+                  aria-label={`Remove service account ${s.name}`}
+                  onClick={() => void act(() => api.del(`/api/v1/org/service-accounts/${s.userId}`))}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <h3>Organization</h3>
@@ -241,12 +325,16 @@ export default function Settings() {
             <li key={m.userId} className="member-row" data-testid="org-member-row" data-email={m.email}>
               <span className="member-who">
                 {m.displayName} <span className="muted">{m.email}</span>
+                {m.managedBy && (
+                  <span className="muted"> (service, managed by {m.managedBy.displayName})</span>
+                )}
               </span>
 
               {/* One role element per row, exactly as the document roster does it: the select IS the
                   statement of the role where the caller may change it, plain text where they may not.
-                  Stating it twice made an owner's row read "Owner Owner". */}
-              {isOwner ? (
+                  Stating it twice made an owner's row read "Owner Owner". A service account's role is
+                  always Member and is never editable here — its reach is its document roles. */}
+              {isOwner && !m.managedBy ? (
                 <label className="member-role">
                   <span className="visually-hidden">Change organization role for {m.email}</span>
                   <select
@@ -273,7 +361,7 @@ export default function Settings() {
               {/* Gated to match the API so the UI never offers an action that 403s: an Admin may reset
                   a Member, an Owner may reset anyone. A reset is full account takeover, which is why
                   it is not simply canAdmin. */}
-              {(isOwner || (canAdmin && m.role === 'Member')) && (
+              {!m.managedBy && (isOwner || (canAdmin && m.role === 'Member')) && (
                 <button
                   type="button"
                   className="link"
@@ -285,7 +373,7 @@ export default function Settings() {
                 </button>
               )}
 
-              {isOwner && (
+              {isOwner && !m.managedBy && (
                 <button
                   type="button"
                   className="link danger"
