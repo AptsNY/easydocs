@@ -48,3 +48,48 @@ test('resetting the token owner\'s password 401s the integration until a new tok
   expect(await lookup(token), 'reset revoked the token').toBe(401)
   expect(await lookup(await mintToken('integration (rotated)')), 'a new token restores it').toBe(200)
 })
+
+// A service account (spec 2026-09-24) is the fix for the test above: its token belongs to no person, so
+// no one's password reset — not even its manager's — can revoke it.
+test('a service-account token survives its manager\'s password reset', async ({
+  signedIn: owner,
+  account,
+  request,
+  browser,
+}) => {
+  const docId = await createDocument(owner, 'Lease Agreement')
+  await uploadVersion(owner, docId, 'base.docx')
+
+  await owner.goto('/settings')
+  await disclose(owner.getByTestId('new-service-account'))
+  await owner.getByPlaceholder('Service account name').fill('integration')
+  await owner.getByRole('button', { name: 'Create service account' }).click()
+  const row = owner.locator('[data-testid="service-account-row"][data-name="integration"]')
+  const email = await row.getByTestId('service-account-email').innerText()
+  await row.getByRole('button', { name: 'New token' }).click()
+  const token = await owner.getByTestId('service-token-value').innerText()
+
+  // Joined to the document like a person.
+  const added = await owner.request.post(`/api/v1/documents/${docId}/members`, { data: { email, role: 'Viewer' } })
+  expect(added.ok(), `add failed: ${added.status()} ${await added.text()}`).toBeTruthy()
+
+  const lookup = async () =>
+    (await request.get(`/api/v1/documents/${docId}/versions?order=desc&limit=100`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).status()
+  expect(await lookup(), 'works before the reset').toBe(200)
+
+  await owner.goto('/settings')
+  await owner.getByRole('button', { name: `Reset the password for ${account.email}` }).click()
+  const link = await owner.getByTestId('password-reset-url').innerText()
+  const other = await browser.newContext()
+  const page = await other.newPage()
+  await page.goto(new URL(link).pathname)
+  await page.getByLabel('New password', { exact: true }).fill('a-brand-new-password')
+  await page.getByLabel('Confirm new password').fill('a-brand-new-password')
+  await page.getByTestId('password-reset-submit').click()
+  await expect(page).toHaveURL(/\/login$/)
+  await other.close()
+
+  expect(await lookup(), 'the service token is not the manager\'s').toBe(200)
+})
