@@ -108,9 +108,14 @@ public static class PasswordResetEndpoints
         db.Add(Audit.Event(orgId, null, callerId, "password_reset.issued", "user", uid.ToString(), null));
         await db.SaveChangesAsync(ct);
 
+        // Complete revokes these, so the admin learns it BEFORE sending the link: an integration running
+        // on this person's token (the 2026-09-22 docassemble outage) otherwise dies with no warning.
+        var live = db.ApiTokens.Where(t => t.UserId == uid && t.RevokedAt == null);
+        var revokesApiTokens = new { count = await live.CountAsync(ct), lastUsedAt = await live.MaxAsync(t => t.LastUsedAt, ct) };
+
         // Relative, like ShareEndpoints' `/s/{token}`: synthesizing an absolute URL means trusting Host
         // or the forwarded headers behind the reverse proxy the README documents as the TLS terminator.
-        return Results.Ok(new { token, url = $"/password-reset/{token}", expiresAt = now + Lifetime });
+        return Results.Ok(new { token, url = $"/password-reset/{token}", expiresAt = now + Lifetime, revokesApiTokens });
     }
 
     public record CompleteRequest(string? Token, string? Password);

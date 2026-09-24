@@ -33,6 +33,8 @@ test('resetting the token owner\'s password 401s the integration until a new tok
   await owner.goto('/settings')
   await owner.getByRole('button', { name: `Reset the password for ${account.email}` }).click()
   const link = await owner.getByTestId('password-reset-url').innerText()
+  // The admin is told before sending the link, not after the integration breaks.
+  await expect(owner.getByTestId('password-reset-revokes-tokens')).toContainText('1 API token')
 
   const other = await browser.newContext()
   const page = await other.newPage()

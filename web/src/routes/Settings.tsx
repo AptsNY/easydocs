@@ -25,7 +25,11 @@ export default function Settings() {
   const [members, setMembers] = useState<OrgMember[]>([])
   const [minted, setMinted] = useState<{ name: string; token: string } | null>(null)
   const [invitation, setInvitation] = useState<{ email: string; token: string } | null>(null)
-  const [resetLink, setResetLink] = useState<{ email: string; url: string } | null>(null)
+  const [resetLink, setResetLink] = useState<{
+    email: string
+    url: string
+    revokesApiTokens: { count: number; lastUsedAt: string | null }
+  } | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
@@ -104,11 +108,11 @@ export default function Settings() {
   // exactly like an invitation. One shot: only the token's hash is stored.
   const resetPassword = (userId: string, email: string) =>
     void act(async () => {
-      const created = await api.post<{ url: string }>(
-        `/api/v1/org/members/${userId}/password-reset`,
-        {},
-      )
-      setResetLink({ email, url: created.url })
+      const created = await api.post<{
+        url: string
+        revokesApiTokens: { count: number; lastUsedAt: string | null }
+      }>(`/api/v1/org/members/${userId}/password-reset`, {})
+      setResetLink({ email, ...created })
     })
 
   return (
@@ -341,6 +345,16 @@ export default function Settings() {
               It works once, expires in an hour, and is shown only now.
             </p>
             <code data-testid="password-reset-url">{`${window.location.origin}${resetLink.url}`}</code>
+            {/* Consuming the link revokes these — an integration on this person's token stops working. */}
+            {resetLink.revokesApiTokens.count > 0 && (
+              <p className="error" data-testid="password-reset-revokes-tokens">
+                Using this link revokes {resetLink.email}'s {resetLink.revokesApiTokens.count} API token
+                {resetLink.revokesApiTokens.count === 1 ? '' : 's'}
+                {resetLink.revokesApiTokens.lastUsedAt &&
+                  ` (last used ${new Date(resetLink.revokesApiTokens.lastUsedAt).toLocaleString()})`}
+                . Anything running on them will stop working until a new token is created.
+              </p>
+            )}
           </div>
         )}
       </section>
