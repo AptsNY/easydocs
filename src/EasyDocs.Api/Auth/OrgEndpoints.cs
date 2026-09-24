@@ -98,6 +98,8 @@ public static class OrgEndpoints
                 email = u.Email,
                 displayName = u.DisplayName,
                 role = m.Role.ToString(),
+                managedBy = db.Users.Where(x => x.Id == u.ManagedBy)
+                    .Select(x => new { userId = x.Id, displayName = x.DisplayName }).FirstOrDefault(),
                 createdAt = m.CreatedAt,
             })
             .OrderBy(x => x.createdAt).ThenBy(x => x.userId)

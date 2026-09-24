@@ -16,7 +16,9 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
     private record IdDto(Guid Id);
     private record ManagerDto(Guid UserId, string DisplayName);
     private record SvcRowDto(Guid UserId, string Name, string Email, ManagerDto ManagedBy, int LiveTokens);
-    private record MemberRowDto(Guid UserId, string Role);
+    // Widened for Task 6 (managedBy on member rows) rather than declaring a second same-named record —
+    // the plan's own snippet would collide with this one, which every existing test here already uses.
+    private record MemberRowDto(Guid UserId, string Role, ManagerDto? ManagedBy);
 
     private static async Task<SvcDto> CreateAsync(HttpClient c, string name = "docassemble")
     {
@@ -316,4 +318,47 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
     }
 
     private record InviteDto(string InvitationToken);
+
+    private record ServiceRefDto(Guid UserId, string Name);
+    private record TokenRowDto(Guid Id, string ServiceName, ServiceRefDto? ServiceAccount);
+
+    [Fact]
+    public async Task Member_lists_say_who_manages_a_service_account()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var doc = await CreateDocAsync(owner.Client);
+        await AddMemberAsync(owner.Client, doc, svc.Email, "Viewer");
+
+        var org = (await owner.Client.GetFromJsonAsync<MemberRowDto[]>("/api/v1/org/members"))!;
+        Assert.Null(org.Single(m => m.UserId == owner.UserId).ManagedBy);
+        Assert.Equal(owner.UserId, org.Single(m => m.UserId == svc.UserId).ManagedBy!.UserId);
+
+        var onDoc = (await owner.Client.GetFromJsonAsync<MemberRowDto[]>($"/api/v1/documents/{doc}/members"))!;
+        Assert.Equal(owner.UserId, onDoc.Single(m => m.UserId == svc.UserId).ManagedBy!.UserId);
+    }
+
+    [Fact]
+    public async Task An_org_owner_can_find_and_revoke_one_leaked_service_token()
+    {
+        var owner = await _f.RegisterAsync();
+        var admin = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Admin);
+        var svc = await CreateAsync(admin.Client);
+        var bot = await SvcClientAsync(admin.Client, svc.UserId);
+
+        var row = (await owner.Client.GetFromJsonAsync<TokenRowDto[]>("/api/v1/tokens"))!
+            .Single(t => t.ServiceAccount?.UserId == svc.UserId);
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/tokens/{row.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await bot.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_plain_member_does_not_see_service_tokens()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        await SvcClientAsync(owner.Client, svc.UserId);
+        var member = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Member);
+        Assert.Empty((await member.Client.GetFromJsonAsync<TokenRowDto[]>("/api/v1/tokens"))!);
+    }
 }
