@@ -36,7 +36,7 @@ public static partial class AuthEndpoints
         g.MapPost("/api/v1/auth/logout", Logout);
         g.MapGet("/api/v1/me", Me).RequireAuthorization();
         g.MapGet("/api/v1/orgs", MyOrgs).RequireAuthorization();
-        g.MapPost("/api/v1/auth/switch-org", SwitchOrg).RequireAuthorization();
+        g.MapPost("/api/v1/auth/switch-org", SwitchOrg).RequireAuthorization().RequirePerson();
     }
 
     private static async Task<IResult> Register(

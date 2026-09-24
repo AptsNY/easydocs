@@ -149,4 +149,35 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         var svc = await CreateAsync(admin.Client);
         Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}")).StatusCode);
     }
+
+    // switch-org mints a 7-day ed_session: a service token must never be able to trade itself for one.
+    [Fact]
+    public async Task A_service_token_cannot_reach_person_only_routes()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+        var doc = await CreateDocAsync(bot);
+        var vid = await UploadAsync(bot, doc);
+
+        var switched = await bot.PostAsJsonAsync("/api/v1/auth/switch-org", new { orgId = owner.OrgId });
+        Assert.Equal(HttpStatusCode.Forbidden, switched.StatusCode);
+        Assert.False(switched.Headers.Contains("Set-Cookie"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync("/api/v1/tokens", new { name = "self", scopes = Array.Empty<string>() })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.GetAsync("/api/v1/tokens")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/invitations/anything:accept", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.GetAsync("/api/v1/account/mfa")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsync("/api/v1/account/mfa/setup", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync($"/api/v1/versions/{vid}/share-links", new { })).StatusCode);
+    }
+
+    private record VersionDto(Guid VersionId);
+
+    private static async Task<Guid> UploadAsync(HttpClient c, Guid doc)
+    {
+        var res = await c.PostAsync($"/api/v1/documents/{doc}/versions", TestAuth.DocxForm());
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<VersionDto>())!.VersionId;
+    }
 }
