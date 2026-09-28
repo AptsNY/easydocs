@@ -65,6 +65,10 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         // WOPI/WebDAV authorize by loading the session before the lock; read what a concurrent save
         // of the same session committed, not that stale copy.
         if (session is not null) await db.Entry(session).ReloadAsync(ct);
+        // The callers copied the session's base into the input BEFORE the lock; the reloaded session is
+        // the truth. Otherwise two overlapping saves of one session (a WebDAV retry, Collabora autosave
+        // over an explicit save) see each other as concurrent editors and fork a branch.
+        var baseVersionId = session?.BaseVersionId ?? input.BaseVersionId;
 
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;
         // a sessionless upload dedupes against the main head sha.
@@ -86,7 +90,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             targetBranch = await db.Branches.FirstAsync(b => b.Id == explicitId, ct);
         else if (session?.BranchId is { } pinnedId)
             targetBranch = await db.Branches.FirstAsync(b => b.Id == pinnedId, ct); // already diverged — fast-forward on it
-        else if (input.BaseVersionId is null || input.BaseVersionId == mainHead?.Id)
+        else if (baseVersionId is null || baseVersionId == mainHead?.Id)
             targetBranch = mainBranch; // fast-forward on main
         else
         {
@@ -95,7 +99,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             targetBranch = new Branch
             {
                 Id = Guid.NewGuid(), DocumentId = input.DocumentId, Ordinal = maxOrdinal + 1,
-                Kind = BranchKind.Concurrent, RootVersionId = input.BaseVersionId, CreatedAt = DateTimeOffset.UtcNow,
+                Kind = BranchKind.Concurrent, RootVersionId = baseVersionId, CreatedAt = DateTimeOffset.UtcNow,
             };
             db.Add(targetBranch);
             if (session is not null) session.BranchId = targetBranch.Id; // pin so later saves fast-forward here
@@ -113,7 +117,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         var version = new DocumentVersion
         {
             Id = Guid.NewGuid(), DocumentId = input.DocumentId, BranchId = targetBranch.Id, SeqInBranch = (targetHead?.SeqInBranch ?? 0) + 1,
-            ParentVersionId = targetHead?.Id ?? input.BaseVersionId, MergeParentVersionId = input.MergeParentVersionId,
+            ParentVersionId = targetHead?.Id ?? baseVersionId, MergeParentVersionId = input.MergeParentVersionId,
             Major = major, Minor = minor, Revision = rev,
             Source = input.Source, BlobSha256 = input.BlobSha256, CreatedBy = input.ActorUserId, CreatedAt = DateTimeOffset.UtcNow,
         };

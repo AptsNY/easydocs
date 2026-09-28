@@ -159,6 +159,31 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         Assert.Equal(7, numbers.Distinct().Count());
     }
 
+    // Overlapping saves of ONE session (a WebDAV retry after a timeout, Collabora autosave over an
+    // explicit save) are one editor, not concurrent editors: they must all land on main.
+    [Fact]
+    public async Task Overlapping_saves_of_one_session_stay_on_main()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 9, 0 });
+        var (sid, tok) = await MintSessionAsync(c, headVid);
+        await WopiSaveAsync(sid, tok, new byte[] { 9, 1 }); // takes the WOPI lock
+
+        await Task.WhenAll(Enumerable.Range(2, 4).Select(i =>
+        {
+            var put = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{sid}/contents?access_token={tok}")
+            {
+                Content = new ByteArrayContent(new byte[] { 9, (byte)i }),
+            };
+            put.Headers.Add("X-WOPI-Lock", "L1");
+            return _f.CreateClient().SendAsync(put);
+        }));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == docId));
+    }
+
     [Fact]
     public async Task Session_pins_to_its_branch_after_first_stale_commit()
     {
