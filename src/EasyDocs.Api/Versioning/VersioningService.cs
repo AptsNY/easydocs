@@ -118,7 +118,14 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         };
         db.Add(version);
 
-        if (session is not null) session.LastCommittedSha = input.BlobSha256;
+        // The session's base advances with its own commits: otherwise its next save sees main "moved"
+        // (by this very commit) and forks a spurious branch, and WOPI GetFile keeps serving the bytes the
+        // session opened with. On a pinned branch the pinned path above never reads it, so this is safe.
+        if (session is not null)
+        {
+            session.LastCommittedSha = input.BlobSha256;
+            session.BaseVersionId = version.Id;
+        }
 
         // Audited here rather than at each caller: this is the single write path (spec §5.2), so one row
         // covers upload, import, WOPI PutFile, merge and revert. Inside the transaction, so the trail

@@ -117,6 +117,28 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         Assert.Equal(3, doc.VersionCounterRev);
     }
 
+    // One editor saving twice is not a concurrent edit: the session's base must advance with its own
+    // commits, or save #2 sees main "moved" (by save #1) and forks a spurious branch — and GetFile keeps
+    // serving the bytes the session opened with.
+    [Fact]
+    public async Task One_session_saving_twice_stays_on_main()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 7, 0 });
+        var (sid, tok) = await MintSessionAsync(c, headVid);
+
+        var v1 = await WopiSaveAsync(sid, tok, new byte[] { 7, 1 });
+        var v2 = await WopiSaveAsync(sid, tok, new byte[] { 7, 2 });
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == docId));
+        Assert.Equal(v1, (await db.Versions.FirstAsync(v => v.Id == v2)).ParentVersionId);
+
+        var got = await _f.CreateClient().GetAsync($"/wopi/files/{sid}/contents?access_token={tok}");
+        Assert.Equal(new byte[] { 7, 2 }, await got.Content.ReadAsByteArrayAsync());
+    }
+
     [Fact]
     public async Task Session_pins_to_its_branch_after_first_stale_commit()
     {
