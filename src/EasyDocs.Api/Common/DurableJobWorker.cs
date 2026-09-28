@@ -15,8 +15,10 @@ public abstract class DurableJobWorker<TPayload>(
     string type, IServiceScopeFactory scopes, IConfiguration cfg, ILogger log) : BackgroundService
 {
     // ponytail: fixed lease/backoff, no per-job tuning — revisit if a job class ever needs more
-    // than 2 minutes or five tries. Poll is configurable only as a test seam (Jobs:PollSeconds).
-    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
+    // than 5 minutes or five tries. Poll is configurable only as a test seam (Jobs:PollSeconds).
+    // The lease must outlast the slowest job, or a second instance claims it mid-run: a PDF render is
+    // up to 2 × 60s of soffice (LibreOfficePdfRenderer) plus blob reads and writes.
+    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(5);
     private const int MaxAttempts = 5;
     private readonly TimeSpan _poll = TimeSpan.FromSeconds(cfg.GetValue("Jobs:PollSeconds", 15));
 
