@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Tests;
+using EasyDocs.Api.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -182,6 +183,74 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         using var scope = _f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
         Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == docId));
+    }
+
+    // Trash is soft and :restore is lossless, so an editor still open when the owner trashes the document
+    // must keep saving: refusing would leave its bytes unreferenced, and the blob GC would take them.
+    [Fact]
+    public async Task A_session_keeps_saving_onto_a_trashed_document()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 10, 0 });
+        var (sid, tok) = await MintSessionAsync(c, headVid);
+        Assert.Equal(HttpStatusCode.NoContent, (await c.DeleteAsync($"/api/v1/documents/{docId}")).StatusCode);
+
+        var saved = await WopiSaveAsync(sid, tok, new byte[] { 10, 1 }); // asserts 200
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.True(await db.Versions.AnyAsync(v => v.Id == saved && v.DocumentId == docId));
+    }
+
+    private record MergeDto(Guid MergeVersionId);
+    private record ProblemDto(string Title);
+
+    // Reviewing a merge takes a while; if the branch's own editor saves again meanwhile, merging the head
+    // the reviewer saw would mark the branch merged and strand the newer save on it. Refused instead.
+    [Fact]
+    public async Task A_merge_of_a_branch_that_moved_since_review_is_refused()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, DocxFixtures.Base());
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+        var vA = await WopiSaveAsync(sidA, tokA, DocxFixtures.Edited());
+        var vB1 = await WopiSaveAsync(sidB, tokB, DocxFixtures.EditedPlusEcho()); // the head the reviewer saw
+        await WopiSaveAsync(sidB, tokB, DocxFixtures.Base());                      // saved during the review
+
+        var merge = await c.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left = vA, right = vB1 });
+        Assert.Equal(HttpStatusCode.Conflict, merge.StatusCode);
+        Assert.Equal("Branch moved", (await merge.Content.ReadFromJsonAsync<ProblemDto>())!.Title);
+    }
+
+    // After a concurrent branch is merged, the session still pinned to it must not keep piling saves onto a
+    // branch that can never be merged again — its next save opens a fresh branch. And that merged branch
+    // cannot be merged a second time.
+    [Fact]
+    public async Task A_session_pinned_to_a_merged_branch_moves_to_a_fresh_one()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, DocxFixtures.Base());
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+        var vA = await WopiSaveAsync(sidA, tokA, DocxFixtures.Edited());          // main
+        var vB = await WopiSaveAsync(sidB, tokB, DocxFixtures.EditedPlusEcho());  // concurrent branch, B pinned
+
+        var merge = await c.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left = vA, right = vB });
+        Assert.Equal(HttpStatusCode.Created, merge.StatusCode);
+        var mergeId = (await merge.Content.ReadFromJsonAsync<MergeDto>())!.MergeVersionId;
+        var again = await c.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left = mergeId, right = vB });
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        Assert.Equal("Already merged", (await again.Content.ReadFromJsonAsync<ProblemDto>())!.Title);
+
+        var vB2 = await WopiSaveAsync(sidB, tokB, DocxFixtures.Base());
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var mergedBranch = (await db.Versions.FirstAsync(v => v.Id == vB)).BranchId;
+        var b2 = await db.Versions.FirstAsync(v => v.Id == vB2);
+        Assert.NotEqual(mergedBranch, b2.BranchId);
+        Assert.Null((await db.Branches.FirstAsync(b => b.Id == b2.BranchId)).MergedIntoVersionId);
     }
 
     [Fact]

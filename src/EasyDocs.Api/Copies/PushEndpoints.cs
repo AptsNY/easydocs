@@ -87,7 +87,9 @@ public static class PushEndpoints
         if (auto && await pushes.MaterializeAsync(pr, ct) is null)
             return Problem.Of(409, "Nothing to push",
                 "This version's content already matches the target's current head.");
-        if (auto) await db.SaveChangesAsync(ct); // persist MaterializedVersionId
+        // Persist MaterializedVersionId. Not cancellable: the version is already committed, and an abort
+        // here would leave the push auto_accepted with nothing pointing at it.
+        if (auto) await db.SaveChangesAsync(CancellationToken.None);
 
         // To the TARGET's consoles: its members are the ones who may need to review this (spec §10.2).
         bus.Publish(targetId, "push.requested",
@@ -130,20 +132,44 @@ public static class PushEndpoints
             db, ctx, pr.TargetDocumentId, Need.Edit, ct: ct);
         if (failure is not null) return failure;
 
-        // Decisions are immutable, like approvals (§12.1 E7): a decided push is settled.
-        if (pr.Status != "pending")
+        // Decisions are immutable, like approvals (§12.1 E7): a decided push is settled. Claimed with one
+        // conditional UPDATE, so of two racing accepts (or an accept racing a reject) exactly one proceeds
+        // and the other is a 409 — never a second materialized version, never a "rejected" row whose
+        // version is already in the target's history.
+        var status = accept ? "accepted" : "rejected";
+        var now = DateTimeOffset.UtcNow;
+        // A reject is claim + audit and nothing else, so one transaction. An accept cannot share one:
+        // MaterializeAsync commits through the write path, which opens its own.
+        await using var tx = accept ? null : await db.Database.BeginTransactionAsync(ct);
+        var claimed = await db.PushRequests.Where(p => p.Id == id && p.Status == "pending")
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, status).SetProperty(p => p.DecidedAt, now), ct);
+        if (claimed == 0)
+        {
+            await db.Entry(pr).ReloadAsync(ct);
             return Problem.Of(409, "Already decided", $"This push request is already {pr.Status}.");
+        }
+        await db.Entry(pr).ReloadAsync(ct); // the claim wrote Status/DecidedAt; track what the row now says
 
         var userId = CurrentUser.UserId(ctx.User);
-        if (accept && await pushes.MaterializeAsync(pr, ct) is null)
+        Guid? materialized;
+        try { materialized = accept ? await pushes.MaterializeAsync(pr, ct) : null; }
+        catch
+        {
+            await ReleaseAsync(db, id);
+            throw;
+        }
+        if (accept && materialized is null)
+        {
+            await ReleaseAsync(db, id); // nothing entered the history: the request is still undecided
             return Problem.Of(409, "Nothing to push",
                 "This version's content already matches the target's current head.");
-
-        pr.Status = accept ? "accepted" : "rejected";
-        pr.DecidedAt = DateTimeOffset.UtcNow;
+        }
         AuditBoth(db, target!.OrgId, pr, userId, accept ? "push.accepted" : "push.rejected",
             new { materializedVersionId = pr.MaterializedVersionId });
-        await db.SaveChangesAsync(ct);
+        // An accept's version is already committed: its MaterializedVersionId and audit rows must land even
+        // if the client has gone, or the request is stuck "accepted" with nothing pointing at the version.
+        await db.SaveChangesAsync(accept ? CancellationToken.None : ct);
+        if (tx is not null) await tx.CommitAsync(ct);
 
         // The pusher is notified on the COPY, not the target: they may hold no target role, so a target
         // event would never reach them. Rejected content is simply never in the target's history — there is
@@ -153,6 +179,11 @@ public static class PushEndpoints
 
         return Results.Ok(Dto(pr));
     }
+
+    // Undo a claim whose accept committed nothing, so the request can still be decided.
+    private static Task ReleaseAsync(EasyDocsDbContext db, Guid id) =>
+        db.PushRequests.Where(p => p.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, "pending").SetProperty(p => p.DecidedAt, (DateTimeOffset?)null));
 
     // Both documents are audited: the target's owners need the trail of what entered their history, and
     // the copy's need the trail of what was sent and how it was decided (spec §11 — mutations are audited).

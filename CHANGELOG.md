@@ -105,6 +105,19 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
+  compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
+  with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
+  incoming branch itself moved during review, which would have stranded its newer save on a branch
+  marked merged. Two people pressing
+  Merge on the same branch now get one merge and one `409`, not the branch merged twice.
+- **Racing push-request accepts produce one accepted push**, not `500`s or a second materialized
+  version, and an accept racing a reject can no longer leave a "rejected" push in the target's history.
+- **An approval decision stays immutable under concurrency:** a respond racing a cancel (or another
+  respond) leaves exactly one standing. A requester removed from the document can no longer cancel.
+- **An editor session pinned to a branch that has since been merged** opens a fresh branch on its
+  next save instead of piling saves onto one that can never be merged again.
+
 - **Concurrent saves no longer share a version number.** The per-document lock serialized the
   database, but the code under it read a copy of the document loaded before the lock, so concurrent
   uploads or editor saves incremented the same stale counter (six at once produced two numbers). The

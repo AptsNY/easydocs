@@ -13,9 +13,19 @@ public sealed record CommitInput(
     Guid DocumentId, string BlobSha256, long SizeBytes, VersionSource Source, Guid ActorUserId,
     Guid? SessionId = null, Guid? BaseVersionId = null, Guid? ExplicitBranchId = null,
     Guid? MergeParentVersionId = null,
+    // Open a new branch of this kind rooted at BaseVersionId and commit onto it — under the document
+    // lock, so its Ordinal cannot collide with a concurrent branch (a push accept's incoming branch).
+    BranchKind? NewBranchKind = null,
     // What the stored bytes actually are (Storage.BlobMime.Sniff). Null = docx, which is what every
     // in-process caller commits: WOPI PutFile, revert, merge and copy all write OOXML by construction.
     string? Mime = null);
+
+// A commit the write path refuses under its lock because the world moved while the caller prepared it.
+// Mapped to 409 problem+json once, in Program.cs, for every caller.
+public sealed class CommitConflictException(string title, string detail) : Exception(detail)
+{
+    public string Title { get; } = title;
+}
 
 public sealed record CommitResult(Guid VersionId, int Major, int Minor, int Revision, Guid BranchId, bool Deduped);
 
@@ -70,6 +80,27 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         // over an explicit save) see each other as concurrent editors and fork a branch.
         var baseVersionId = session?.BaseVersionId ?? input.BaseVersionId;
 
+        // A merge was computed against a main head and one incoming branch, both read before this lock
+        // and seconds of comparison ago. If main moved, committing would silently drop the newer save
+        // from the head; if the branch was merged meanwhile, it would be merged twice.
+        Branch? mergedBranch = null;
+        if (input.MergeParentVersionId is { } mergeParentId)
+        {
+            var parent = await db.Versions.FirstAsync(v => v.Id == mergeParentId, ct);
+            mergedBranch = await db.Branches.FirstAsync(b => b.Id == parent.BranchId, ct);
+            await db.Entry(mergedBranch).ReloadAsync(ct);
+            // Checked first: of two racing merges, the loser is told the truth — not "review again".
+            if (mergedBranch.MergedIntoVersionId is not null)
+                throw new CommitConflictException("Already merged", "This branch has already been merged.");
+            if (baseVersionId != mainHead?.Id)
+                throw new CommitConflictException("Main moved", "Main changed while the merge was being computed; open the merge again from the document's History.");
+            // The incoming side too: a save landing on the branch mid-review would otherwise be stranded on
+            // a branch marked merged, which can never be merged again.
+            var branchHeadSeq = await db.Versions.Where(v => v.BranchId == parent.BranchId).MaxAsync(v => v.SeqInBranch, ct);
+            if (parent.SeqInBranch != branchHeadSeq)
+                throw new CommitConflictException("Branch moved", "The branch has newer saves than the version you reviewed; open the merge again from the document's History.");
+        }
+
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;
         // a sessionless upload dedupes against the main head sha.
         var deduped = session is not null
@@ -80,6 +111,11 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             var existing = await db.Versions
                 .Where(v => v.DocumentId == input.DocumentId && v.BlobSha256 == input.BlobSha256)
                 .OrderByDescending(v => v.CreatedAt).FirstAsync(ct);
+            if (mergedBranch is not null)
+            {
+                mergedBranch.MergedIntoVersionId = existing.Id; // merged content equals main: still closed
+                await db.SaveChangesAsync(ct);
+            }
             await tx.CommitAsync(ct);
             return new CommitResult(existing.Id, existing.Major, existing.Minor, existing.Revision, existing.BranchId, Deduped: true);
         }
@@ -88,21 +124,33 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         Branch targetBranch;
         if (input.ExplicitBranchId is { } explicitId)
             targetBranch = await db.Branches.FirstAsync(b => b.Id == explicitId, ct);
-        else if (session?.BranchId is { } pinnedId)
+        else if (input.NewBranchKind is { } newKind)
+            targetBranch = await OpenBranchAsync(newKind);
+        else if (session?.BranchId is { } pinnedId
+                 && !await db.Branches.AnyAsync(b => b.Id == pinnedId && b.MergedIntoVersionId != null, ct))
             targetBranch = await db.Branches.FirstAsync(b => b.Id == pinnedId, ct); // already diverged — fast-forward on it
+        // A session pinned to a branch that has since been merged falls through: its next save opens a
+        // fresh branch (its base is not main's head) instead of piling onto one that can never merge again.
         else if (baseVersionId is null || baseVersionId == mainHead?.Id)
             targetBranch = mainBranch; // fast-forward on main
         else
         {
             // Stale base: the main head moved on. Branch instead of overwriting (E4 "zero lost edits").
+            targetBranch = await OpenBranchAsync(BranchKind.Concurrent);
+            if (session is not null) session.BranchId = targetBranch.Id; // pin so later saves fast-forward here
+        }
+
+        // Under the lock, so MAX(Ordinal)+1 cannot collide with a concurrent commit's new branch.
+        async Task<Branch> OpenBranchAsync(BranchKind kind)
+        {
             var maxOrdinal = await db.Branches.Where(b => b.DocumentId == input.DocumentId).MaxAsync(b => b.Ordinal, ct);
-            targetBranch = new Branch
+            var branch = new Branch
             {
                 Id = Guid.NewGuid(), DocumentId = input.DocumentId, Ordinal = maxOrdinal + 1,
-                Kind = BranchKind.Concurrent, RootVersionId = baseVersionId, CreatedAt = DateTimeOffset.UtcNow,
+                Kind = kind, RootVersionId = baseVersionId, CreatedAt = DateTimeOffset.UtcNow,
             };
-            db.Add(targetBranch);
-            if (session is not null) session.BranchId = targetBranch.Id; // pin so later saves fast-forward here
+            db.Add(branch);
+            return branch;
         }
 
         // Head of the TARGET branch drives SeqInBranch/ParentVersionId (not always main).
@@ -122,6 +170,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             Source = input.Source, BlobSha256 = input.BlobSha256, CreatedBy = input.ActorUserId, CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Add(version);
+        if (mergedBranch is not null) mergedBranch.MergedIntoVersionId = version.Id; // closed in the same transaction
 
         // The session's base advances with its own commits: otherwise its next save sees main "moved"
         // (by this very commit) and forks a spurious branch, and WOPI GetFile keeps serving the bytes the
