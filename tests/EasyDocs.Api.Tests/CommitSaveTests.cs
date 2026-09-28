@@ -117,6 +117,73 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         Assert.Equal(3, doc.VersionCounterRev);
     }
 
+    // One editor saving twice is not a concurrent edit: the session's base must advance with its own
+    // commits, or save #2 sees main "moved" (by save #1) and forks a spurious branch — and GetFile keeps
+    // serving the bytes the session opened with.
+    [Fact]
+    public async Task One_session_saving_twice_stays_on_main()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 7, 0 });
+        var (sid, tok) = await MintSessionAsync(c, headVid);
+
+        var v1 = await WopiSaveAsync(sid, tok, new byte[] { 7, 1 });
+        var v2 = await WopiSaveAsync(sid, tok, new byte[] { 7, 2 });
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == docId));
+        Assert.Equal(v1, (await db.Versions.FirstAsync(v => v.Id == v2)).ParentVersionId);
+
+        var got = await _f.CreateClient().GetAsync($"/wopi/files/{sid}/contents?access_token={tok}");
+        Assert.Equal(new byte[] { 7, 2 }, await got.Content.ReadAsByteArrayAsync());
+    }
+
+    // The per-document FOR UPDATE lock serializes the counter only if the code under it reads the row
+    // fresh. The endpoints authorize first, which tracks the Documents row in the same DbContext, and a
+    // tracked entity is not refreshed by a later query — so concurrent uploads could share a number.
+    [Fact]
+    public async Task Concurrent_uploads_get_distinct_numbers()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, _) = await DocWithHeadAsync(c, new byte[] { 8, 0 });
+
+        var uploads = await Task.WhenAll(Enumerable.Range(1, 6).Select(i =>
+            c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(new byte[] { 8, (byte)i }))));
+        Assert.All(uploads, u => Assert.True(u.IsSuccessStatusCode));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var numbers = await db.Versions.Where(v => v.DocumentId == docId)
+            .Select(v => new { v.Major, v.Minor, v.Revision }).ToListAsync();
+        Assert.Equal(7, numbers.Distinct().Count());
+    }
+
+    // Overlapping saves of ONE session (a WebDAV retry after a timeout, Collabora autosave over an
+    // explicit save) are one editor, not concurrent editors: they must all land on main.
+    [Fact]
+    public async Task Overlapping_saves_of_one_session_stay_on_main()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, new byte[] { 9, 0 });
+        var (sid, tok) = await MintSessionAsync(c, headVid);
+        await WopiSaveAsync(sid, tok, new byte[] { 9, 1 }); // takes the WOPI lock
+
+        await Task.WhenAll(Enumerable.Range(2, 4).Select(i =>
+        {
+            var put = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{sid}/contents?access_token={tok}")
+            {
+                Content = new ByteArrayContent(new byte[] { 9, (byte)i }),
+            };
+            put.Headers.Add("X-WOPI-Lock", "L1");
+            return _f.CreateClient().SendAsync(put);
+        }));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == docId));
+    }
+
     [Fact]
     public async Task Session_pins_to_its_branch_after_first_stale_commit()
     {

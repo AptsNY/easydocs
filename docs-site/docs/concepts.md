@@ -123,6 +123,10 @@ name. Three things happen: the version is renumbered from the document counter, 
 by a background worker (LibreOffice, out of process, with a timeout and retry), and the version appears
 on the **Major Versions** tab.
 
+A release number is final. A minor release can later be promoted to major (renumbering it once more);
+a major cannot be re-published, and publishing the same version twice is refused rather than handing
+it a second number.
+
 Downloading a version as PDF before it is published returns an error — no PDF exists yet, and easydocs
 would rather say so than render one on the fly and imply it is a release artifact.
 

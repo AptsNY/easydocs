@@ -53,9 +53,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
 
         // Per-document row lock so the authoritative counter increment (spec §5.1) is race-safe.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {input.DocumentId} FOR UPDATE", ct);
-
-        var doc = await db.Documents.FirstAsync(d => d.Id == input.DocumentId, ct);
+        var doc = await db.LockDocumentAsync(input.DocumentId, ct);
         var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == input.DocumentId && b.Ordinal == 0, ct);
         var mainHead = await db.Versions.Where(v => v.BranchId == mainBranch.Id)
             .OrderByDescending(v => v.SeqInBranch).FirstOrDefaultAsync(ct);
@@ -64,6 +62,13 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         var session = input.SessionId is { } sessionId
             ? await db.EditSessions.FirstAsync(s => s.Id == sessionId, ct)
             : null;
+        // WOPI/WebDAV authorize by loading the session before the lock; read what a concurrent save
+        // of the same session committed, not that stale copy.
+        if (session is not null) await db.Entry(session).ReloadAsync(ct);
+        // The callers copied the session's base into the input BEFORE the lock; the reloaded session is
+        // the truth. Otherwise two overlapping saves of one session (a WebDAV retry, Collabora autosave
+        // over an explicit save) see each other as concurrent editors and fork a branch.
+        var baseVersionId = session?.BaseVersionId ?? input.BaseVersionId;
 
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;
         // a sessionless upload dedupes against the main head sha.
@@ -85,7 +90,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             targetBranch = await db.Branches.FirstAsync(b => b.Id == explicitId, ct);
         else if (session?.BranchId is { } pinnedId)
             targetBranch = await db.Branches.FirstAsync(b => b.Id == pinnedId, ct); // already diverged — fast-forward on it
-        else if (input.BaseVersionId is null || input.BaseVersionId == mainHead?.Id)
+        else if (baseVersionId is null || baseVersionId == mainHead?.Id)
             targetBranch = mainBranch; // fast-forward on main
         else
         {
@@ -94,7 +99,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             targetBranch = new Branch
             {
                 Id = Guid.NewGuid(), DocumentId = input.DocumentId, Ordinal = maxOrdinal + 1,
-                Kind = BranchKind.Concurrent, RootVersionId = input.BaseVersionId, CreatedAt = DateTimeOffset.UtcNow,
+                Kind = BranchKind.Concurrent, RootVersionId = baseVersionId, CreatedAt = DateTimeOffset.UtcNow,
             };
             db.Add(targetBranch);
             if (session is not null) session.BranchId = targetBranch.Id; // pin so later saves fast-forward here
@@ -112,13 +117,20 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         var version = new DocumentVersion
         {
             Id = Guid.NewGuid(), DocumentId = input.DocumentId, BranchId = targetBranch.Id, SeqInBranch = (targetHead?.SeqInBranch ?? 0) + 1,
-            ParentVersionId = targetHead?.Id ?? input.BaseVersionId, MergeParentVersionId = input.MergeParentVersionId,
+            ParentVersionId = targetHead?.Id ?? baseVersionId, MergeParentVersionId = input.MergeParentVersionId,
             Major = major, Minor = minor, Revision = rev,
             Source = input.Source, BlobSha256 = input.BlobSha256, CreatedBy = input.ActorUserId, CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Add(version);
 
-        if (session is not null) session.LastCommittedSha = input.BlobSha256;
+        // The session's base advances with its own commits: otherwise its next save sees main "moved"
+        // (by this very commit) and forks a spurious branch, and WOPI GetFile keeps serving the bytes the
+        // session opened with. On a pinned branch the pinned path above never reads it, so this is safe.
+        if (session is not null)
+        {
+            session.LastCommittedSha = input.BlobSha256;
+            session.BaseVersionId = version.Id;
+        }
 
         // Audited here rather than at each caller: this is the single write path (spec §5.2), so one row
         // covers upload, import, WOPI PutFile, merge and revert. Inside the transaction, so the trail
