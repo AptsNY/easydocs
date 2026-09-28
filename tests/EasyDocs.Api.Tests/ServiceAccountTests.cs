@@ -197,6 +197,19 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}")).StatusCode);
     }
 
+    // Two admins pressing Remove at once: the row lock makes the loser a clean 404, not a 500.
+    [Fact]
+    public async Task Concurrent_deletes_are_one_204_and_one_404()
+    {
+        var owner = await _f.RegisterAsync();
+        var admin = await _f.SeedOrgUserAsync(owner.OrgId, OrgRole.Admin);
+        var svc = await CreateAsync(admin.Client);
+        var url = $"/api/v1/org/service-accounts/{svc.UserId}";
+        var codes = (await Task.WhenAll(owner.Client.DeleteAsync(url), admin.Client.DeleteAsync(url)))
+            .Select(r => r.StatusCode).OrderBy(c => c).ToArray();
+        Assert.Equal([HttpStatusCode.NoContent, HttpStatusCode.NotFound], codes);
+    }
+
     // Every person-only route refuses a service token (RequirePerson).
     [Fact]
     public async Task A_service_token_cannot_reach_person_only_routes()

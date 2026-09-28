@@ -28,21 +28,26 @@ public static class TokenEndpoints
         if (name.Length == 0)
             return Problem.Of(400, "Invalid request", "name is required.");
 
+        var userId = CurrentUser.UserId(ctx.User);
+        var scopes = req.Scopes ?? [];
+        return await InsertAsync(db, tokens, CurrentUser.OrgId(ctx.User), userId, userId, name, scopes, req.ExpiresAt,
+            new { name, scopes, expiresAt = req.ExpiresAt }, ctx.RequestAborted);
+    }
+
+    // The one place a token row is written — personal (owner = actor) or a service account's (owner = the
+    // account, actor = its manager). Only the hash is stored; the raw value is returned exactly once.
+    internal static async Task<IResult> InsertAsync(EasyDocsDbContext db, ApiTokenService tokens, Guid orgId, Guid ownerId,
+        Guid actorId, string name, string[] scopes, DateTimeOffset? expiresAt, object auditDetail, CancellationToken ct)
+    {
         var (raw, hash) = tokens.Mint();
         var row = new ApiToken
         {
-            OrgId = CurrentUser.OrgId(ctx.User),
-            UserId = CurrentUser.UserId(ctx.User),
-            ServiceName = name,
-            TokenHash = hash,
-            Scopes = req.Scopes ?? [],
-            ExpiresAt = req.ExpiresAt,
-            CreatedAt = DateTimeOffset.UtcNow,
+            OrgId = orgId, UserId = ownerId, ServiceName = name, TokenHash = hash,
+            Scopes = scopes, ExpiresAt = expiresAt, CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Add(row);
-        db.Add(Audit.Event(row.OrgId, null, row.UserId, "token.created", "token", row.Id.ToString(),
-            new { name, scopes = row.Scopes, expiresAt = row.ExpiresAt }));
-        await db.SaveChangesAsync(ctx.RequestAborted);
+        db.Add(Audit.Event(orgId, null, actorId, "token.created", "token", row.Id.ToString(), auditDetail));
+        await db.SaveChangesAsync(ct);
 
         return Results.Created($"/api/v1/tokens/{row.Id}", new { id = row.Id, token = raw });
     }
@@ -55,8 +60,8 @@ public static class TokenEndpoints
     // not part of that, and neither is an org Owner doing it. Seniority is not ownership.
     //
     // Service accounts (spec 2026-09-24) are Users rows with ManagedBy set; their tokens are visible to
-    // their manager and to Owner/Admin — the pair OrgEndpoints gates org management on. UserId == null
-    // tokens (the v1 schema's sketch, minted by nothing today) stay Owner/Admin-visible for the same reason.
+    // their manager and to Owner/Admin — the pair OrgEndpoints gates org management on. Listing and
+    // revoking grant nothing; minting stays with the manager on POST /api/v1/org/service-accounts/{uid}/tokens.
     private static async Task<IQueryable<ApiToken>> VisibleAsync(HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
@@ -67,11 +72,7 @@ public static class TokenEndpoints
             .FirstOrDefaultAsync(ctx.RequestAborted);
         var manages = role is OrgRole.Owner or OrgRole.Admin;
 
-        // Service-account tokens (owned by a Users row with ManagedBy set) belong to its manager and to
-        // whoever runs the org. Listing and revoking grant nothing, so Owner/Admin may; minting stays with
-        // the manager on POST /api/v1/org/service-accounts/{uid}/tokens.
         return db.ApiTokens.Where(t => t.OrgId == orgId && (t.UserId == userId
-            || (manages && t.UserId == null)
             || db.Users.Any(u => u.Id == t.UserId && u.ManagedBy != null && (manages || u.ManagedBy == userId))));
     }
 

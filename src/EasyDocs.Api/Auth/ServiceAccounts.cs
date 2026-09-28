@@ -12,6 +12,9 @@ public static class ServiceAccounts
     // RFC 2606 reserves .invalid: register refuses it, so the domain means "service" and nothing else.
     public const string ServiceDomain = "service.invalid";
 
+    public static bool IsReservedEmail(string email) =>
+        email.EndsWith("@" + ServiceDomain, StringComparison.OrdinalIgnoreCase);
+
     public static Task<bool> IsServiceAsync(EasyDocsDbContext db, Guid userId, CancellationToken ct) =>
         db.Users.AnyAsync(u => u.Id == userId && u.ManagedBy != null, ct);
 

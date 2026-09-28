@@ -48,8 +48,7 @@ public static class MemberEndpoints
                 email = u.Email,
                 displayName = u.DisplayName,
                 role = m.Role.ToString(),
-                managedBy = db.Users.Where(x => x.Id == u.ManagedBy)
-                    .Select(x => new { userId = x.Id, displayName = x.DisplayName }).FirstOrDefault(),
+                managedBy = u.Manager == null ? null : new { userId = u.Manager.Id, displayName = u.Manager.DisplayName },
                 createdAt = m.CreatedAt,
             })
             .OrderBy(x => x.createdAt).ThenBy(x => x.userId)

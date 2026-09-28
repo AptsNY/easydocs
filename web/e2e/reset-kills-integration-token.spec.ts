@@ -93,3 +93,32 @@ test('a service-account token survives its manager\'s password reset', async ({
 
   expect(await lookup(), 'the service token is not the manager\'s').toBe(200)
 })
+
+// A service account is Owner of what it creates. Its roster row must still say Owner: the picker drops
+// the Owner option for service rows (the API caps them at Editor), so dropping it here too would make
+// the select fall back to its first option and misstate the role as Editor.
+test('a service account keeps showing Owner on a document it created', async ({
+  signedIn: owner,
+  account,
+  request,
+}) => {
+  const created = await owner.request.post('/api/v1/org/service-accounts', { data: { name: 'ingest' } })
+  const svc = (await created.json()) as { userId: string; email: string }
+  const minted = await owner.request.post(`/api/v1/org/service-accounts/${svc.userId}/tokens`, {
+    data: { name: 'ingest token' },
+  })
+  const auth = { Authorization: `Bearer ${((await minted.json()) as { token: string }).token}` }
+
+  const doc = await request.post('/api/v1/documents', { headers: auth, data: { name: 'Ingested' } })
+  expect(doc.ok(), `create failed: ${doc.status()} ${await doc.text()}`).toBeTruthy()
+  const docId = ((await doc.json()) as { id: string }).id
+  const added = await request.post(`/api/v1/documents/${docId}/members`, {
+    headers: auth,
+    data: { email: account.email, role: 'Owner' },
+  })
+  expect(added.ok(), `add failed: ${added.status()} ${await added.text()}`).toBeTruthy()
+
+  await owner.goto(`/documents/${docId}`)
+  const row = owner.locator(`[data-testid="member-row"][data-email="${svc.email}"]`)
+  await expect(row.getByTestId('member-role')).toHaveValue('Owner')
+})

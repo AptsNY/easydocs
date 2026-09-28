@@ -1120,10 +1120,12 @@ namespace EasyDocs.Api.Data.Migrations
 
             modelBuilder.Entity("EasyDocs.Api.Domain.User", b =>
                 {
-                    b.HasOne("EasyDocs.Api.Domain.User", null)
+                    b.HasOne("EasyDocs.Api.Domain.User", "Manager")
                         .WithMany()
                         .HasForeignKey("ManagedBy")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Manager");
                 });
 
             modelBuilder.Entity("EasyDocs.Api.Domain.VersionDiff", b =>

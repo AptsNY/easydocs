@@ -160,6 +160,9 @@ export type DocRole = 'Owner' | 'Editor' | 'Viewer'
 
 // GET /api/v1/documents/{id}/members returns a BARE array, not a Paged<T> — the roster is small enough
 // that it was never paginated.
+// A service account's manager (a person), as every roster row reports it.
+export type ManagerRef = { userId: string; displayName: string }
+
 export type Member = {
   userId: string
   email: string
@@ -167,7 +170,7 @@ export type Member = {
   role: DocRole
   createdAt: string
   // Non-null = a service account (an integration's identity), managed by this person.
-  managedBy: { userId: string; displayName: string } | null
+  managedBy: ManagerRef | null
 }
 
 // GET /api/v1/documents/{id}/publications — the Major Versions tab. `publishedByName` is resolved
@@ -297,7 +300,7 @@ export type OrgMember = {
   role: OrgRole
   createdAt: string
   // Non-null = a service account (an integration's identity), managed by this person.
-  managedBy: { userId: string; displayName: string } | null
+  managedBy: ManagerRef | null
 }
 
 // GET /api/v1/org/service-accounts — BARE array. Owner/Admin see all; anyone else sees what they manage.
@@ -305,7 +308,7 @@ export type ServiceAccount = {
   userId: string
   name: string
   email: string
-  managedBy: { userId: string; displayName: string }
+  managedBy: ManagerRef
   liveTokens: number
   lastUsedAt: string | null
   createdAt: string

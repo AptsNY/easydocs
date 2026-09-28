@@ -84,8 +84,7 @@ public static class ServiceAccountEndpoints
                 userId = u.Id,
                 name = u.DisplayName,
                 email = u.Email,
-                managedBy = db.Users.Where(x => x.Id == u.ManagedBy)
-                    .Select(x => new { userId = x.Id, displayName = x.DisplayName }).FirstOrDefault(),
+                managedBy = u.Manager == null ? null : new { userId = u.Manager.Id, displayName = u.Manager.DisplayName },
                 liveTokens = db.ApiTokens.Count(t => t.UserId == u.Id && t.OrgId == orgId
                     && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > now)),
                 lastUsedAt = db.ApiTokens.Where(t => t.UserId == u.Id && t.OrgId == orgId).Max(t => t.LastUsedAt),
@@ -108,23 +107,8 @@ public static class ServiceAccountEndpoints
         var name = req.Name?.Trim() ?? "";
         if (name.Length == 0) return Problem.Of(400, "Invalid request", "name is required.");
 
-        var (raw, hash) = tokens.Mint();
-        var row = new ApiToken
-        {
-            OrgId = orgId,
-            UserId = uid,
-            ServiceName = name,
-            TokenHash = hash,
-            Scopes = [],
-            ExpiresAt = req.ExpiresAt,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.Add(row);
-        db.Add(Audit.Event(orgId, null, callerId, "token.created", "token", row.Id.ToString(),
-            new { name, serviceAccount = uid, expiresAt = row.ExpiresAt }));
-        await db.SaveChangesAsync(ctx.RequestAborted);
-
-        return Results.Created($"/api/v1/tokens/{row.Id}", new { id = row.Id, token = raw });
+        return await TokenEndpoints.InsertAsync(db, tokens, orgId, uid, callerId, name, [], req.ExpiresAt,
+            new { name, serviceAccount = uid, expiresAt = req.ExpiresAt }, ctx.RequestAborted);
     }
 
     private static async Task<IResult> Delete(Guid uid, HttpContext ctx, EasyDocsDbContext db)
@@ -132,6 +116,11 @@ public static class ServiceAccountEndpoints
         var orgId = CurrentUser.OrgId(ctx.User);
         var callerId = CurrentUser.UserId(ctx.User);
         var ct = ctx.RequestAborted;
+        // Lock the membership row first: a concurrent delete of the same account waits here, then finds
+        // no membership below and 404s, instead of racing this one into a 500.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"OrgMembers\" WHERE \"OrgId\" = {orgId} AND \"UserId\" = {uid} FOR UPDATE", ct);
         var svc = await FindAsync(db, orgId, uid, ct);
         if (svc is null) return Problem.Of(404, "Not found", "Service account not found.");
         if (svc.ManagedBy != callerId && !ManagesOrg(await CallerRoleAsync(ctx, db)))
@@ -148,10 +137,12 @@ public static class ServiceAccountEndpoints
                 && !db.DocumentMembers.Any(o => o.DocumentId == m.DocumentId && o.UserId != uid && o.Role == DocRole.Owner))
             .Select(m => m.DocumentId)
             .ToListAsync(ct);
+        var managerRows = await db.DocumentMembers
+            .Where(m => m.UserId == manager && solelyOwned.Contains(m.DocumentId))
+            .ToDictionaryAsync(m => m.DocumentId, ct);
         foreach (var docId in solelyOwned)
         {
-            var existing = await db.DocumentMembers.FirstOrDefaultAsync(m => m.DocumentId == docId && m.UserId == manager, ct);
-            if (existing is null)
+            if (!managerRows.TryGetValue(docId, out var existing))
                 db.Add(new DocumentMember { DocumentId = docId, UserId = manager, Role = DocRole.Owner, CreatedAt = now });
             else
                 existing.Role = DocRole.Owner;
@@ -167,6 +158,7 @@ public static class ServiceAccountEndpoints
         db.Add(Audit.Event(orgId, null, callerId, "service_account.removed", "user", uid.ToString(),
             new { handedOverDocuments = solelyOwned }));
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return Results.NoContent();
     }
