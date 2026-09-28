@@ -107,7 +107,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
-  with `409` ("review the merge again") instead of committing over the newer save. Two people pressing
+  with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
+  incoming branch itself moved during review, which would have stranded its newer save on a branch
+  marked merged. Two people pressing
   Merge on the same branch now get one merge and one `409`, not the branch merged twice.
 - **Racing push-request accepts produce one accepted push**, not `500`s or a second materialized
   version, and an accept racing a reject can no longer leave a "rejected" push in the target's history.

@@ -203,6 +203,25 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
     }
 
     private record MergeDto(Guid MergeVersionId);
+    private record ProblemDto(string Title);
+
+    // Reviewing a merge takes a while; if the branch's own editor saves again meanwhile, merging the head
+    // the reviewer saw would mark the branch merged and strand the newer save on it. Refused instead.
+    [Fact]
+    public async Task A_merge_of_a_branch_that_moved_since_review_is_refused()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, headVid) = await DocWithHeadAsync(c, DocxFixtures.Base());
+        var (sidA, tokA) = await MintSessionAsync(c, headVid);
+        var (sidB, tokB) = await MintSessionAsync(c, headVid);
+        var vA = await WopiSaveAsync(sidA, tokA, DocxFixtures.Edited());
+        var vB1 = await WopiSaveAsync(sidB, tokB, DocxFixtures.EditedPlusEcho()); // the head the reviewer saw
+        await WopiSaveAsync(sidB, tokB, DocxFixtures.Base());                      // saved during the review
+
+        var merge = await c.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left = vA, right = vB1 });
+        Assert.Equal(HttpStatusCode.Conflict, merge.StatusCode);
+        Assert.Equal("Branch moved", (await merge.Content.ReadFromJsonAsync<ProblemDto>())!.Title);
+    }
 
     // After a concurrent branch is merged, the session still pinned to it must not keep piling saves onto a
     // branch that can never be merged again — its next save opens a fresh branch. And that merged branch
@@ -222,6 +241,7 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         var mergeId = (await merge.Content.ReadFromJsonAsync<MergeDto>())!.MergeVersionId;
         var again = await c.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left = mergeId, right = vB });
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        Assert.Equal("Already merged", (await again.Content.ReadFromJsonAsync<ProblemDto>())!.Title);
 
         var vB2 = await WopiSaveAsync(sidB, tokB, DocxFixtures.Base());
 

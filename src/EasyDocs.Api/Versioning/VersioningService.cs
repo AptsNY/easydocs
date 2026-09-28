@@ -86,13 +86,19 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         Branch? mergedBranch = null;
         if (input.MergeParentVersionId is { } mergeParentId)
         {
-            if (baseVersionId != mainHead?.Id)
-                throw new CommitConflictException("Main moved", "Main changed while the merge was prepared; review the merge again.");
-            var mergedBranchId = await db.Versions.Where(v => v.Id == mergeParentId).Select(v => v.BranchId).FirstAsync(ct);
-            mergedBranch = await db.Branches.FirstAsync(b => b.Id == mergedBranchId, ct);
+            var parent = await db.Versions.FirstAsync(v => v.Id == mergeParentId, ct);
+            mergedBranch = await db.Branches.FirstAsync(b => b.Id == parent.BranchId, ct);
             await db.Entry(mergedBranch).ReloadAsync(ct);
+            // Checked first: of two racing merges, the loser is told the truth — not "review again".
             if (mergedBranch.MergedIntoVersionId is not null)
                 throw new CommitConflictException("Already merged", "This branch has already been merged.");
+            if (baseVersionId != mainHead?.Id)
+                throw new CommitConflictException("Main moved", "Main changed while the merge was prepared; review the merge again.");
+            // The incoming side too: a save landing on the branch mid-review would otherwise be stranded on
+            // a branch marked merged, which can never be merged again.
+            var branchHeadSeq = await db.Versions.Where(v => v.BranchId == parent.BranchId).MaxAsync(v => v.SeqInBranch, ct);
+            if (parent.SeqInBranch != branchHeadSeq)
+                throw new CommitConflictException("Branch moved", "The branch changed while the merge was prepared; review the merge again.");
         }
 
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;

@@ -87,7 +87,9 @@ public static class PushEndpoints
         if (auto && await pushes.MaterializeAsync(pr, ct) is null)
             return Problem.Of(409, "Nothing to push",
                 "This version's content already matches the target's current head.");
-        if (auto) await db.SaveChangesAsync(ct); // persist MaterializedVersionId
+        // Persist MaterializedVersionId. Not cancellable: the version is already committed, and an abort
+        // here would leave the push auto_accepted with nothing pointing at it.
+        if (auto) await db.SaveChangesAsync(CancellationToken.None);
 
         // To the TARGET's consoles: its members are the ones who may need to review this (spec §10.2).
         bus.Publish(targetId, "push.requested",
