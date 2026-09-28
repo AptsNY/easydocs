@@ -136,6 +136,9 @@ public static class PushEndpoints
         // version is already in the target's history.
         var status = accept ? "accepted" : "rejected";
         var now = DateTimeOffset.UtcNow;
+        // A reject is claim + audit and nothing else, so one transaction. An accept cannot share one:
+        // MaterializeAsync commits through the write path, which opens its own.
+        await using var tx = accept ? null : await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.PushRequests.Where(p => p.Id == id && p.Status == "pending")
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, status).SetProperty(p => p.DecidedAt, now), ct);
         if (claimed == 0)
@@ -161,7 +164,10 @@ public static class PushEndpoints
         }
         AuditBoth(db, target!.OrgId, pr, userId, accept ? "push.accepted" : "push.rejected",
             new { materializedVersionId = pr.MaterializedVersionId });
-        await db.SaveChangesAsync(ct);
+        // An accept's version is already committed: its MaterializedVersionId and audit rows must land even
+        // if the client has gone, or the request is stuck "accepted" with nothing pointing at the version.
+        await db.SaveChangesAsync(accept ? CancellationToken.None : ct);
+        if (tx is not null) await tx.CommitAsync(ct);
 
         // The pusher is notified on the COPY, not the target: they may hold no target role, so a target
         // event would never reach them. Rejected content is simply never in the target's history — there is

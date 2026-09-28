@@ -80,10 +80,6 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         // over an explicit save) see each other as concurrent editors and fork a branch.
         var baseVersionId = session?.BaseVersionId ?? input.BaseVersionId;
 
-        // Callers authorize before the lock, so a trash landing in between must not take a save with it.
-        if (doc.DeletedAt is not null)
-            throw new CommitConflictException("Document trashed", "This document is in the trash; restore it before saving.");
-
         // A merge was computed against a main head and one incoming branch, both read before this lock
         // and seconds of comparison ago. If main moved, committing would silently drop the newer save
         // from the head; if the branch was merged meanwhile, it would be merged twice.
@@ -124,8 +120,11 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             targetBranch = await db.Branches.FirstAsync(b => b.Id == explicitId, ct);
         else if (input.NewBranchKind is { } newKind)
             targetBranch = await OpenBranchAsync(newKind);
-        else if (session?.BranchId is { } pinnedId)
+        else if (session?.BranchId is { } pinnedId
+                 && !await db.Branches.AnyAsync(b => b.Id == pinnedId && b.MergedIntoVersionId != null, ct))
             targetBranch = await db.Branches.FirstAsync(b => b.Id == pinnedId, ct); // already diverged — fast-forward on it
+        // A session pinned to a branch that has since been merged falls through: its next save opens a
+        // fresh branch (its base is not main's head) instead of piling onto one that can never merge again.
         else if (baseVersionId is null || baseVersionId == mainHead?.Id)
             targetBranch = mainBranch; // fast-forward on main
         else

@@ -113,7 +113,8 @@ descriptions are **document** versions, produced by the versioning engine. They 
   version, and an accept racing a reject can no longer leave a "rejected" push in the target's history.
 - **An approval decision stays immutable under concurrency:** a respond racing a cancel (or another
   respond) leaves exactly one standing. A requester removed from the document can no longer cancel.
-- **A save racing a trash is refused (`409`)** rather than landing on the trashed document.
+- **An editor session pinned to a branch that has since been merged** opens a fresh branch on its
+  next save instead of piling saves onto one that can never be merged again.
 
 - **Concurrent saves no longer share a version number.** The per-document lock serialized the
   database, but the code under it read a copy of the document loaded before the lock, so concurrent

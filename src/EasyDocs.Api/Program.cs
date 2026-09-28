@@ -249,22 +249,27 @@ using (var scope = app.Services.CreateScope())
 // pipeline and gets first claim on the exception, ahead of that implicit dev page. Narrow by
 // type: only BadHttpRequestException (unambiguously a client mistake) is handled; anything else
 // is rethrown so a genuine server fault (e.g. a NullReferenceException) still surfaces as a 500.
-app.UseExceptionHandler(branch => branch.Run(async ctx =>
+app.UseExceptionHandler(new ExceptionHandlerOptions
 {
-    var error = ctx.Features.Get<IExceptionHandlerPathFeature>()?.Error
-        ?? throw new InvalidOperationException("Exception handler ran without a captured error.");
-    // The write path refusing a commit because the world moved under its lock (VersioningService).
-    if (error is EasyDocs.Api.Versioning.CommitConflictException conflict)
+    // A refused commit is an ordinary outcome ("main moved, review again"), not a fault: no error log.
+    SuppressDiagnosticsCallback = c => c.Exception is EasyDocs.Api.Versioning.CommitConflictException,
+    ExceptionHandler = async ctx =>
     {
-        await Problem.Of(409, conflict.Title, conflict.Message).ExecuteAsync(ctx);
-        return;
-    }
-    if (error is not BadHttpRequestException bad)
-        throw error;
+        var error = ctx.Features.Get<IExceptionHandlerPathFeature>()?.Error
+            ?? throw new InvalidOperationException("Exception handler ran without a captured error.");
+        // The write path refusing a commit because the world moved under its lock (VersioningService).
+        if (error is EasyDocs.Api.Versioning.CommitConflictException conflict)
+        {
+            await Problem.Of(409, conflict.Title, conflict.Message).ExecuteAsync(ctx);
+            return;
+        }
+        if (error is not BadHttpRequestException bad)
+            throw error;
 
-    await Problem.Of(bad.StatusCode, "Malformed request body",
-        bad.InnerException?.Message ?? bad.Message).ExecuteAsync(ctx);
-}));
+        await Problem.Of(bad.StatusCode, "Malformed request body",
+            bad.InnerException?.Message ?? bad.Message).ExecuteAsync(ctx);
+    },
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
