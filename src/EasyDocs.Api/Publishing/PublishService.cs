@@ -16,7 +16,8 @@ public sealed record PublishResult(Guid VersionId, int Major, int Minor, int Rev
 /// </summary>
 public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWriter<Guid> pdfJobs)
 {
-    public async Task<PublishResult> PublishAsync(
+    // Null = refused: the version is already published and this is not a minor -> major promotion.
+    public async Task<PublishResult?> PublishAsync(
         Guid documentId, Guid versionId, string kind, string? name, Guid actorUserId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -24,6 +25,9 @@ public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWr
 
         var doc = await db.Documents.FirstAsync(d => d.Id == documentId, ct);
         var version = await db.Versions.FirstAsync(v => v.Id == versionId && v.DocumentId == documentId, ct);
+        // Under the lock, so a double-click's second request sees the first one's publish.
+        if (version.PublishedKind is not null && !(version.PublishedKind == "minor" && kind == "major"))
+            return null;
 
         var counter = (doc.VersionCounterMajor, doc.VersionCounterMinor, doc.VersionCounterRev);
         var (major, minor, rev) = kind == "major" ? Numbering.PublishMajor(counter) : Numbering.PublishMinor(counter);

@@ -106,6 +106,29 @@ public class PublishTests : IClassFixture<ApiFactory>
         Assert.Equal((1, 0, 1), (next.Major, next.Minor, next.Revision));
     }
 
+    // A publication is a release number. The one legitimate re-publish is promoting a minor to major;
+    // repeating the same kind (a double-click, a client retry) or re-publishing a major would renumber
+    // a released version — 1.0.0 silently becomes 2.0.0 — so it is 409 and changes nothing.
+    [Fact]
+    public async Task Republishing_is_only_a_minor_to_major_promotion()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c);
+        var v = await UploadAsync(c, docId, 1);
+        var url = $"/api/v1/versions/{v.VersionId}/publish";
+
+        (await c.PostAsJsonAsync(url, new { kind = "minor" })).EnsureSuccessStatusCode();                     // 0.1.0
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsJsonAsync(url, new { kind = "minor" })).StatusCode);
+        (await c.PostAsJsonAsync(url, new { kind = "major" })).EnsureSuccessStatusCode();                     // 1.0.0
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsJsonAsync(url, new { kind = "major" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsJsonAsync(url, new { kind = "minor" })).StatusCode);
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var doc = await db.Documents.FirstAsync(d => d.Id == docId);
+        Assert.Equal((1, 0, 0), (doc.VersionCounterMajor, doc.VersionCounterMinor, doc.VersionCounterRev));
+    }
+
     [Fact]
     public async Task Publish_requires_editor()
     {
