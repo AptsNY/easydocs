@@ -105,6 +105,15 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **Saving twice from one editing session no longer forks a branch.** A Collabora or desktop-Word
+  session's base never advanced, so its second save looked stale and opened a concurrent branch —
+  main stopped updating after one save — and the editor re-fetched the session's opening bytes.
+- **Publishing an already-published version is refused (409).** A double-click or retry renumbered a
+  released version (1.0.0 became 2.0.0). Promoting a minor release to major still works; the Actions
+  menu offers only that.
+- **A failed PDF render is retried instead of silently dropped**, and the job lease (now 5 minutes)
+  outlasts a slow render so a second instance cannot start the same render mid-run.
+
 - **A lost redline-cache insert race no longer leaves the cache permanently unfilled.** When an
   inline compare lost the `version_diffs` insert race to the summary worker, the computed HTML
   pointers were dropped — the response was still correct, but that pair recomputed its redline on
