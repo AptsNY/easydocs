@@ -44,10 +44,12 @@ public static class PasswordResetEndpoints
     // the vestigial personal org and still refuses anyone genuinely active on a second team.
     //
     // "Holds Owner or Admin elsewhere" fails for the same reason — everyone owns their personal org.
+    // Service accounts are not people and do not make an org a "team".
     private static Task<bool> OnAnotherTeamAsync(
         EasyDocsDbContext db, Guid uid, Guid thisOrg, CancellationToken ct) =>
         db.OrgMembers.AnyAsync(m => m.UserId == uid && m.OrgId != thisOrg
-            && db.OrgMembers.Count(x => x.OrgId == m.OrgId) > 1, ct);
+            && db.OrgMembers.Count(x => x.OrgId == m.OrgId
+                && db.Users.Any(u => u.Id == x.UserId && u.ManagedBy == null)) > 1, ct);
 
     // Kills every outstanding link for a user.
     //

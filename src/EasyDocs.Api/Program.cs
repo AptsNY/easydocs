@@ -291,6 +291,7 @@ app.MapAuthEndpoints();
 app.MapMfaEndpoints();
 app.MapOidcEndpoints();
 app.MapOrgEndpoints();
+app.MapServiceAccountEndpoints();
 app.MapInvitationEndpoints();
 app.MapPasswordResetEndpoints();
 app.MapTokenEndpoints();

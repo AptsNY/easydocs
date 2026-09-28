@@ -197,9 +197,10 @@ export default function Approvals({ inbox = false }: { inbox?: boolean }) {
               {/* Document members only. The API rejects an approverId that is not a member of this
                   document — being named approver is a decision right, and handing one over a document
                   the person cannot read is the §11 hole Phase A closed. Listing the org roster here
-                  would make that 400 reachable by clicking; listing members makes it unreachable. */}
+                  would make that 400 reachable by clicking; listing members makes it unreachable.
+                  Service accounts are left out: the API refuses them as approvers. */}
               <ul>
-                {members.map((m) => (
+                {members.filter((m) => !m.managedBy).map((m) => (
                   <li key={m.userId} data-testid="approver-option" data-email={m.email}>
                     <label>
                       <input type="checkbox" name="approverIds" value={m.userId} />{' '}
