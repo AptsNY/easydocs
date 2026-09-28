@@ -99,6 +99,11 @@ public static class ServiceAccountEndpoints
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var callerId = CurrentUser.UserId(ctx.User);
+        // FOR SHARE against Delete's FOR UPDATE: a mint racing a delete either lands first (and Delete
+        // revokes it) or waits and 404s — never a live token on an account that is already gone.
+        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"OrgMembers\" WHERE \"OrgId\" = {orgId} AND \"UserId\" = {uid} FOR SHARE", ctx.RequestAborted);
         var svc = await FindAsync(db, orgId, uid, ctx.RequestAborted);
         if (svc is null) return Problem.Of(404, "Not found", "Service account not found.");
         if (svc.ManagedBy != callerId || await CallerRoleAsync(ctx, db) is null)
@@ -107,8 +112,10 @@ public static class ServiceAccountEndpoints
         var name = req.Name?.Trim() ?? "";
         if (name.Length == 0) return Problem.Of(400, "Invalid request", "name is required.");
 
-        return await TokenEndpoints.InsertAsync(db, tokens, orgId, uid, callerId, name, [], req.ExpiresAt,
+        var result = await TokenEndpoints.InsertAsync(db, tokens, orgId, uid, callerId, name, [], req.ExpiresAt,
             new { name, serviceAccount = uid, expiresAt = req.ExpiresAt }, ctx.RequestAborted);
+        await tx.CommitAsync(ctx.RequestAborted);
+        return result;
     }
 
     private static async Task<IResult> Delete(Guid uid, HttpContext ctx, EasyDocsDbContext db)

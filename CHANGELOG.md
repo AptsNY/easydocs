@@ -100,6 +100,8 @@ descriptions are **document** versions, produced by the versioning engine. They 
   (at most as Editor), and only the person who created it can mint its tokens. Resetting anyone's
   password — including its manager's — no longer breaks the integration running on it. Its tokens
   cannot mint sessions, invitations or share links, and it cannot be named an approver. RFC #60.
+  **Before rolling back to an earlier image**, delete your service accounts (or revoke their tokens):
+  older code has no service-account checks, so a live service token there could open a session.
 
 ### Fixed
 

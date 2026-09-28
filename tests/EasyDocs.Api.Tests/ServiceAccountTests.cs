@@ -151,6 +151,22 @@ public class ServiceAccountTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain(remaining!, r => r.UserId == svc.UserId);
     }
 
+    // The manager already sits on the document below Owner: the hand-over promotes that row, not a second one.
+    [Fact]
+    public async Task Delete_promotes_a_manager_who_is_already_a_lesser_member()
+    {
+        var owner = await _f.RegisterAsync();
+        var svc = await CreateAsync(owner.Client);
+        var bot = await SvcClientAsync(owner.Client, svc.UserId);
+        var doc = await CreateDocAsync(bot, "Ingested");
+        Assert.Equal(HttpStatusCode.Created, (await AddMemberAsync(bot, doc, owner.Email, "Viewer")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.Client.DeleteAsync($"/api/v1/org/service-accounts/{svc.UserId}")).StatusCode);
+
+        var members = await owner.Client.GetFromJsonAsync<MemberRowDto[]>($"/api/v1/documents/{doc}/members");
+        Assert.Equal("Owner", Assert.Single(members!).Role);
+    }
+
     [Fact]
     public async Task Delete_does_not_hand_over_a_document_the_service_account_co_owns_with_a_person()
     {

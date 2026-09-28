@@ -34,6 +34,12 @@ namespace EasyDocs.Api.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Without ManagedBy a service account is just a passwordless user, and pre-service-account code
+            // has no RequirePerson: its live tokens could switch-org into a session. Kill them first.
+            migrationBuilder.Sql(
+                "UPDATE \"ApiTokens\" SET \"RevokedAt\" = now() WHERE \"RevokedAt\" IS NULL " +
+                "AND \"UserId\" IN (SELECT \"Id\" FROM \"Users\" WHERE \"ManagedBy\" IS NOT NULL);");
+
             migrationBuilder.DropForeignKey(
                 name: "FK_Users_Users_ManagedBy",
                 table: "Users");
