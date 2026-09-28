@@ -253,6 +253,12 @@ app.UseExceptionHandler(branch => branch.Run(async ctx =>
 {
     var error = ctx.Features.Get<IExceptionHandlerPathFeature>()?.Error
         ?? throw new InvalidOperationException("Exception handler ran without a captured error.");
+    // The write path refusing a commit because the world moved under its lock (VersioningService).
+    if (error is EasyDocs.Api.Versioning.CommitConflictException conflict)
+    {
+        await Problem.Of(409, conflict.Title, conflict.Message).ExecuteAsync(ctx);
+        return;
+    }
     if (error is not BadHttpRequestException bad)
         throw error;
 
