@@ -93,12 +93,12 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
             if (mergedBranch.MergedIntoVersionId is not null)
                 throw new CommitConflictException("Already merged", "This branch has already been merged.");
             if (baseVersionId != mainHead?.Id)
-                throw new CommitConflictException("Main moved", "Main changed while the merge was prepared; review the merge again.");
+                throw new CommitConflictException("Main moved", "Main changed while the merge was being computed; open the merge again from the document's History.");
             // The incoming side too: a save landing on the branch mid-review would otherwise be stranded on
             // a branch marked merged, which can never be merged again.
             var branchHeadSeq = await db.Versions.Where(v => v.BranchId == parent.BranchId).MaxAsync(v => v.SeqInBranch, ct);
             if (parent.SeqInBranch != branchHeadSeq)
-                throw new CommitConflictException("Branch moved", "The branch changed while the merge was prepared; review the merge again.");
+                throw new CommitConflictException("Branch moved", "The branch has newer saves than the version you reviewed; open the merge again from the document's History.");
         }
 
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;

@@ -28,7 +28,10 @@ public sealed class MergePreviewService(
     // would have returned.
     public async Task<Preview?> BuildAsync(Guid documentId, Guid leftId, Guid rightId, CancellationToken ct)
     {
-        // ponytail: the reviewed base is not pinned. MergeSides re-resolves main's head from the database
+        // The INCOMING side is pinned: CommitSaveAsync refuses (409 "Branch moved") a merge whose right
+        // is no longer its branch's head, so a save landing on the branch mid-review is never stranded.
+        //
+        // ponytail: the reviewed MAIN base is not pinned. MergeSides re-resolves main's head from the database
         // on every call, and POST /merges does the same at click time with no expected-head — so if
         // somebody lands a version on main while this screen is open, the merge runs against a head the
         // reader never saw, and answers 201 without mentioning it. Nothing is lost (ADR-1: the merge is
