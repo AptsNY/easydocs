@@ -53,9 +53,7 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
 
         // Per-document row lock so the authoritative counter increment (spec §5.1) is race-safe.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {input.DocumentId} FOR UPDATE", ct);
-
-        var doc = await db.Documents.FirstAsync(d => d.Id == input.DocumentId, ct);
+        var doc = await db.LockDocumentAsync(input.DocumentId, ct);
         var mainBranch = await db.Branches.FirstAsync(b => b.DocumentId == input.DocumentId && b.Ordinal == 0, ct);
         var mainHead = await db.Versions.Where(v => v.BranchId == mainBranch.Id)
             .OrderByDescending(v => v.SeqInBranch).FirstOrDefaultAsync(ct);
@@ -64,6 +62,9 @@ public sealed class VersioningService(EasyDocsDbContext db, EventBus bus, Channe
         var session = input.SessionId is { } sessionId
             ? await db.EditSessions.FirstAsync(s => s.Id == sessionId, ct)
             : null;
+        // WOPI/WebDAV authorize by loading the session before the lock; read what a concurrent save
+        // of the same session committed, not that stale copy.
+        if (session is not null) await db.Entry(session).ReloadAsync(ct);
 
         // Dedupe (spec §5.2 step 2): a session re-PUT of unchanged content is a no-op on any branch;
         // a sessionless upload dedupes against the main head sha.

@@ -50,6 +50,7 @@ public sealed class PdfRenderBackgroundService(
         var pdf = await renderer.RenderToBlobAsync(docx, ct);
         // Throw, don't return: returning consumes the job, so one soffice hiccup left the publication
         // without a PDF forever. Throwing leaves the row for the queue to retry (and drop loudly at the cap).
+        ct.ThrowIfCancellationRequested(); // shutdown mid-render is a cancellation, not a render failure
         if (pdf is null) throw new InvalidOperationException($"PDF render failed for version {versionId}.");
 
         // Versions.PdfBlobSha256 is a foreign key onto `blobs`, so the row has to exist before we

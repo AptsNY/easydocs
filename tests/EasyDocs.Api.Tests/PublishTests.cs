@@ -129,6 +129,22 @@ public class PublishTests : IClassFixture<ApiFactory>
         Assert.Equal((1, 0, 0), (doc.VersionCounterMajor, doc.VersionCounterMinor, doc.VersionCounterRev));
     }
 
+    // The double-click itself: concurrent publishes of one version serialize on the document lock, and
+    // only the first renumbers it.
+    [Fact]
+    public async Task Concurrent_publishes_of_one_version_publish_it_once()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c);
+        var v = await UploadAsync(c, docId, 1);
+
+        var codes = (await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
+            c.PostAsJsonAsync($"/api/v1/versions/{v.VersionId}/publish", new { kind = "major" }))))
+            .Select(r => r.StatusCode).ToList();
+        Assert.Equal(1, codes.Count(x => x == HttpStatusCode.OK));
+        Assert.Equal(3, codes.Count(x => x == HttpStatusCode.Conflict));
+    }
+
     [Fact]
     public async Task Publish_requires_editor()
     {

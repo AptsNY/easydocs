@@ -139,6 +139,26 @@ public class CommitSaveTests : IClassFixture<ApiFactory>
         Assert.Equal(new byte[] { 7, 2 }, await got.Content.ReadAsByteArrayAsync());
     }
 
+    // The per-document FOR UPDATE lock serializes the counter only if the code under it reads the row
+    // fresh. The endpoints authorize first, which tracks the Documents row in the same DbContext, and a
+    // tracked entity is not refreshed by a later query — so concurrent uploads could share a number.
+    [Fact]
+    public async Task Concurrent_uploads_get_distinct_numbers()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, _) = await DocWithHeadAsync(c, new byte[] { 8, 0 });
+
+        var uploads = await Task.WhenAll(Enumerable.Range(1, 6).Select(i =>
+            c.PostAsync($"/api/v1/documents/{docId}/versions", Docx(new byte[] { 8, (byte)i }))));
+        Assert.All(uploads, u => Assert.True(u.IsSuccessStatusCode));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var numbers = await db.Versions.Where(v => v.DocumentId == docId)
+            .Select(v => new { v.Major, v.Minor, v.Revision }).ToListAsync();
+        Assert.Equal(7, numbers.Distinct().Count());
+    }
+
     [Fact]
     public async Task Session_pins_to_its_branch_after_first_stale_commit()
     {

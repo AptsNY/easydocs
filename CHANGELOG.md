@@ -105,6 +105,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **Concurrent saves no longer share a version number.** The per-document lock serialized the
+  database, but the code under it read a copy of the document loaded before the lock, so concurrent
+  uploads or editor saves incremented the same stale counter (six at once produced two numbers). The
+  same stale read let concurrent publishes of one version all succeed, and could make a manual counter
+  override silently write nothing.
 - **Saving twice from one editing session no longer forks a branch.** A Collabora or desktop-Word
   session's base never advanced, so its second save looked stale and opened a concurrent branch —
   main stopped updating after one save — and the editor re-fetched the session's opening bytes.

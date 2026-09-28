@@ -151,15 +151,17 @@ public static class DocumentEndpoints
     // the write path (spec §5.1), so a subsequent CommitSaveAsync NextDraft continues from it (R6).
     private static async Task<IResult> SetVersionCounter(Guid id, VersionCounterRequest req, HttpContext ctx, EasyDocsDbContext db)
     {
-        var (doc, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
+        var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: true);
         if (failure is not null) return failure;
 
         try { Numbering.Manual(req.Major, req.Minor, req.Rev); }
         catch (ArgumentOutOfRangeException) { return Problem.Of(400, "Invalid request", "Counter values must be non-negative."); }
 
         await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ctx.RequestAborted);
-        doc!.VersionCounterMajor = req.Major;
+        // Fresh under the lock: against a stale tracked copy, setting the value it already held would
+        // look unchanged to EF and write nothing, while a concurrent save had moved the real row.
+        var doc = await db.LockDocumentAsync(id, ctx.RequestAborted);
+        doc.VersionCounterMajor = req.Major;
         doc.VersionCounterMinor = req.Minor;
         doc.VersionCounterRev = req.Rev;
         db.Add(Audit.Event(doc.OrgId, id, CurrentUser.UserId(ctx.User), "version_counter.set",

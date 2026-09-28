@@ -21,11 +21,11 @@ public sealed class PublishService(EasyDocsDbContext db, EventBus bus, ChannelWr
         Guid documentId, Guid versionId, string kind, string? name, Guid actorUserId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {documentId} FOR UPDATE", ct);
-
-        var doc = await db.Documents.FirstAsync(d => d.Id == documentId, ct);
+        var doc = await db.LockDocumentAsync(documentId, ct);
         var version = await db.Versions.FirstAsync(v => v.Id == versionId && v.DocumentId == documentId, ct);
-        // Under the lock, so a double-click's second request sees the first one's publish.
+        // Reloaded under the lock (the endpoint tracked it before), so a double-click's second request
+        // really does see the first one's publish.
+        await db.Entry(version).ReloadAsync(ct);
         if (version.PublishedKind is not null && !(version.PublishedKind == "minor" && kind == "major"))
             return null;
 
