@@ -61,9 +61,16 @@ Every item below is implemented in `main` today.
   value is returned exactly once, at creation. A SHA-256 lookup by equality is safe here precisely
   because the pre-image is a full-entropy CSPRNG secret — there is no low-entropy input for a timing
   oracle to walk.
-- **WOPI access tokens are short-TTL stateless JWTs** (30 minutes) carrying `typ=wopi`, and are
-  **never stored**. The `typ` claim firewalls them in both directions: a session JWT cannot authorize
-  WOPI, and a WOPI token cannot authorize the application.
+- **WOPI/WebDAV access tokens are session-length JWTs, re-checked against the database on every
+  request.** A token is signed (`typ=wopi`), scoped to one edit session, **never stored**, and expires
+  after at most 12 hours — long, because neither Collabora nor desktop Word can refresh a token, and a
+  shorter expiry silently stops an open editor from saving. The expiry is only the outer bound: every
+  WOPI and WebDAV call also requires that the session is still open, belongs to the token's user, and
+  that the user is still a member of the document's org and still Editor or Owner on the document.
+  Closing the session, or removing or demoting the user, therefore cuts an open editor off on its next
+  request. (Trashing the document deliberately does not: trash is soft and restore is lossless, so an
+  open editor's saves are kept.) The `typ` claim firewalls these tokens in both
+  directions: a session JWT cannot authorize WOPI, and a WOPI token cannot authorize the application.
 - **One per-document authorization chokepoint, with no org-role fallback.** Every document-scoped
   endpoint routes through `DocumentAuthorization` (`src/EasyDocs.Api/Auth/DocumentAuthorization.cs`),
   which resolves the caller's role from `document_members` alone. **Org role grants no implicit
@@ -122,8 +129,9 @@ protocol requires, and ASP.NET Core's request logging would print the full URL. 
 suppressing that is `"Microsoft.AspNetCore": "Warning"` in `appsettings.json`. Raising it to
 `Information` — e.g. `Logging__LogLevel__Microsoft.AspNetCore=Information`, which compose passes
 straight through — **prints live WOPI tokens to stdout**, where they reach your log aggregator. There
-is no code-level redaction. The tokens are 30-minute capabilities scoped to one edit session, so the
-blast radius is bounded, but do not raise that log level in production. See
+is no code-level redaction. A token is scoped to one edit session and dies the moment that session is
+closed or its user loses edit access, but an open session's token stays usable for up to 12 hours —
+**do not raise that log level in production.** See
 [Never raise the ASP.NET Core log level in production](docs-site/docs/self-hosting.md#never-raise-the-aspnet-core-log-level-in-production).
 
 **Rate limits are per-IP and collapse behind a proxy.** Without

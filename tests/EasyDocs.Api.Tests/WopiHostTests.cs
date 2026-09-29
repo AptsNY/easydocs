@@ -1,10 +1,17 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using EasyDocs.Api.Data;
+using EasyDocs.Api.Domain;
+using EasyDocs.Api.Editing;
 using EasyDocs.Api.Tests;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 public class WopiHostTests : IClassFixture<ApiFactory>
 {
@@ -207,5 +214,99 @@ public class WopiHostTests : IClassFixture<ApiFactory>
 
         var resp = await _f.CreateClient().GetAsync($"/wopi/files/{sid}?access_token=garbage");
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    // A WOPI token exactly as WopiAccessToken would have signed it `age` ago: same key, same claims,
+    // same TTL. Signed here rather than through an injected clock so the test compiles against any build.
+    internal static string AgedToken(IServiceProvider sp, Guid sid, Guid uid, TimeSpan age)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(sp.GetRequiredService<IConfiguration>()["Jwt:Secret"]!));
+        var issued = DateTime.UtcNow - age;
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+            claims: [new Claim("sid", sid.ToString()), new Claim("sub", uid.ToString()), new Claim("perms", "w"), new Claim("typ", "wopi")],
+            notBefore: issued,
+            expires: issued.AddSeconds(WopiAccessToken.TtlSeconds),
+            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)));
+    }
+
+    private async Task<EditSession> SessionAsync(Guid sid)
+    {
+        using var scope = _f.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>().EditSessions.SingleAsync(s => s.Id == sid);
+    }
+
+    private async Task<HttpResponseMessage> PutAsync(Guid sid, string token) =>
+        await _f.CreateClient().PostAsync($"/wopi/files/{sid}/contents?access_token={token}",
+            new ByteArrayContent(Guid.NewGuid().ToByteArray()));
+
+    // The reported bug: a Collabora tab open for 36 minutes (30-min TTL + the 5-min default clock skew)
+    // could no longer save. Collabora never refreshes a token, so every later PutFile was a silent 401.
+    [Fact]
+    public async Task A_36_minute_old_token_on_an_open_session_still_saves()
+    {
+        var c = await AuthedClientAsync();
+        var (sid, _) = await MintSessionAsync(c);
+        var s = await SessionAsync(sid);
+
+        var aged = AgedToken(_f.Services, sid, s.UserId, TimeSpan.FromMinutes(36));
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().GetAsync($"/wopi/files/{sid}?access_token={aged}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PutAsync(sid, aged)).StatusCode);
+    }
+
+    // Still bounded: a token past its TTL (plus skew) is refused even on an open session.
+    [Fact]
+    public async Task A_token_past_its_ttl_is_refused()
+    {
+        var c = await AuthedClientAsync();
+        var (sid, _) = await MintSessionAsync(c);
+        var s = await SessionAsync(sid);
+
+        var dead = AgedToken(_f.Services, sid, s.UserId,
+            TimeSpan.FromSeconds(WopiAccessToken.TtlSeconds) + TimeSpan.FromMinutes(10));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PutAsync(sid, dead)).StatusCode);
+    }
+
+    // The editor URL tells Collabora when its token dies (WOPI access_token_ttl, ms since the epoch), so it
+    // can warn the user rather than fail a save. It must be the token's real exp.
+    [Fact]
+    public async Task Editor_url_carries_the_tokens_real_expiry_as_access_token_ttl()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Ttl" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var part = new ByteArrayContent(BaseBytes);
+        part.Headers.ContentType = new MediaTypeHeaderValue(DocxMime);
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions",
+            new MultipartFormDataContent { { part, "file", "l.docx" } });
+        var vid = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var mint = (await (await c.PostAsync($"/api/v1/versions/{vid}/sessions", null))
+            .Content.ReadFromJsonAsync<EditorMintDto>())!;
+
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(mint.EditorUrl).Query);
+        var exp = new JwtSecurityTokenHandler().ReadJwtToken(mint.AccessToken).Payload.Expiration!.Value;
+        Assert.Equal(exp * 1000L, long.Parse(query["access_token_ttl"]!));
+    }
+
+    private record EditorMintDto(Guid SessionId, string EditorUrl, string AccessToken);
+
+    // A long-lived token is acceptable only because every call re-checks the session against the database.
+    // Each of these must cut an open editor off at once, with a token minted a second ago.
+    [Theory]
+    [InlineData("removed")]
+    [InlineData("demoted")]
+    [InlineData("closed")]
+    [InlineData("left-org")]
+    public async Task Losing_access_cuts_off_a_fresh_token_immediately(string how)
+    {
+        var c = await AuthedClientAsync();
+        var (sid, token) = await MintSessionAsync(c);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _f.CreateClient().GetAsync($"/wopi/files/{sid}?access_token={token}")).StatusCode);
+
+        await WebdavTests.RevokeAsync(_f.Services, sid, how);
+
+        Assert.NotEqual(HttpStatusCode.OK,
+            (await _f.CreateClient().GetAsync($"/wopi/files/{sid}?access_token={token}")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.OK, (await PutAsync(sid, token)).StatusCode);
     }
 }
