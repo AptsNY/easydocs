@@ -6,10 +6,10 @@
 # accounts cannot be reached that way, by design —
 #
 #   * the SOLE OWNER of an organization, because there is nobody else who could issue the link;
-#   * anyone active on a second team, whom the cross-org gate refuses;
 #   * an install where every owner has locked themselves out at once.
 #
-# This script is the answer to those. It writes a genuine row into "PasswordResets" and prints the
+# This script is the answer to those. It is NOT an answer for an account active on two teams: the
+# consume endpoint refuses that whoever issued the link, so the script refuses it up front. It writes a genuine row into "PasswordResets" and prints the
 # link, so recovery then runs through exactly the same endpoint everyone else uses: single use, one
 # hour, revokes the account's ed_ tokens, leaves MFA armed. The only thing it bypasses is the check
 # on WHO may issue a link — precisely the check an operator holding the database credentials is

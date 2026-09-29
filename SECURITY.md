@@ -194,9 +194,10 @@ rather than offering a "Forgot password?" button that could not work. Three grou
 the **sole Owner** of an org, because nobody else can mint them a link; anyone **active on a second
 team** (a second org that has other members in it), because the cross-org gate refuses them; and any
 **SSO-only account**, which has no password to reset (recover it at the identity provider; the
-operator script refuses it too). For the first two, the answer is
-`deploy/scripts/issue-password-reset.sh`, which needs database access and issues a link through the
-very same endpoint — see
+operator script refuses it too). For a sole Owner — or an install where every Owner is locked out —
+the answer is `deploy/scripts/issue-password-reset.sh`, which needs database access and issues a link
+through the very same endpoint. An account active on two teams is refused by every path, the script
+included: remove one membership first (or recover it through SSO). See
 [the self-hosting guide](docs-site/docs/self-hosting.md#locked-out-password-reset-for-an-operator).
 Anyone who can run it can take over any account on the install, which is the same authority as
 holding the database credentials it requires. Separately, a signed-in member **cannot change a

@@ -387,10 +387,9 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
     public async Task The_operator_script_issues_a_working_audited_link_and_refuses_what_it_must()
     {
         var owner = await _f.RegisterAsync();
-        var (code, stdout, stderr) = await RunScriptAsync(owner.Email);
-        Assert.True(code == 0, stderr);
-        var token = stdout.Split('\n').Select(l => l.Trim())
-            .First(l => l.StartsWith("http://x/password-reset/", StringComparison.Ordinal))["http://x/password-reset/".Length..];
+        var superseded = await IssueWithScriptAsync(owner.Email);
+        var token = await IssueWithScriptAsync(owner.Email); // a second run supersedes the first link
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(superseded, "a-long-enough-password")).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(token, "set-by-the-real-script")).StatusCode);
         using (var scope = _f.Services.CreateScope())
         {
@@ -408,6 +407,14 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         Assert.NotEqual(0, (await RunScriptAsync(ssoOnly.Email)).Code);
     }
 
+    private async Task<string> IssueWithScriptAsync(string email)
+    {
+        var (code, stdout, stderr) = await RunScriptAsync(email);
+        Assert.True(code == 0, stderr);
+        return stdout.Split('\n').Select(l => l.Trim())
+            .First(l => l.StartsWith("http://x/password-reset/", StringComparison.Ordinal))["http://x/password-reset/".Length..];
+    }
+
     private async Task<(int Code, string Stdout, string Stderr)> RunScriptAsync(string email)
     {
         var root = AppContext.BaseDirectory;
@@ -419,10 +426,15 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
             Environment = { ["DB_CONTAINER"] = _f.PostgresContainerId, ["POSTGRES_USER"] = "postgres",
                             ["POSTGRES_DB"] = "postgres", ["BASE_URL"] = "http://x" },
         };
+        // Never inherit a real database or a dry run from the developer's shell: this must only ever
+        // talk to the suite's own container.
+        psi.Environment.Remove("DATABASE_URL");
+        psi.Environment.Remove("DRY_RUN");
         using var p = System.Diagnostics.Process.Start(psi)!;
         var stdout = p.StandardOutput.ReadToEndAsync();
         var stderr = p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await p.WaitForExitAsync(timeout.Token);
         return (p.ExitCode, await stdout, await stderr);
     }
 

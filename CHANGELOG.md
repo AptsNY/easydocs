@@ -29,8 +29,8 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 - **An operator can recover an account no admin can reach.**
   `deploy/scripts/issue-password-reset.sh <email>` issues a reset link straight from the database,
-  for the cases the admin-issued flow deliberately refuses — the sole owner of an organization, and
-  anyone active on a second one. It writes a reset row rather than a password hash, so the link runs
+  for an account no admin can reach — the sole owner of an organization, or an install where every
+  owner is locked out. It writes a reset row rather than a password hash, so the link runs
   through the same endpoint as any other and cannot drift out of step with how passwords are hashed.
 
 - **A locked-out member can be given their account back.** Until now there was no password reset at
