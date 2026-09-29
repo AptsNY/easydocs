@@ -130,7 +130,9 @@ suppressing that is `"Microsoft.AspNetCore": "Warning"` in `appsettings.json`. R
 `Information` — e.g. `Logging__LogLevel__Microsoft.AspNetCore=Information`, which compose passes
 straight through — **prints live WOPI tokens to stdout**, where they reach your log aggregator. There
 is no code-level redaction. A token is scoped to one edit session and dies the moment that session is
-closed or its user loses edit access, but an open session's token stays usable for up to 12 hours —
+closed or its user loses edit access, but an open session's token stays usable for up to 12 hours
+(12h05m with clock skew). A session closes only when the editor explicitly ends it, so a browser tab
+shut without that call leaves its token live for the full period —
 **do not raise that log level in production.** See
 [Never raise the ASP.NET Core log level in production](docs-site/docs/self-hosting.md#never-raise-the-aspnet-core-log-level-in-production).
 

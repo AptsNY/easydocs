@@ -114,10 +114,10 @@ descriptions are **document** versions, produced by the versioning engine. They 
 - **An editor left open past ~35 minutes can save again.** WOPI/WebDAV access tokens expired after 30
   minutes, and neither Collabora nor desktop Word ever refreshes one, so every save after that was a
   silent `401` — lost work on any long edit. The token now lasts for the edit session (12 hours at
-  most), and every WOPI and WebDAV request re-checks the session instead: closing it, removing the
-  user from the document or the org, or demoting them to Viewer cuts an open
-  editor off on its very next call, where before a token kept working for up to 30 minutes after any
-  of those. The Collabora editor URL now carries `access_token_ttl`, so Collabora knows when its
+  most), and every WOPI and WebDAV request re-checks the session instead: removing the user from the
+  document or the org, or demoting them to Viewer, now cuts an open editor off on its very next call,
+  where before a token kept working for up to 30 minutes after any of those (closing the session
+  already did). The Collabora editor URL now carries `access_token_ttl`, so Collabora knows when its
   token lapses.
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
