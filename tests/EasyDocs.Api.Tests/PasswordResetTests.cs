@@ -360,6 +360,25 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
             new { email = owner.Email, password = "set-by-the-operator" })).StatusCode);
     }
 
+    // The operator script bypasses the in-app mint's checks, so the consume endpoint is the last line:
+    // a service account's link is dead, and it never gains a password to sign in with.
+    [Fact]
+    public async Task A_service_accounts_reset_link_is_refused_on_use()
+    {
+        var owner = await _f.RegisterAsync();
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "ingest" });
+        created.EnsureSuccessStatusCode();
+        var svc = (await created.Content.ReadFromJsonAsync<SvcDto>())!;
+        var (token, hash) = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(svc.UserId, owner.OrgId, hash);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(token, "a-password-it-must-not-get")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = svc.Email, password = "a-password-it-must-not-get" })).StatusCode);
+    }
+
+    private record SvcDto(Guid UserId, string Email);
+
     // The helper the operator script's SQL is modelled on.
     private async Task SeedResetRowAsync(Guid userId, Guid orgId, string tokenHash)
     {

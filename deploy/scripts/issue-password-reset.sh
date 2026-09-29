@@ -84,13 +84,17 @@ fi
 # all — every choice leaves a populated org on the other side — and the endpoint would refuse any
 # link we wrote, so say so rather than hand over one that cannot work.
 LOOKUP=$(psql <<'SQL'
-WITH me AS (SELECT "Id", "PasswordHash" FROM "Users" WHERE "Email" = :'em'),
+WITH me AS (SELECT "Id", "PasswordHash", "ManagedBy" FROM "Users" WHERE "Email" = :'em'),
      mine AS (
        SELECT m."OrgId", m."CreatedAt",
-              (SELECT count(*) FROM "OrgMembers" x WHERE x."OrgId" = m."OrgId") AS n
+              -- People only, as the consume endpoint counts them: a service account does not make an
+              -- org a "team".
+              (SELECT count(*) FROM "OrgMembers" x JOIN "Users" u ON u."Id" = x."UserId"
+                WHERE x."OrgId" = m."OrgId" AND u."ManagedBy" IS NULL) AS n
        FROM "OrgMembers" m JOIN me ON me."Id" = m."UserId")
 SELECT CASE
          WHEN NOT EXISTS (SELECT 1 FROM me)                    THEN 'no-user'
+         WHEN (SELECT "ManagedBy" FROM me) IS NOT NULL         THEN 'service'
          WHEN NOT EXISTS (SELECT 1 FROM mine)                  THEN 'no-org'
          WHEN (SELECT count(*) FROM mine WHERE n > 1) > 1      THEN 'multi-team'
          WHEN (SELECT "PasswordHash" FROM me) IS NULL          THEN 'sso'
@@ -106,6 +110,11 @@ ORG_ID="${LOOKUP##*|}"
 case "$STATUS" in
   no-user)
     echo "no account with the email '$EMAIL'." >&2; exit 1 ;;
+  service)
+    # A service account can never sign in; the consume endpoint refuses its links, so do not mint one.
+    echo "'$EMAIL' is a service account: it has no password and must never get one." >&2
+    echo "Mint it a new token from Settings -> Service accounts instead." >&2
+    exit 1 ;;
   no-org)
     # Login itself cannot cope with this account either — it resolves the session's org from the
     # membership list and there is none — so a reset link would not get anyone in.
