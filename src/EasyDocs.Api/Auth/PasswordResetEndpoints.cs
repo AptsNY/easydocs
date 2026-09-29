@@ -88,6 +88,9 @@ public static class PasswordResetEndpoints
                 "This account is a member of another organization, so it cannot be reset from here.");
 
         var user = await db.Users.FirstAsync(u => u.Id == uid, ct);
+        if (user.ManagedBy is not null)
+            return Problem.Of(409, "Service account",
+                "This is a service account: it never signs in with a password, so there is nothing to reset. Issue it a new API token instead.");
         if (user.PasswordHash is null)
             return Problem.Of(409, "No password",
                 "This account signs in through SSO and has no password to reset.");

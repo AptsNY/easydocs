@@ -93,7 +93,9 @@ public class E10_ShareDownload
         var api = await EdApi.NewAsync(_f);
         var (_, vid) = await api.NewDocumentWithBaseAsync("Expiring");
 
-        var link = await api.CreateShareLinkAsync(vid, DateTimeOffset.UtcNow.AddMilliseconds(-1));
+        // Creating one already expired is refused outright, so let a short-lived link run out instead.
+        var link = await api.CreateShareLinkAsync(vid, DateTimeOffset.UtcNow.AddSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(1.2));
 
         Assert.Equal(HttpStatusCode.NotFound, (await _f.CreateClient().GetAsync(link.Url)).StatusCode);
     }

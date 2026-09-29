@@ -88,10 +88,10 @@ public class DateTimeNormalizationTests : IClassFixture<ApiFactory>
         var owner = await _f.RegisterAsync();
         var docId = await owner.Client.CreateDocAsync("Doc");
         var (vid, _) = await owner.Client.UploadAsync(docId, DocxFixtures.Base());
-        var expected = DateTimeOffset.Parse($"2026-08-05T12:00:00{offset}");
+        var expected = DateTimeOffset.Parse($"2099-08-05T12:00:00{offset}");
 
         var res = await PostRawAsync(owner.Client, $"/api/v1/versions/{vid}/share-links",
-            $"{{\"expiresAt\":\"2026-08-05T12:00:00{offset}\"}}");
+            $"{{\"expiresAt\":\"2099-08-05T12:00:00{offset}\"}}");
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
 
         // ShareEndpoints has no list/read route for expiresAt (spec §10) - the DB row is the
