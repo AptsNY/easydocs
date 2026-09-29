@@ -40,7 +40,7 @@ public static class MergeEndpoints
         // Same title and detail the POST returns, so the screen shows the real message BEFORE the click
         // rather than after it.
         return p is null
-            ? Problem.Of(409, "Merge unavailable", "Comparison failed — download both versions and merge manually.")
+            ? Problem.Of(409, "Merge unavailable", "These versions cannot be merged automatically — download both and merge them manually.")
             : Results.Ok(p);
     }
 
@@ -55,7 +55,7 @@ public static class MergeEndpoints
 
         var m = await merge.MergeAsync(id, req.Left, req.Right, userId, ctx.RequestAborted);
         if (!m.Available)
-            return Problem.Of(409, "Merge unavailable", "Comparison failed — download both versions and merge manually.");
+            return Problem.Of(409, "Merge unavailable", "These versions cannot be merged automatically — download both and merge them manually.");
 
         db.Add(Audit.Event(orgId, id, userId, "merge.completed", "version", m.MergeVersionId.ToString(),
             new { left = req.Left, right = req.Right }));

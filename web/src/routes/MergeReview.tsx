@@ -141,14 +141,14 @@ export default function MergeReview() {
             </p>
           )}
 
-          {/* null (could not be computed) and [] (computed, no overlap) both render nothing here —
-              neither is a warning, and conflating them would turn "nothing to report" into "look, an
-              empty problem". */}
+          {/* null (no fork point, or the merge would refuse) and [] (nothing both sides changed) both
+              render nothing here. When present, this is not a hint: the preview runs the merge dry, so
+              these are exactly the blocks the merge settles. */}
           {preview.overlaps && preview.overlaps.length > 0 && (
             <div data-testid="merge-overlaps" className="merge-overlaps">
               <h3>
                 {preview.overlaps.length} paragraph{preview.overlaps.length === 1 ? '' : 's'} both sides
-                touched
+                changed
               </h3>
               <ul>
                 {preview.overlaps.map((o) => (
@@ -156,7 +156,8 @@ export default function MergeReview() {
                 ))}
               </ul>
               <p className="muted">
-                A hint, not a guarantee — body-text paragraphs only. Review the changes below.
+                Where the two versions of one of these differ, {preview.incoming.authorName}’s is
+                proposed in place of main’s as a tracked change — reject it to keep main’s wording.
               </p>
             </div>
           )}
@@ -168,24 +169,20 @@ export default function MergeReview() {
 
           {!preview.available && (
             <p data-testid="merge-unavailable" role="alert" className="error">
-              Comparison failed — download both versions and merge manually.
+              These versions cannot be merged automatically — download both and merge them manually.
+              {preview.base &&
+                ' This happens when both sides changed the same table, when changes land among repeated identical paragraphs, when one side moved a paragraph the other edited, or when the incoming version changed footnotes, headers, links or images this version does not share.'}
             </p>
           )}
 
           {preview.base ? (
             <p data-testid="merge-outcome">
               Merging lands {preview.incoming.authorName}’s changes since{' '}
-              <code>{preview.base.number}</code> onto main as Word tracked changes; main’s own changes
-              stay as they are.
-              {preview.overlaps && preview.overlaps.length > 0 && (
-                <>
-                  {' '}
-                  Where both sides changed the same paragraph, {preview.incoming.authorName}’s version is
-                  proposed in place of main’s — reject that tracked change to keep main’s wording.
-                </>
-              )}{' '}
-              Both versions stay in history, and the merge can be reverted afterward like any other
-              version.
+              <code>{preview.base.number}</code> onto main as Word tracked changes. Main’s own changes
+              stay as they are
+              {preview.overlaps && preview.overlaps.length > 0 ? ', except as listed above' : ''}. Page
+              setup, new styles and comments from their version are not carried over. Both versions stay
+              in history, and the merge can be reverted afterward like any other version.
             </p>
           ) : (
             <p data-testid="merge-outcome">

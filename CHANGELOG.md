@@ -115,11 +115,19 @@ descriptions are **document** versions, produced by the versioning engine. They 
   saves "monthly" → "quarterly", B edits another clause on the older version), the merge used to
   compare main against B's version directly, so A's edit came back as a tracked *reversion* attributed
   to B — and Accept All quietly undid it, while the review screen said only B's changes were landing.
-  The merge now folds only B's own changes since the fork point onto main: main's edits stay as clean,
-  untracked text. Where both sides changed the same paragraph, B's paragraph is proposed over main's
-  (named beforehand by the review's overlap hint, and the screen now says so); a merge whose incoming
-  changes cannot carry over faithfully (a footnote edit, a link or image main does not share) answers
-  `409` "Merge unavailable" instead of guessing.
+  The merge now folds only B's own changes since the fork point onto main, paragraph by paragraph:
+  main's edits stay as clean, untracked text. Where both sides changed the same paragraph differently,
+  B's paragraph is proposed over main's as a tracked change. The review screen now runs the merge dry,
+  so its list of "paragraphs both sides changed" is exactly what the merge settles (it used to be a
+  separate, per-paragraph hint that missed tables). Whatever the merge cannot get right it now
+  **refuses** with `409` "Merge unavailable" — and the review disables Merge beforehand — rather than
+  guess: both sides editing the same table or content control, conflicting edits among repeated
+  identical paragraphs, a paragraph one side moved and the other edited, an incoming change to
+  footnotes, endnotes, headers or footers, an incoming link or image main does not share, and very
+  large rewrites. Not carried over from the incoming version: page/section setup, new style or list
+  definitions, and comments (comments were already dropped by every merge). A branch with no recorded
+  fork point (legacy rows) still gets the old two-way compare, and the review screen says what that
+  means.
 - **The HTML redline shows each deletion where it happened.** It used to collect every deletion at
   the end of its paragraph (`…<ins>quarterly</ins> in <ins>arrears</ins> …office.<del>monthly</del><del>advance</del>`),
   so a reader could not tell what replaced what. Redlines are cached by content, so each render is

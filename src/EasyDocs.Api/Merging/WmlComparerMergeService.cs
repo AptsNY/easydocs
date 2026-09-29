@@ -31,12 +31,15 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         // never had, proposed as deletions that Accept All silently applies. Folding only
         // ancestor -> incoming onto main (ThreeWayMerge) is what makes the redline "their changes".
         //
-        // ponytail: the fold is block-level (see ThreeWayMerge): where both sides changed the SAME
-        // paragraph, incoming's paragraph is proposed over main's, so main's edit there shows as a
-        // tracked reversion — named beforehand by the preview's overlap hint, never silent elsewhere.
-        // With no fork point at all (a legacy branch row with a null RootVersionId) there is nothing to
-        // fold against and this falls back to the two-way compare, reversions included; the review
-        // screen says so. Upgrade path: word-level three-way inside conflicting paragraphs.
+        // ponytail: the fold is block-level and refuses (409) whatever it cannot guarantee — see the
+        // list in ThreeWayMerge. What it does settle: where both sides changed the same PARAGRAPH
+        // differently, incoming's paragraph is proposed over main's, so main's edit there shows as a
+        // tracked reversion; the preview lists exactly those blocks (it runs this same Merge dry).
+        // Not carried from the incoming side: section/page setup, new styles or list definitions, and
+        // comments (WmlComparer drops those on every path). With no fork point at all (a legacy branch
+        // row with a null RootVersionId) there is nothing to fold against and this falls back to the
+        // two-way compare, reversions included; the review screen says so. Upgrade path: recurse into
+        // tables and content controls, word-level three-way inside conflicting paragraphs.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftVersionId, rightVersionId, ct);
         if (sides is null) return new MergeResult(false, null);
         var (incoming, _, mainHead, mainBranch, baseVersion) = sides;
@@ -46,14 +49,10 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         byte[] mergedBytes;
         try
         {
-            var mainBytes = await ReadBytesAsync(mainHead.BlobSha256, ct);
-            var incomingBytes = await ReadBytesAsync(incoming.BlobSha256, ct);
-            if (baseVersion is not null)
-                incomingBytes = ThreeWayMerge.Apply(await ReadBytesAsync(baseVersion.BlobSha256, ct), mainBytes, incomingBytes);
-            var mainDoc = new WmlDocument("main.docx", mainBytes);
-            var incomingDoc = new WmlDocument("incoming.docx", incomingBytes);
-            var merged = WmlComparer.Compare(mainDoc, incomingDoc, SettingsFor(incomingAuthor));
-            mergedBytes = merged.DocumentByteArray;
+            mergedBytes = Merge(
+                baseVersion is null ? null : await ReadBytesAsync(baseVersion.BlobSha256, ct),
+                await ReadBytesAsync(mainHead.BlobSha256, ct), await ReadBytesAsync(incoming.BlobSha256, ct),
+                incomingAuthor).Docx;
         }
         catch
         {
@@ -73,8 +72,15 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         return new MergeResult(true, commit.VersionId);
     }
 
-    private static WmlComparerSettings SettingsFor(string author) =>
-        new() { AuthorForRevisions = author };
+    // The merge proper, shared with the preview so `available` and the overlaps describe exactly what
+    // the button does. Throws when the merge must refuse. With no ancestor it is the two-way compare.
+    internal static ThreeWayMerge.Result Merge(byte[]? ancestor, byte[] main, byte[] incoming, string author)
+    {
+        var fold = ancestor is null ? new ThreeWayMerge.Result(incoming, []) : ThreeWayMerge.Apply(ancestor, main, incoming);
+        var merged = WmlComparer.Compare(new WmlDocument("main.docx", main), new WmlDocument("incoming.docx", fold.Docx),
+            new WmlComparerSettings { AuthorForRevisions = author });
+        return fold with { Docx = merged.DocumentByteArray };
+    }
 
     // Same fallback spelling as every other name-resolving read path (Common/AuthorNames.cs); this one
     // just resolves a single id instead of a page, since a merge has exactly one incoming author.

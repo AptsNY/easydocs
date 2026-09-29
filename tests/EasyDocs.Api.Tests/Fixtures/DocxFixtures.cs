@@ -50,6 +50,68 @@ public static class DocxFixtures
         new W.Run(new W.FieldCode(" PAGE ")),
         new W.Run(new W.FieldChar { FieldCharType = W.FieldCharValues.End })));
 
+    // Richer blocks for the merge fold's refusal paths: each builds its element against the package it
+    // lands in, so relationships (links, images) and notes are real.
+    public delegate DocumentFormat.OpenXml.OpenXmlElement Block(MainDocumentPart part);
+
+    public static Block P(string text) => _ => new W.Paragraph(new W.Run(new W.Text(text)));
+
+    public static Block Link(string text, string url, string relId) => part =>
+    {
+        part.AddHyperlinkRelationship(new Uri(url), true, relId);
+        return new W.Paragraph(new W.Hyperlink(new W.Run(new W.Text(text))) { Id = relId });
+    };
+
+    // A caption plus a w:drawing whose blip embeds `png` (not a renderable drawing — the fold only
+    // needs the relationship).
+    public static Block Image(string caption, byte[] png) => part =>
+    {
+        var img = part.AddImagePart(ImagePartType.Png);
+        using (var s = new MemoryStream(png)) img.FeedData(s);
+        return new W.Paragraph(new W.Run(new W.Text(caption)),
+            new W.Run(new W.Drawing(new DocumentFormat.OpenXml.Drawing.Blip { Embed = part.GetIdOfPart(img) })));
+    };
+
+    public static Block Table(params string[][] rows) => _ =>
+        new W.Table(rows.Select(r => new W.TableRow(r.Select(c => new W.TableCell(new W.Paragraph(new W.Run(new W.Text(c))))))));
+
+    // A paragraph referencing footnote 1, whose text is `note`.
+    public static Block Footnoted(string text, string note) => part =>
+    {
+        var fp = part.FootnotesPart ?? part.AddNewPart<FootnotesPart>();
+        fp.Footnotes = new W.Footnotes(new W.Footnote(new W.Paragraph(new W.Run(new W.Text(note)))) { Id = 1 });
+        fp.Footnotes.Save();
+        return new W.Paragraph(new W.Run(new W.Text(text)), new W.Run(new W.FootnoteReference { Id = 1 }));
+    };
+
+    public static byte[] Rich(params Block[] blocks) => Rich(null, blocks);
+
+    public static byte[] Rich(string? header, params Block[] blocks)
+    {
+        using var ms = new MemoryStream();
+        using (var doc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
+        {
+            var main = doc.AddMainDocumentPart();
+            var body = new W.Body();
+            main.Document = new W.Document(body);
+            foreach (var b in blocks) body.Append(b(main));
+            if (header is not null)
+            {
+                var hp = main.AddNewPart<HeaderPart>();
+                hp.Header = new W.Header(new W.Paragraph(new W.Run(new W.Text(header))));
+                hp.Header.Save();
+                body.Append(new W.SectionProperties(new W.HeaderReference { Type = W.HeaderFooterValues.Default, Id = main.GetIdOfPart(hp) }));
+            }
+            var styles = main.AddNewPart<StyleDefinitionsPart>();
+            styles.Styles = new W.Styles(new W.DocDefaults(
+                new W.RunPropertiesDefault(new W.RunPropertiesBaseStyle()),
+                new W.ParagraphPropertiesDefault(new W.ParagraphPropertiesBaseStyle())));
+            styles.Styles.Save();
+            main.Document.Save();
+        }
+        return ms.ToArray();
+    }
+
     private static byte[] Package(params W.Paragraph[] paragraphs)
     {
         using var ms = new MemoryStream();

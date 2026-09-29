@@ -149,18 +149,9 @@ public class MergeTests : IClassFixture<ApiFactory>
     public async Task Merge_keeps_main_edits_the_incoming_branch_never_had()
     {
         var (a, _, orgId) = await RegisterAsync("Alice");
-        var docId = (await (await a.PostAsJsonAsync("/api/v1/documents", new { name = "Lease" }))
-            .Content.ReadFromJsonAsync<DocDto>())!.Id;
-        var up = await a.PostAsync($"/api/v1/documents/{docId}/versions",
-            Docx(DocxFixtures.Build("Rent is paid monthly.", "Clause two.", "Clause three.")));
-        up.EnsureSuccessStatusCode();
-        var v1 = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
-        var imp = await a.PostAsync($"/api/v1/documents/{docId}/versions:import",
-            Docx(DocxFixtures.Build("Rent is paid quarterly.", "Clause two.", "Clause three.")));
-        imp.EnsureSuccessStatusCode();
-        var left = (await imp.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
-        var bobId = await AddMemberAsync(orgId, docId, "Bob", DocRole.Editor);
-        var right = await CommitConcurrentAsync(docId, v1, bobId,
+        var (docId, left, right) = await SetupThreeAsync(a, orgId,
+            DocxFixtures.Build("Rent is paid monthly.", "Clause two.", "Clause three."),
+            DocxFixtures.Build("Rent is paid quarterly.", "Clause two.", "Clause three."),
             DocxFixtures.Build("Rent is paid monthly.", "Clause two.", "Clause three, amended."));
 
         var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
@@ -184,6 +175,120 @@ public class MergeTests : IClassFixture<ApiFactory>
         var first = XDocument.Load(s).Descendants(W + "p").First();
         Assert.Equal("Rent is paid quarterly.", string.Concat(first.Descendants(W + "t").Select(t => t.Value)));
         Assert.DoesNotContain(first.Descendants(), e => e.Name == W + "ins" || e.Name == W + "del");
+    }
+
+    // Alice owns the doc: `ancestor` uploaded, `main` imported on top; Bob commits `incoming` forked at
+    // the ancestor (a concurrent branch).
+    private async Task<(Guid docId, Guid left, Guid right)> SetupThreeAsync(
+        HttpClient a, Guid orgId, byte[] ancestor, byte[] main, byte[] incoming)
+    {
+        var docId = (await (await a.PostAsJsonAsync("/api/v1/documents", new { name = "Three" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var up = await a.PostAsync($"/api/v1/documents/{docId}/versions", Docx(ancestor));
+        up.EnsureSuccessStatusCode();
+        var v1 = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var imp = await a.PostAsync($"/api/v1/documents/{docId}/versions:import", Docx(main));
+        imp.EnsureSuccessStatusCode();
+        var left = (await imp.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var bobId = await AddMemberAsync(orgId, docId, "Bob", DocRole.Editor);
+        return (docId, left, await CommitConcurrentAsync(docId, v1, bobId, incoming));
+    }
+
+    private record OverlapDto(int Ordinal, string Text);
+    private record PreviewDto(bool Available, IReadOnlyList<OverlapDto>? Overlaps);
+
+    private static async Task<PreviewDto> PreviewAsync(HttpClient c, Guid docId, Guid left, Guid right) =>
+        (await c.GetFromJsonAsync<PreviewDto>($"/api/v1/documents/{docId}/merges/preview?left={left}&right={right}"))!;
+
+    // The fold cannot carry this over faithfully (a link main's package does not have), so the merge
+    // refuses — and the preview said so first, disabling the button.
+    [Fact]
+    public async Task A_change_the_fold_cannot_carry_is_refused_and_the_preview_predicts_it()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right) = await SetupThreeAsync(a, orgId,
+            DocxFixtures.Rich(DocxFixtures.P("x")), DocxFixtures.Rich(DocxFixtures.P("X-main")),
+            DocxFixtures.Rich(DocxFixtures.P("x"), DocxFixtures.Link("see", "https://b.example", "rNew")));
+
+        Assert.False((await PreviewAsync(a, docId, left, right)).Available);
+        var before = await CountVersionsAsync(docId);
+        var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+        Assert.Equal(before, await CountVersionsAsync(docId));
+    }
+
+    // Different cells of one table: the fold cannot split a table, so it refuses instead of letting
+    // Bob's whole table revert Alice's cell.
+    [Fact]
+    public async Task Edits_to_different_cells_of_one_table_are_refused_not_reverted()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right) = await SetupThreeAsync(a, orgId,
+            DocxFixtures.Rich(DocxFixtures.Table(["a", "b"], ["c", "d"])),
+            DocxFixtures.Rich(DocxFixtures.Table(["A-main", "b"], ["c", "d"])),
+            DocxFixtures.Rich(DocxFixtures.Table(["a", "b"], ["c", "D-inc"])));
+
+        Assert.False((await PreviewAsync(a, docId, left, right)).Available);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right })).StatusCode);
+    }
+
+    // A genuine paragraph conflict: the preview names it, and the merge proposes Bob's paragraph over
+    // Alice's as Bob's tracked change — visible, rejectable, never silent.
+    [Fact]
+    public async Task A_paragraph_conflict_is_named_by_the_preview_and_tracked_by_the_merge()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right) = await SetupThreeAsync(a, orgId,
+            DocxFixtures.Build("Rent is paid monthly.", "Clause two."),
+            DocxFixtures.Build("Rent is paid quarterly.", "Clause two."),
+            DocxFixtures.Build("Rent is paid yearly.", "Clause two."));
+
+        var p = await PreviewAsync(a, docId, left, right);
+        Assert.True(p.Available);
+        Assert.Equal([new OverlapDto(0, "Rent is paid monthly.")], p.Overlaps);
+
+        var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var mergeId = (await resp.Content.ReadFromJsonAsync<MergeDto>())!.MergeVersionId;
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var mv = await db.Versions.FirstAsync(v => v.Id == mergeId);
+        var (revText, authors) = Revisions(await ReadBlobAsync(scope.ServiceProvider.GetRequiredService<IBlobStore>(), mv.BlobSha256));
+        Assert.Contains("yearly", revText);
+        Assert.Contains("quarterly", revText); // main's wording, proposed for replacement — tracked, not silent
+        Assert.Equal(["Bob"], authors);
+    }
+
+    // No fork point (a legacy branch row): nothing to fold against, so the merge is the two-way compare
+    // it always was — and main-only edits DO come back as reversions. The review screen says so.
+    [Fact]
+    public async Task Without_a_fork_point_the_merge_falls_back_to_the_two_way_compare()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right) = await SetupThreeAsync(a, orgId,
+            DocxFixtures.Build("Rent is paid monthly.", "Clause two."),
+            DocxFixtures.Build("Rent is paid quarterly.", "Clause two."),
+            DocxFixtures.Build("Rent is paid monthly.", "Clause two, amended."));
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var branchId = (await db.Versions.FirstAsync(v => v.Id == right)).BranchId;
+            (await db.Branches.FirstAsync(b => b.Id == branchId)).RootVersionId = null;
+            await db.SaveChangesAsync();
+        }
+
+        var p = await PreviewAsync(a, docId, left, right);
+        Assert.True(p.Available);
+        Assert.Null(p.Overlaps);
+        var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var mergeId = (await resp.Content.ReadFromJsonAsync<MergeDto>())!.MergeVersionId;
+        using var s2 = _f.Services.CreateScope();
+        var mv = await s2.ServiceProvider.GetRequiredService<EasyDocsDbContext>().Versions.FirstAsync(v => v.Id == mergeId);
+        var (revText, _) = Revisions(await ReadBlobAsync(s2.ServiceProvider.GetRequiredService<IBlobStore>(), mv.BlobSha256));
+        Assert.Contains("amended", revText);
+        Assert.Contains("quarterly", revText); // the documented two-way ceiling
     }
 
     // A merge is computed against a main head read seconds earlier. If a save lands on main meanwhile,

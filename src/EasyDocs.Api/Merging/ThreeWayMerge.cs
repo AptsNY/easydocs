@@ -6,24 +6,35 @@ namespace EasyDocs.Api.Merging;
 
 /// <summary>
 /// Pure: fold the incoming side's OWN changes (ancestor -> incoming) onto main, block by block, and
-/// return main's package with that body. The merge then runs Compare(main, result), so the redline is
-/// exactly the incoming author's changes — never a reversion of an edit main made and the incoming
-/// side simply did not have (the bug a plain two-way Compare(main, incoming) has).
+/// return main's package with that body plus the blocks both sides changed. The merge then runs
+/// Compare(main, result), so the redline is exactly the incoming author's changes — never a reversion
+/// of an edit main made and the incoming side simply did not have (the bug a plain two-way
+/// Compare(main, incoming) has).
 /// </summary>
 /// <remarks>
-/// A diff3 over top-level body blocks (paragraphs, tables, …), aligned by their visible text:
-/// a block only one side changed takes that side's version; the same change on both sides is taken
-/// once; both sides inserting at the same point keeps both. A genuine conflict — both sides changed the
-/// same blocks differently — takes the INCOMING version, so it shows as a tracked replacement of
-/// main's text that rejecting restores; the preview's overlap hint is what names it before the click.
+/// The rule: the fold is either right or it REFUSES (NotSupportedException, which the merge turns into
+/// its 409 "Merge unavailable" and the preview into available=false). It never silently loses,
+/// duplicates or reverts content.
 ///
-/// ponytail: block-level, not word-level. Two edits to different words of ONE paragraph are a conflict
-/// here (incoming's paragraph wins, main's word edit shows as a tracked reversion), and a block's
-/// formatting-only change survives only when the other side left that block byte-identical (rsids
-/// aside). Parts outside the body come from main: B's new styles or list definitions are not carried
-/// over (its text lands, possibly unstyled), and a B-side footnote/endnote edit is refused rather than
-/// dropped. Upgrade path: word-level three-way inside conflicting paragraphs, and copying missing
-/// styles/numbering from the incoming package.
+/// A diff3 over top-level body blocks (paragraphs, tables, content controls), aligned by visible text:
+/// a block only one side changed takes that side's version; the same change on both sides is taken
+/// once; both sides inserting at one point keeps both. Both sides changing the same PARAGRAPH
+/// differently is a conflict: incoming's paragraph is proposed over main's as a tracked change
+/// (rejecting it keeps main) and the block is reported in <see cref="Result.Overlaps"/>, which is what
+/// the review screen lists. Everything the fold cannot guarantee is refused:
+///  - both sides changed the same table or content control (they are single blocks here);
+///  - a conflict whose alignment is ambiguous (its wording repeats elsewhere in the ancestor);
+///  - a block one side moved and the other side changed (a block fold would keep both copies);
+///  - an incoming block whose links, images or notes do not resolve identically in main's package;
+///  - an incoming change to footnotes, endnotes, headers or footers (main's package is kept);
+///  - a changed region too large to align (the LCS is quadratic).
+///
+/// ponytail: block-level, not word-level — two edits to different words of one paragraph are a
+/// conflict (incoming's paragraph proposed over main's, and named). Not carried from the incoming side:
+/// section/page setup (main's final sectPr is kept), new style or list definitions (its text lands,
+/// possibly unstyled), and comments (WmlComparer drops comments on every path). Upgrade path:
+/// recurse into w:tbl/w:tc and w:sdtContent when all three shapes agree, word-level three-way inside
+/// conflicting paragraphs, remap renumbered relationship ids, Myers diff to lift the size cap.
 /// </remarks>
 public static class ThreeWayMerge
 {
@@ -31,20 +42,25 @@ public static class ThreeWayMerge
     private static readonly XNamespace W14 = "http://schemas.microsoft.com/office/word/2010/wordml";
     private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-    // Throws NotSupportedException when the result could not faithfully carry the incoming side's
-    // changes; the merge service turns every throw into its "merge unavailable" 409.
-    public static byte[] Apply(byte[] ancestor, byte[] main, byte[] incoming)
+    // Ordinal is the ancestor's top-level body block index; Text labels it with the ancestor's wording.
+    public record Overlap(int Ordinal, string Text);
+    public record Result(byte[] Docx, IReadOnlyList<Overlap> Overlaps);
+
+    // Cells of LCS table per alignment. 4M ints = 16 MB, ~2000 x 2000 changed blocks.
+    private const long MaxCells = 4_000_000;
+
+    public static Result Apply(byte[] ancestor, byte[] main, byte[] incoming)
     {
         using var ancDoc = WordprocessingDocument.Open(new MemoryStream(ancestor), false);
         using var incDoc = WordprocessingDocument.Open(new MemoryStream(incoming), false);
         if (NotesText(ancDoc) != NotesText(incDoc))
             throw new NotSupportedException("The incoming side changed footnotes or endnotes.");
-
-        var a = Blocks(Load(ancDoc.MainDocumentPart!));
-        var i = Blocks(Load(incDoc.MainDocumentPart!));
+        if (HeadersText(ancDoc) != HeadersText(incDoc))
+            throw new NotSupportedException("The incoming side changed a header or footer.");
 
         using var ms = new MemoryStream();
         ms.Write(main);
+        IReadOnlyList<Overlap> overlaps;
         using (var doc = WordprocessingDocument.Open(ms, true))
         {
             var part = doc.MainDocumentPart!;
@@ -52,109 +68,186 @@ public static class ThreeWayMerge
             var body = xdoc.Root!.Element(W + "body")!;
             var m = Blocks(xdoc);
 
-            var merged = Merge(a, m, i, b => Portable(b, incDoc, doc));
-            foreach (var (block, fromIncoming) in merged)
-                if (fromIncoming && !Portable(block, incDoc, doc))
-                    throw new NotSupportedException("An incoming block references a relationship or note main does not share.");
+            var fold = new Fold(Blocks(Load(ancDoc.MainDocumentPart!)), m, Blocks(Load(incDoc.MainDocumentPart!)),
+                ancDoc.MainDocumentPart!, part, incDoc.MainDocumentPart!);
+            var merged = fold.Run();
+            overlaps = fold.Overlaps;
 
-            var content = merged.Select(x => new XElement(x.Block)).ToList();
+            var content = merged.Select(b => new XElement(b)).ToList();
             foreach (var e in m) e.Remove();
             body.AddFirst(content); // main's final sectPr stays last
 
             using var s = part.GetStream(FileMode.Create, FileAccess.Write);
             xdoc.Save(s, SaveOptions.DisableFormatting);
         }
-        return ms.ToArray();
+        return new Result(ms.ToArray(), overlaps);
     }
 
     private record Hunk(int AStart, int AEnd, int XStart, int XEnd);
 
-    private static List<(XElement Block, bool FromIncoming)> Merge(
-        List<XElement> a, List<XElement> m, List<XElement> i, Func<XElement, bool> portable)
+    private sealed class Fold(
+        List<XElement> a, List<XElement> m, List<XElement> i,
+        MainDocumentPart ap, MainDocumentPart mp, MainDocumentPart ip)
     {
-        string[] ka = [.. a.Select(Key)], km = [.. m.Select(Key)], ki = [.. i.Select(Key)];
-        var (hm, mm) = Diff(ka, km);
-        var (hi, mi) = Diff(ka, ki);
+        private readonly string[] ka = [.. a.Select(Key)], km = [.. m.Select(Key)], ki = [.. i.Select(Key)];
+        private readonly string?[] na = new string?[a.Count], nm = new string?[m.Count], ni = new string?[i.Count];
+        private readonly Dictionary<string, int> ancestorCount = a.Select(Key).CountBy(k => k).ToDictionary();
+        private readonly List<XElement> result = [];
+        public readonly List<Overlap> Overlaps = [];
 
-        // Empty (pure-insertion) hunks sort before a change starting at the same point: inserted first.
-        var all = hm.Select(h => (h, main: true)).Concat(hi.Select(h => (h, main: false)))
-            .OrderBy(t => t.h.AStart).ThenBy(t => t.h.AEnd - t.h.AStart).ToList();
+        private string NA(int k) => na[k] ??= Norm(a[k], ap);
+        private string NM(int k) => nm[k] ??= Norm(m[k], mp);
+        private string NI(int k) => ni[k] ??= Norm(i[k], ip);
 
-        var result = new List<(XElement, bool)>();
-        var cursor = 0;
-
-        void Unchanged(int to)
+        public List<XElement> Run()
         {
-            for (; cursor < to; cursor++)
+            var (hm, mm) = Diff(ka, km);
+            var (hi, mi) = Diff(ka, ki);
+            RefuseMoves(hm, km, hi, mi, NI);
+            RefuseMoves(hi, ki, hm, mm, NM);
+
+            // Pure insertions sort before a change starting at the same point: inserted first.
+            var all = hm.Select(h => (h, main: true)).Concat(hi.Select(h => (h, main: false)))
+                .OrderBy(t => t.h.AStart).ThenBy(t => t.h.AEnd - t.h.AStart).ToList();
+
+            var cursor = 0;
+            for (var idx = 0; idx < all.Count;)
             {
-                // Same text on all three sides. Take incoming only for a change main did not also make,
-                // and only when it carries over — a renumbered image rId is noise, not a reason to 409.
-                var (ab, mb, ib) = (a[cursor], m[mm[cursor]], i[mi[cursor]]);
-                var incomingOnly = Norm(mb) == Norm(ab) && Norm(ib) != Norm(ab) && portable(ib);
-                result.Add(incomingOnly ? (ib, true) : (mb, false));
+                var group = new List<(Hunk h, bool main)> { all[idx++] };
+                int gs = group[0].h.AStart, ge = group[0].h.AEnd;
+                // Overlapping ancestor ranges conflict; so do two insertions at one point. Touching don't.
+                while (idx < all.Count && (all[idx].h.AStart < ge
+                       || (gs == ge && all[idx].h.AStart == ge && all[idx].h.AEnd == ge)))
+                {
+                    ge = Math.Max(ge, all[idx].h.AEnd);
+                    group.Add(all[idx++]);
+                }
+
+                for (; cursor < gs; cursor++) Block(cursor, mm[cursor], mi[cursor]);
+                cursor = ge;
+
+                var (ms, me) = Segment(group.Where(t => t.main).Select(t => t.h).ToList(), mm, gs, ge);
+                var (@is, ie) = Segment(group.Where(t => !t.main).Select(t => t.h).ToList(), mi, gs, ge);
+                Settle(gs, ge, ms, me, @is, ie);
             }
-        }
-        void Emit(List<XElement> side, int from, int to, bool incoming)
-        {
-            for (var k = from; k < to; k++) result.Add((side[k], incoming));
+            for (; cursor < a.Count; cursor++) Block(cursor, mm[cursor], mi[cursor]);
+            return result;
         }
 
-        for (var idx = 0; idx < all.Count;)
+        // One ancestor block against its main and incoming counterparts (same shape on all three).
+        private void Block(int k, int mk, int ik)
         {
-            var group = new List<(Hunk h, bool main)> { all[idx++] };
-            int gs = group[0].h.AStart, ge = group[0].h.AEnd;
-            // Overlapping ancestor ranges conflict; so do two insertions at one point. Touching ranges don't.
-            while (idx < all.Count && (all[idx].h.AStart < ge
-                   || (gs == ge && all[idx].h.AStart == ge && all[idx].h.AEnd == ge)))
+            bool mChanged = NM(mk) != NA(k), iChanged = NI(ik) != NA(k);
+            if (!iChanged) { result.Add(m[mk]); return; }
+            if (!mChanged) { AddIncoming(i[ik]); return; }
+            if (ancestorCount[ka[k]] > 1) throw Ambiguous();
+            Overlaps.Add(new Overlap(k, Label(a[k])));
+            if (NM(mk) == NI(ik)) { result.Add(m[mk]); return; }
+            if (a[k].Name != W + "p" || m[mk].Name != W + "p" || i[ik].Name != W + "p")
+                throw new NotSupportedException("Both sides changed the same table or content control.");
+            AddIncoming(i[ik]); // conflict: incoming's paragraph, tracked over main's, reported above
+        }
+
+        private void Settle(int gs, int ge, int ms, int me, int @is, int ie)
+        {
+            int len = ge - gs, ml = me - ms, il = ie - @is;
+            if (ml == len && il == len)
             {
-                ge = Math.Max(ge, all[idx].h.AEnd);
-                group.Add(all[idx++]);
+                for (var d = 0; d < len; d++) Block(gs + d, ms + d, @is + d);
+                return;
             }
-
-            Unchanged(gs);
-            cursor = ge;
-
-            var gm = group.Where(t => t.main).Select(t => t.h).ToList();
-            var gi = group.Where(t => !t.main).Select(t => t.h).ToList();
-            if (gi.Count == 0) { Emit(m, gm[0].XStart, gm[0].XEnd, false); continue; }
-            if (gm.Count == 0) { Emit(i, gi[0].XStart, gi[0].XEnd, true); continue; }
-
-            var (ms, me) = Span(gm, gs, ge);
-            var (@is, ie) = Span(gi, gs, ge);
-            if (km[ms..me].SequenceEqual(ki[@is..ie])) Emit(m, ms, me, false); // the same change, once
-            else if (gs == ge)
+            // One side left this range exactly as the ancestor had it: the other side's version stands.
+            if (ml == len && Enumerable.Range(0, len).All(d => NM(ms + d) == NA(gs + d)))
+            {
+                for (var k = @is; k < ie; k++) AddIncoming(i[k]);
+                return;
+            }
+            if (il == len && Enumerable.Range(0, len).All(d => NI(@is + d) == NA(gs + d)))
+            {
+                for (var k = ms; k < me; k++) result.Add(m[k]);
+                return;
+            }
+            if (len == 0)
             {
                 // Both inserted here: keep both, blocks they share once (main's copy), in order.
                 var (_, match) = Diff(km[ms..me], ki[@is..ie]);
                 var j = @is;
                 for (var k = 0; k < match.Length; k++)
                 {
-                    if (match[k] < 0) { result.Add((m[ms + k], false)); continue; }
-                    Emit(i, j, @is + match[k], true);
-                    result.Add((m[ms + k], false));
-                    j = @is + match[k] + 1;
+                    if (match[k] >= 0)
+                    {
+                        for (; j < @is + match[k]; j++) AddIncoming(i[j]);
+                        j++;
+                    }
+                    result.Add(m[ms + k]);
                 }
-                Emit(i, j, ie, true);
+                for (; j < ie; j++) AddIncoming(i[j]);
+                return;
             }
-            else Emit(i, @is, ie, true); // genuine conflict: incoming's version, tracked over main's
+            // Both sides changed this range. Which copy of a repeated paragraph each side meant is not
+            // knowable, and guessing wrong resurrects a deletion or drops one side's change.
+            if (ka[gs..ge].Any(k => ancestorCount[k] > 1)) throw Ambiguous();
+            if (Enumerable.Range(ms, ml).Select(NM).SequenceEqual(Enumerable.Range(@is, il).Select(NI)))
+            {
+                for (var k = ms; k < me; k++) result.Add(m[k]); // the same change on both sides, once
+                return;
+            }
+
+            // A genuine conflict of different shapes. Only paragraphs, and only when the alignment is
+            // unambiguous; then incoming's version is proposed over main's and every block is named.
+            if (!a[gs..ge].Concat(m[ms..me]).Concat(i[@is..ie]).All(e => e.Name == W + "p"))
+                throw new NotSupportedException("Both sides changed the same table or content control.");
+            // Likewise a side's new block whose wording also exists in the ancestor: it may be a copy the
+            // alignment placed here rather than where the author put it.
+            if (km[ms..me].Concat(ki[@is..ie]).Any(ancestorCount.ContainsKey)) throw Ambiguous();
+            for (var k = gs; k < ge; k++) Overlaps.Add(new Overlap(k, Label(a[k])));
+            for (var k = @is; k < ie; k++) AddIncoming(i[k]);
         }
-        Unchanged(a.Count);
-        return result;
+
+        // A side's block range for ancestor range [gs, ge): its hunks plus the untouched blocks between
+        // them, which map one-to-one — or, with no hunk here, simply its matched blocks.
+        private static (int, int) Segment(List<Hunk> hs, int[] match, int gs, int ge)
+        {
+            if (hs.Count > 0) return (hs[0].XStart - (hs[0].AStart - gs), hs[^1].XEnd + (ge - hs[^1].AEnd));
+            if (gs < ge) return (match[gs], match[gs] + (ge - gs));
+            return (0, 0); // an empty range this side did not touch: nothing to place
+        }
+
+        private static NotSupportedException Ambiguous() =>
+            new("Both sides changed paragraphs whose wording repeats; which copy each meant is ambiguous.");
+
+        private void AddIncoming(XElement block)
+        {
+            if (!Portable(block, ip, mp))
+                throw new NotSupportedException("An incoming change uses a link, image or note main does not share.");
+            result.Add(block);
+        }
+
+        // Side X removed ancestor block k and re-inserted the same text elsewhere (a move), while the
+        // other side changed k: a block fold would keep the moved copy AND the edited one.
+        private void RefuseMoves(List<Hunk> hx, string[] kx, List<Hunk> hOther, int[] matchOther, Func<int, string> normOther)
+        {
+            var inserted = hx.SelectMany(h => kx[h.XStart..h.XEnd]).ToHashSet();
+            var otherCovers = new bool[a.Count];
+            foreach (var h in hOther) for (var k = h.AStart; k < h.AEnd; k++) otherCovers[k] = true;
+            foreach (var h in hx)
+                for (var k = h.AStart; k < h.AEnd; k++)
+                    if (HasText(ka[k]) && inserted.Contains(ka[k])
+                        && (otherCovers[k] || normOther(matchOther[k]) != NA(k)))
+                        throw new NotSupportedException("One side moved a paragraph the other side changed.");
+        }
     }
 
-    // One side's block range covering ancestor range [gs, ge) — its hunks plus the untouched blocks
-    // between them, which map one-to-one.
-    private static (int, int) Span(List<Hunk> hs, int gs, int ge) =>
-        (hs[0].XStart - (hs[0].AStart - gs), hs[^1].XEnd + (ge - hs[^1].AEnd));
+    private static bool HasText(string key) => key[^1] != '|';
 
-    // ponytail: quadratic LCS (after trimming the common prefix/suffix, which is most of a document).
-    // Fine for contracts; a Myers diff if a merge of thousands of changed paragraphs ever shows up.
     private static (List<Hunk> Hunks, int[] Match) Diff(string[] a, string[] x)
     {
         int n = a.Length, m = x.Length, pre = 0, suf = 0;
         while (pre < n && pre < m && a[pre] == x[pre]) pre++;
         while (suf < n - pre && suf < m - pre && a[n - 1 - suf] == x[m - 1 - suf]) suf++;
         int an = n - pre - suf, xn = m - pre - suf;
+        if ((long)(an + 1) * (xn + 1) > MaxCells)
+            throw new NotSupportedException("The changed region is too large to merge automatically.");
 
         var lcs = new int[an + 1, xn + 1];
         for (var p = an - 1; p >= 0; p--)
@@ -202,12 +295,19 @@ public static class ThreeWayMerge
             : d.Name == W + "drawing" || d.Name == W + "pict" || d.Name == W + "object" ? "￼"
             : ""));
 
-    // The block's markup minus what Word rewrites without anyone editing (rsids, w14 para/text ids).
-    private static string Norm(XElement block)
+    // Everything that makes the block what it is, minus what Word rewrites without anyone editing
+    // (rsids, w14 ids, proofing marks), with relationship ids replaced by what they point at — so an
+    // image swap or a new link URL is a change, and a pure rId renumber is not.
+    private static string Norm(XElement block, MainDocumentPart part)
     {
         var c = new XElement(block);
+        c.Descendants().Where(e => e.Name == W + "proofErr" || e.Name == W + "lastRenderedPageBreak").Remove();
         foreach (var e in c.DescendantsAndSelf())
+        {
             e.Attributes().Where(x => x.Name.LocalName.StartsWith("rsid") || x.Name.Namespace == W14).Remove();
+            foreach (var x in e.Attributes().Where(x => x.Name.Namespace == R))
+                x.Value = Target(part, x.Value) ?? "missing:" + x.Value;
+        }
         return c.ToString(SaveOptions.DisableFormatting);
     }
 
@@ -215,18 +315,22 @@ public static class ThreeWayMerge
         (doc.MainDocumentPart!.FootnotesPart is { } f ? Load(f).Root!.Value : "") + "\u0000" +
         (doc.MainDocumentPart!.EndnotesPart is { } e ? Load(e).Root!.Value : "");
 
+    private static string HeadersText(WordprocessingDocument doc) =>
+        string.Join("\u0000", doc.MainDocumentPart!.HeaderParts.Cast<OpenXmlPart>()
+            .Concat(doc.MainDocumentPart!.FooterParts).Select(p => Load(p).Root!.Value).Order(StringComparer.Ordinal));
+
     // A block moved from the incoming package into main's must mean the same thing there: every
     // relationship id it uses resolves to the same target, every note it references reads the same.
-    private static bool Portable(XElement block, WordprocessingDocument from, WordprocessingDocument to)
+    private static bool Portable(XElement block, MainDocumentPart from, MainDocumentPart to)
     {
         foreach (var id in block.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R).Select(x => x.Value))
-            if (Target(from.MainDocumentPart!, id) is not { } t || t != Target(to.MainDocumentPart!, id))
+            if (Target(from, id) is not { } t || t != Target(to, id))
                 return false;
 
         foreach (var (name, pick) in new (XName, Func<MainDocumentPart, OpenXmlPart?>)[]
                  { (W + "footnoteReference", p => p.FootnotesPart), (W + "endnoteReference", p => p.EndnotesPart) })
             foreach (var id in block.Descendants(name).Select(r => (string?)r.Attribute(W + "id")))
-                if (Note(pick(from.MainDocumentPart!), id) is not { } n || n != Note(pick(to.MainDocumentPart!), id))
+                if (Note(pick(from), id) is not { } n || n != Note(pick(to), id))
                     return false;
         return true;
     }
@@ -238,6 +342,8 @@ public static class ThreeWayMerge
         if (ext is not null) return "ext:" + ext;
         var child = part.Parts.Where(p => p.RelationshipId == id).Select(p => p.OpenXmlPart).FirstOrDefault();
         if (child is null) return null;
+        // Header/footer parts by text: their bytes are rewritten by every save. Anything else by bytes.
+        if (child is HeaderPart or FooterPart) return "text:" + Load(child).Root!.Value;
         using var s = child.GetStream(FileMode.Open, FileAccess.Read);
         return "part:" + Convert.ToHexString(SHA256.HashData(s));
     }
@@ -245,4 +351,12 @@ public static class ThreeWayMerge
     private static string? Note(OpenXmlPart? notes, string? id) =>
         notes is null ? null
             : Load(notes).Root!.Elements().FirstOrDefault(n => (string?)n.Attribute(W + "id") == id)?.Value;
+
+    private const int LabelLength = 60;
+
+    private static string Label(XElement block)
+    {
+        var text = string.Concat(block.Descendants(W + "t").Select(t => t.Value)).Trim();
+        return text.Length <= LabelLength ? text : text[..LabelLength].TrimEnd() + "…";
+    }
 }
