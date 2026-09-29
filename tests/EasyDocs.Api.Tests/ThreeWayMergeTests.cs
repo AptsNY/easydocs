@@ -150,6 +150,31 @@ public class ThreeWayMergeTests
         Assert.Equal(["3000", "1000"], Body(r.Docx).Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
     }
 
+    // ...but carrying main's layout must not revert the incoming side's OWN layout change: main's copy
+    // of a block it left alone is the ancestor's, so taking it wholesale would undo incoming's indent.
+    [Fact]
+    public void Incoming_indent_survives_when_incoming_rewords_and_indents()
+    {
+        var r = Apply(Rich(P("Late fees are due."), P("b")), Rich(P("Late fees are due."), P("B-main")),
+            Rich(Indented("Late charges are due.", 1440), P("b")));
+        var first = Body(r.Docx).Elements(W + "p").First();
+        Assert.Equal("Late charges are due.", string.Concat(first.Descendants(W + "t").Select(t => t.Value)));
+        Assert.Equal("1440", (string?)first.Element(W + "pPr")?.Element(W + "ind")?.Attribute(W + "left"));
+        Assert.Equal(["Late charges are due.", "B-main"], Paragraphs(r.Docx));
+    }
+
+    [Fact]
+    public void Incoming_table_borders_and_widths_survive_an_incoming_cell_edit()
+    {
+        var r = Apply(Rich(StyledTable([3000, 3000], false, ["a", "b"]), P("x")),
+            Rich(StyledTable([3000, 3000], false, ["a", "b"]), P("X-main")),
+            Rich(StyledTable([5000, 3000], true, ["A-inc", "b"]), P("x")));
+        var tbl = Body(r.Docx).Element(W + "tbl")!;
+        Assert.NotNull(tbl.Element(W + "tblPr")?.Element(W + "tblBorders"));
+        Assert.Equal(["5000", "3000"], tbl.Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
+        Assert.Equal("5000", (string?)tbl.Descendants(W + "tcW").First().Attribute(W + "w"));
+    }
+
     // Same header text, different logo: text-only header comparison used to miss this and drop it.
     [Fact]
     public void An_incoming_header_image_change_is_refused()

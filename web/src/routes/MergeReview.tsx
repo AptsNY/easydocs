@@ -185,7 +185,8 @@ export default function MergeReview() {
               main’s fonts, theme colours, small caps and cell widths can come back as{' '}
               {preview.incoming.authorName}’s version had them, and their changes that are only to
               fonts, spacing, indents or table layout are not carried over — nor are their page setup,
-              new styles or comments. Both versions stay in history, and the merge can be reverted
+              new styles or comments. Every merge also drops comments and bookmarks (so links to
+              places inside the document stop working). Both versions stay in history, and the merge can be reverted
               afterward like any other version.
             </p>
           ) : (

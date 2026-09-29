@@ -44,8 +44,9 @@ namespace EasyDocs.Api.Merging;
 /// main's paragraph properties and table properties/grid are carried onto it (AddIncoming), but main's
 /// RUN formatting outside the subset (fonts, theme colours, small caps) and cell properties (tcW) are
 /// not, and can revert. Same as the old two-way compare; the review screen says so. Not carried from the incoming
-/// side either: section/page setup (main's final sectPr is kept), new style or list definitions, and
-/// comments (WmlComparer drops comments on every path). Refusals are conservative on repeated wording.
+/// side either: section/page setup (main's final sectPr is kept), new style or list definitions.
+/// Bookmarks (so internal cross-reference links) and comments are dropped by every merge: the
+/// WmlComparer.Compare that renders the redline strips both, on the old two-way path too. Refusals are conservative on repeated wording.
 /// Upgrade path: recurse into w:tbl/w:tc and w:sdtContent when all three shapes agree, word-level
 /// three-way inside conflicting paragraphs, remap renumbered relationship ids, Myers diff for the cap.
 /// </remarks>
@@ -91,9 +92,7 @@ public static class ThreeWayMerge
             var merged = fold.Run();
             overlaps = fold.Overlaps;
 
-            var fromMain = new HashSet<XElement>(m);
             var content = merged.Select(b => new XElement(b)).ToList();
-            UniqueBookmarks(content, [.. merged.Select(fromMain.Contains)]);
             foreach (var e in m) e.Remove();
             body.AddFirst(content); // main's final sectPr stays last
 
@@ -115,8 +114,9 @@ public static class ThreeWayMerge
     // them into the adjacent paragraph on save — so, compared as blocks, a save read as "deleted a
     // block" on both sides. Anchor them the way LibreOffice does, before aligning: a start marker at
     // the start of the next paragraph, an end marker at the end of the previous one (the other way at
-    // a document edge). Proofing marks carry nothing and are dropped. Main's body is the output, so
-    // main's anchors are kept, just inside a paragraph instead of between two.
+    // a document edge). Proofing marks carry nothing and are dropped. This is for
+    // the ALIGNMENT: the WmlComparer.Compare that turns the fold into the committed redline drops every
+    // bookmark anyway (see WmlComparerMergeService).
     private static void AnchorRangeMarkers(XElement body)
     {
         foreach (var mark in body.Elements().Where(e => e.Name.Namespace == W && RangeMarkers.Contains(e.Name.LocalName)).ToList())
@@ -133,34 +133,6 @@ public static class ThreeWayMerge
         }
     }
 
-    // Blocks from two packages each number their bookmarks independently (LibreOffice renumbers on
-    // every save). Keep main's; give incoming bookmarks whose id main already uses a fresh id, and drop
-    // an incoming bookmark whose NAME main already has — two anchors of one name is not a document.
-    private static void UniqueBookmarks(List<XElement> content, List<bool> fromMain)
-    {
-        var mainBlocks = content.Where((_, k) => fromMain[k]).ToList();
-        var incomingBlocks = content.Where((_, k) => !fromMain[k]).ToList();
-        var ids = mainBlocks.SelectMany(b => b.DescendantsAndSelf()).Where(IsBookmark)
-            .Select(e => (string?)e.Attribute(W + "id")).OfType<string>().ToHashSet();
-        var names = mainBlocks.SelectMany(b => b.Descendants(W + "bookmarkStart"))
-            .Select(e => (string?)e.Attribute(W + "name")).OfType<string>().ToHashSet();
-
-        var marks = incomingBlocks.SelectMany(b => b.DescendantsAndSelf()).Where(IsBookmark).ToList();
-        var dropped = marks.Where(e => e.Name == W + "bookmarkStart" && names.Contains((string?)e.Attribute(W + "name") ?? ""))
-            .Select(e => (string?)e.Attribute(W + "id")).ToHashSet();
-        var next = ids.Select(v => int.TryParse(v, out var n) ? n : 0).DefaultIfEmpty(0).Max() + 1;
-        var renumbered = new Dictionary<string, string>();
-        foreach (var e in marks)
-        {
-            var id = (string?)e.Attribute(W + "id") ?? "";
-            if (dropped.Contains(id)) { e.Remove(); continue; }
-            if (!ids.Contains(id)) continue;
-            if (!renumbered.TryGetValue(id, out var fresh)) renumbered[id] = fresh = (next++).ToString();
-            e.SetAttributeValue(W + "id", fresh);
-        }
-    }
-
-    private static bool IsBookmark(XElement e) => e.Name == W + "bookmarkStart" || e.Name == W + "bookmarkEnd";
 
     private sealed class Fold(
         List<XElement> a, List<XElement> m, List<XElement> i,
@@ -220,7 +192,7 @@ public static class ThreeWayMerge
         {
             bool mChanged = NM(mk) != NA(k), iChanged = NI(ik) != NA(k);
             if (!iChanged) { result.Add(m[mk]); return; }
-            if (!mChanged) { AddIncoming(i[ik], m[mk]); return; }
+            if (!mChanged) { AddIncoming(i[ik], m[mk], a[k]); return; }
             Overlaps.Add(new Overlap(k, Label(a[k])));
             if (NM(mk) == NI(ik)) { result.Add(m[mk]); return; } // the same change on both sides, once
             if (ancestorCount[ka[k]] > 1) throw Ambiguous();
@@ -308,41 +280,103 @@ public static class ThreeWayMerge
         private static NotSupportedException Ambiguous() =>
             new("Both sides changed paragraphs whose wording repeats; which copy each meant is ambiguous.");
 
-        // `mainTwin`: main's copy of the same block, when main did not change what it means. Main may
-        // still have changed its layout outside DocxMeaning's subset (an indent, spacing, column widths),
-        // so that layout is carried onto incoming's copy — as long as the result still means exactly
-        // what incoming's copy meant. Otherwise incoming's copy is taken as it is.
-        private void AddIncoming(XElement block, XElement? mainTwin = null)
+        // `mainTwin`/`ancestor`: main's and the ancestor's copies of the same block, when main did not
+        // change what it means. Main may still have changed layout outside DocxMeaning's subset (an
+        // indent, spacing, borders, column widths), so its layout is merged onto incoming's copy
+        // property by property, three-way: main's property wins only where incoming left that property
+        // as the ancestor had it — so incoming's own layout change in the same block is kept. The
+        // result must still mean exactly what incoming's copy meant; otherwise incoming's copy is taken
+        // as it is.
+        private void AddIncoming(XElement block, XElement? mainTwin = null, XElement? ancestor = null)
         {
-            if (mainTwin is not null && WithLayoutOf(block, mainTwin) is { } laidOut && Portable(block, laidOut))
+            if (mainTwin is not null && ancestor is not null && WithLayoutOf(block, mainTwin, ancestor) is { } laidOut
+                && Portable(block, laidOut))
                 result.Add(laidOut);
             else
                 result.Add(Portable(block, block) ? block : Relisted(block)
                     ?? throw new NotSupportedException("An incoming change uses a link, image, note or list main does not share."));
         }
 
-        private static XElement? WithLayoutOf(XElement block, XElement twin)
+        private static XElement? WithLayoutOf(XElement inc, XElement main, XElement anc)
         {
-            if (block.Name != twin.Name) return null;
-            var copy = new XElement(block);
-            if (block.Name == W + "p")
+            if (inc.Name != main.Name || inc.Name != anc.Name) return null;
+            var copy = new XElement(inc);
+            if (inc.Name == W + "p")
             {
-                copy.Element(W + "pPr")?.Remove();
-                if (twin.Element(W + "pPr") is { } ppr) copy.AddFirst(new XElement(ppr));
+                Merge3(copy, "pPr", anc.Element(W + "pPr"), main.Element(W + "pPr"), PPrOrder);
                 return copy;
             }
-            if (block.Name == W + "tbl")
-            {
-                copy.Element(W + "tblPr")?.Remove();
-                if (twin.Element(W + "tblPr") is { } tblPr) copy.AddFirst(new XElement(tblPr));
-                // Main's column grid only when it still describes this table's columns.
-                if (twin.Element(W + "tblGrid") is { } grid && copy.Element(W + "tblGrid") is { } own
-                    && grid.Elements(W + "gridCol").Count() == own.Elements(W + "gridCol").Count())
-                    own.ReplaceWith(new XElement(grid));
-                return copy;
-            }
-            return null;
+            if (inc.Name != W + "tbl") return null;
+
+            Merge3(copy, "tblPr", anc.Element(W + "tblPr"), main.Element(W + "tblPr"), TblPrOrder);
+            // Column widths live in two places (tblGrid and each cell's tcW) that must agree, so they
+            // are only merged when all three tables have the same shape, and then cell by cell.
+            static int[] Shape(XElement t) => [.. t.Elements(W + "tr").Select(r => r.Elements(W + "tc").Count())];
+            if (!Shape(copy).SequenceEqual(Shape(main)) || !Shape(copy).SequenceEqual(Shape(anc))) return copy;
+            if (Same(copy.Element(W + "tblGrid"), anc.Element(W + "tblGrid")) && main.Element(W + "tblGrid") is { } grid)
+                copy.Element(W + "tblGrid")?.ReplaceWith(new XElement(grid));
+            var cells = copy.Elements(W + "tr").SelectMany(r => r.Elements(W + "tc")).ToList();
+            var mainCells = main.Elements(W + "tr").SelectMany(r => r.Elements(W + "tc")).ToList();
+            var ancCells = anc.Elements(W + "tr").SelectMany(r => r.Elements(W + "tc")).ToList();
+            for (var c = 0; c < cells.Count; c++)
+                Merge3(cells[c], "tcPr", ancCells[c].Element(W + "tcPr"), mainCells[c].Element(W + "tcPr"), TcPrOrder);
+            return copy;
         }
+
+        // Replace `owner`'s <w:{name}> (incoming's) with the three-way merge of its children: per child
+        // element, main's version where incoming's equals the ancestor's, else incoming's — in schema order.
+        private static void Merge3(XElement owner, string name, XElement? anc, XElement? main, string[] order)
+        {
+            var inc = owner.Element(W + name);
+            var names = new[] { inc, main, anc }.Where(e => e is not null).SelectMany(e => e!.Elements())
+                .Select(e => e.Name).Distinct().ToList();
+            var merged = new List<XElement>();
+            foreach (var n in names)
+            {
+                XElement? i = inc?.Element(n), m = main?.Element(n), a = anc?.Element(n);
+                var pick = Same(i, a) ? m : i;
+                if (pick is not null) merged.Add(new XElement(pick));
+            }
+            merged = [.. merged.OrderBy(e => Array.IndexOf(order, e.Name.LocalName) is var x && x < 0 ? int.MaxValue : x)];
+            var props = merged.Count == 0 ? null : new XElement(W + name, inc?.Attributes(), merged);
+            if (inc is not null) inc.Remove();
+            if (props is not null) owner.AddFirst(props);
+        }
+
+        // Equal as layout: rsids and w14 ids aside (both are rewritten without anyone editing).
+        private static bool Same(XElement? x, XElement? y)
+        {
+            static string? N(XElement? e)
+            {
+                if (e is null) return null;
+                var c = new XElement(e);
+                foreach (var d in c.DescendantsAndSelf())
+                    d.Attributes().Where(at => at.Name.LocalName.StartsWith("rsid") || at.Name.NamespaceName.Contains("office/word/2010")).Remove();
+                return c.ToString(SaveOptions.DisableFormatting);
+            }
+            return N(x) == N(y);
+        }
+
+        // Schema (sequence) order of the property children, so a merged element stays valid.
+        private static readonly string[] PPrOrder =
+        [
+            "pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr", "widowControl", "numPr", "suppressLineNumbers",
+            "pBdr", "shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct", "topLinePunct",
+            "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing",
+            "mirrorIndents", "suppressOverlap", "jc", "textDirection", "textAlignment", "textboxTightWrap", "outlineLvl",
+            "divId", "cnfStyle", "rPr", "sectPr", "pPrChange",
+        ];
+        private static readonly string[] TblPrOrder =
+        [
+            "tblStyle", "tblpPr", "tblOverlap", "bidiVisual", "tblStyleRowBandSize", "tblStyleColBandSize", "tblW", "jc",
+            "tblCellSpacing", "tblInd", "tblBorders", "shd", "tblLayout", "tblCellMar", "tblLook", "tblCaption",
+            "tblDescription", "tblPrChange",
+        ];
+        private static readonly string[] TcPrOrder =
+        [
+            "cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar", "textDirection",
+            "tcFitText", "vAlign", "hideMark", "headers", "cellIns", "cellDel", "cellMerge", "tcPrChange",
+        ];
 
         // LibreOffice renumbers list ids on every save, so an incoming list item's numId can mean
         // another list — or nothing — in main's package. Re-point it at the list of the nearest

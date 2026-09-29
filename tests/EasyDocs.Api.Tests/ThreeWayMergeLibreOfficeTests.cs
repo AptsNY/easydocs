@@ -13,14 +13,29 @@ using static EasyDocs.Api.Tests.Fixtures.DocxFixtures;
 // even when nobody touched it. A fold that compares raw markup reads all of that as edits and turns
 // main's genuine edit into a "conflict" it resolves the wrong way. These run each side through soffice,
 // so they skip where it is not installed (like PdfRenderTests); CI installs LibreOffice and runs them.
+[Collection(SofficeCollection.Name)]
 public class ThreeWayMergeLibreOfficeTests
 {
     private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
     private static bool SofficeAvailable() => LibreOfficePdfRenderer.ResolveSoffice() is not null;
 
-    // Save `docx` the way Collabora does.
+    // Save `docx` the way Collabora does. One retry when soffice produced nothing (a first start on a
+    // fresh profile can exit early — LibreOfficePdfRenderer retries once for the same reason), and a
+    // failure that says what soffice said rather than "file not found".
     private static byte[] Lo(byte[] docx)
+    {
+        var failures = new List<string>();
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            var (bytes, failure) = Convert(docx);
+            if (bytes is not null) return bytes;
+            failures.Add($"attempt {attempt}: {failure}");
+        }
+        throw new InvalidOperationException("soffice did not convert the document.\n" + string.Join("\n", failures));
+    }
+
+    private static (byte[]? Bytes, string Failure) Convert(byte[] docx)
     {
         var work = Directory.CreateTempSubdirectory("edmerge").FullName;
         try
@@ -30,7 +45,12 @@ public class ThreeWayMergeLibreOfficeTests
             var outDir = Path.Combine(work, "out");
             var psi = new ProcessStartInfo(LibreOfficePdfRenderer.ResolveSoffice()!)
             {
-                ArgumentList = { "--headless", "--convert-to", "docx:MS Word 2007 XML", "--outdir", outDir, src },
+                // Its own profile per call, so no two soffice processes ever share one.
+                ArgumentList =
+                {
+                    "-env:UserInstallation=" + new Uri(Path.Combine(work, "profile")).AbsoluteUri,
+                    "--headless", "--convert-to", "docx:MS Word 2007 XML", "--outdir", outDir, src,
+                },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -38,14 +58,18 @@ public class ThreeWayMergeLibreOfficeTests
             };
             using var p = Process.Start(psi)!;
             // Drain both pipes without blocking, so a hung soffice times out instead of hanging the run.
-            var drain = Task.WhenAll(p.StandardOutput.ReadToEndAsync(), p.StandardError.ReadToEndAsync());
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(120_000))
             {
                 p.Kill(entireProcessTree: true);
-                throw new TimeoutException("soffice did not finish within 120 s");
+                return (null, "timed out after 120 s");
             }
-            drain.Wait();
-            return File.ReadAllBytes(Path.Combine(outDir, "in.docx"));
+            p.WaitForExit(); // flushes the redirected streams
+            var output = Path.Combine(outDir, "in.docx");
+            if (p.ExitCode == 0 && File.Exists(output)) return (File.ReadAllBytes(output), "");
+            return (null, $"exit {p.ExitCode}, output {(File.Exists(output) ? "present" : "missing")}; "
+                          + $"stdout: {stdout.Result.Trim()}; stderr: {stderr.Result.Trim()}");
         }
         finally
         {
@@ -132,6 +156,33 @@ public class ThreeWayMergeLibreOfficeTests
             Lo(Doc("Alpha AMENDED", "Delta")),
             Lo(Doc("Alpha", "Delta EDITED")),
             "AMENDED", "EDITED", ["Alpha AMENDED", "Bravo", "Charlie", "Delta EDITED"]);
+    }
+
+    // Layout outside the compared set, three-way, through the full merge and Accept All: whichever side
+    // changed a paragraph's indent keeps it, even when the other side reworded that paragraph.
+    [SkippableTheory]
+    [InlineData(false, "1440")] // incoming rewords AND indents; main edits elsewhere -> incoming's indent
+    [InlineData(true, "720")]   // main indents; incoming rewords -> main's indent
+    public void An_indent_survives_whichever_side_made_it_after_editor_saves(bool mainIndents, string expectedLeft)
+    {
+        Skip.IfNot(SofficeAvailable(), "soffice not installed on this host");
+        var ancestor = Rich(P("Late fees are due."), P("Other clause."));
+        var main = mainIndents
+            ? Rich(Indented("Late fees are due.", 720), P("Other clause."))
+            : Rich(P("Late fees are due."), P("Other clause, amended."));
+        var incoming = mainIndents
+            ? Rich(P("Late charges are due."), P("Other clause."))
+            : Rich(Indented("Late charges are due.", 1440), P("Other clause."));
+
+        var r = WmlComparerMergeService.Merge(ancestor, Lo(main), Lo(incoming), "Bob");
+        var accepted = RevisionProcessor.AcceptRevisions(new WmlDocument("m.docx", r.Docx)).DocumentByteArray;
+        using var zip = new ZipArchive(new MemoryStream(accepted), ZipArchiveMode.Read);
+        using var s = zip.GetEntry("word/document.xml")!.Open();
+        var late = XDocument.Load(s).Descendants(W + "p")
+            .First(p => string.Concat(p.Descendants(W + "t").Select(t => t.Value)).StartsWith("Late"));
+        Assert.Equal("Late charges are due.", string.Concat(late.Descendants(W + "t").Select(t => t.Value)));
+        var ind = late.Element(W + "pPr")?.Element(W + "ind");
+        Assert.Equal(expectedLeft, (string?)(ind?.Attribute(W + "left") ?? ind?.Attribute(W + "start")));
     }
 
     // The same with the ancestor itself an editor save (the steady state once a document has been

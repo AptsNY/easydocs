@@ -36,7 +36,8 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         // differently, incoming's paragraph is proposed over main's, so main's edit there shows as a
         // tracked reversion; the preview lists exactly those blocks (it runs this same Merge dry).
         // Not carried from the incoming side: section/page setup, new styles or list definitions, and
-        // comments (WmlComparer drops those on every path). With no fork point at all (a legacy branch
+        // comments and bookmarks (WmlComparer drops both on every path — so internal cross-reference
+        // links dangle after any merge; re-adding main's bookmarks to Compare's output is the upgrade). With no fork point at all (a legacy branch
         // row with a null RootVersionId) there is nothing to fold against and this falls back to the
         // two-way compare, reversions included; the review screen says so. Upgrade path: recurse into
         // tables and content controls, word-level three-way inside conflicting paragraphs.

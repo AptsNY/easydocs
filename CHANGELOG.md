@@ -137,7 +137,8 @@ descriptions are **document** versions, produced by the versioning engine. They 
   the incoming side edited, main's own fonts, theme colours, small caps and cell widths can revert to
   the incoming version's (main's paragraph indents/spacing and table column widths are kept) — the
   same as the two-way merge did before. Also not carried over: page/section setup, new style or list
-  definitions, and comments (comments were already dropped by every merge). A branch with no recorded
+  definitions. **Every merge drops comments and bookmarks** — and with them internal
+  cross-reference links (a pandoc table of contents, "see section 3") — on the old two-way path too. A branch with no recorded
   fork point (legacy rows) still gets the old two-way compare, and the review screen says what that
   means.
 - **The HTML redline shows each deletion where it happened.** It used to collect every deletion at

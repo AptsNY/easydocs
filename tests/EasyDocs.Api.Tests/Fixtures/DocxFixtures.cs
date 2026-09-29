@@ -80,6 +80,17 @@ public static class DocxFixtures
         new W.Table([new W.TableGrid(widths.Select(w => new W.GridColumn { Width = w.ToString() })),
             .. rows.Select(r => new W.TableRow(r.Select(c => new W.TableCell(new W.Paragraph(new W.Run(new W.Text(c)))))))]);
 
+    // A table with a grid, matching per-cell widths, and optionally borders.
+    public static Block StyledTable(int[] widths, bool borders, params string[][] rows) => _ =>
+        new W.Table([
+            new W.TableProperties(borders
+                ? new W.TableBorders(new W.TopBorder { Val = W.BorderValues.Single, Size = 4 }, new W.BottomBorder { Val = W.BorderValues.Single, Size = 4 })
+                : null!),
+            new W.TableGrid(widths.Select(w => new W.GridColumn { Width = w.ToString() })),
+            .. rows.Select(r => new W.TableRow(r.Select((c, k) => new W.TableCell(
+                new W.TableCellProperties(new W.TableCellWidth { Width = widths[k].ToString(), Type = W.TableWidthUnitValues.Dxa }),
+                new W.Paragraph(new W.Run(new W.Text(c)))))))]);
+
     // A paragraph with a left indent (twips) — formatting the merge's meaning comparison does not see.
     public static Block Indented(string text, int left) => _ =>
         new W.Paragraph(new W.ParagraphProperties(new W.Indentation { Left = left.ToString() }), new W.Run(new W.Text(text)));

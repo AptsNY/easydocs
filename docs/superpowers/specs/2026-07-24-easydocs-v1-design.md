@@ -157,8 +157,9 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 > and the preview (which runs the same merge dry) lists it. Anything the fold cannot guarantee is a
 > `409` "merge unavailable": both sides in one table or content control, reformat-vs-reword,
 > ambiguous changes among repeated identical paragraphs, move-vs-edit, incoming footnote/endnote/header/footer changes, incoming
-> links/images main does not share, oversized rewrites. Incoming page setup, new styles and comments
-> are not carried. Formatting outside the compared set (fonts, theme colours, small caps, spacing,
+> links/images main does not share, oversized rewrites. Incoming page setup and new styles are not
+> carried; comments and bookmarks (so internal cross-reference links) are dropped by every merge,
+> because `WmlComparer.Compare` strips them. Formatting outside the compared set (fonts, theme colours, small caps, spacing,
 > indents, table layout) is not merged either way: an incoming change that is only that is dropped,
 > and in a block the incoming side edited main's run fonts/theme colours/small caps and cell widths can
 > revert (main's paragraph and table properties are carried). Body-level range markers are anchored
