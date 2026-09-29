@@ -306,6 +306,27 @@ public class PushTests : IClassFixture<ApiFactory>
         Assert.Empty(await db.PushRequests.Where(p => p.CopyDocumentId == f.CopyId).ToListAsync());
     }
 
+    // A double-click on "Send back" used to open two identical incoming branches: the no-op guard only
+    // compares with the target's MAIN head, which a pending push has not touched.
+    [Fact]
+    public async Task Pushing_the_same_version_twice_is_refused_while_the_first_is_open()
+    {
+        var f = await ForkedAsync();
+        var reviewer = await CopyOnlyReviewerAsync(f);
+        var (redlined, _) = await reviewer.Client.UploadAsync(f.CopyId, DocxFixtures.Edited());
+
+        var both = await Task.WhenAll(
+            PushAsync(reviewer.Client, f.CopyId, f.MasterId, redlined),
+            PushAsync(reviewer.Client, f.CopyId, f.MasterId, redlined));
+        Assert.Equal([HttpStatusCode.Created, HttpStatusCode.Conflict], both.Select(r => r.StatusCode).Order());
+        Assert.Equal(HttpStatusCode.Conflict, (await PushAsync(reviewer.Client, f.CopyId, f.MasterId, redlined)).StatusCode);
+
+        // A rejected push is settled the other way: sending it again is a fresh request, not a duplicate.
+        var first = (await both.Single(r => r.StatusCode == HttpStatusCode.Created).Content.ReadFromJsonAsync<PushDto>())!;
+        (await f.Alice.Client.PostAsync($"/api/v1/push-requests/{first.Id}:reject", null)).EnsureSuccessStatusCode();
+        await PushOkAsync(reviewer.Client, f.CopyId, f.MasterId, redlined);
+    }
+
     [Fact]
     public async Task Accept_and_reject_require_edit_on_the_target()
     {

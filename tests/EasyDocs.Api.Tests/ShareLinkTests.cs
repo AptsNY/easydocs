@@ -57,6 +57,23 @@ public class ShareLinkTests : IClassFixture<ApiFactory>
     private static string Sha256Hex(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
+    // A link that is dead on arrival is a mistake the caller should hear about, not a 201.
+    [Fact]
+    public async Task An_expiry_already_in_the_past_is_400()
+    {
+        var c = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c);
+        var v = await UploadAsync(c, docId, new byte[] { 1, 2, 3 });
+
+        var res = await c.PostAsJsonAsync($"/api/v1/versions/{v.VersionId}/share-links",
+            new { expiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.False(await db.ShareLinks.AnyAsync(x => x.VersionId == v.VersionId));
+    }
+
     [Fact]
     public async Task Create_share_link_returns_token_once()
     {

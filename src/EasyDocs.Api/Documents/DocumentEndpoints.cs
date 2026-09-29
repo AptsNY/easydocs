@@ -13,7 +13,23 @@ namespace EasyDocs.Api.Documents;
 public static class DocumentEndpoints
 {
     public record CreateDocumentRequest(string? Name, Guid? FolderId);
-    public record UpdateRequest(string? Name, Guid? FolderId);
+    // PATCH body. For FolderId, absent means "leave it" and an explicit null means "move to the top
+    // level" — the same was-it-set flag FolderEndpoints.UpdateRequest uses for ParentId, for the same
+    // reason (a positional Guid? collapses both to null).
+    public sealed class UpdateRequest
+    {
+        public string? Name { get; set; }
+
+        private Guid? _folderId;
+        public Guid? FolderId
+        {
+            get => _folderId;
+            set { _folderId = value; HasFolderId = true; }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool HasFolderId { get; private set; }
+    }
     public record VersionCounterRequest(int Major, int Minor, int Rev);
 
     public static void MapDocumentEndpoints(this WebApplication app)
@@ -231,10 +247,16 @@ public static class DocumentEndpoints
         // Name OR content (issue #12): content matches the tsvector index built from each document's
         // main head. websearch syntax ("lease agreement", "cat -dog") with the same language-neutral
         // 'simple' config the index uses — mixing configs would make the GIN index unusable.
+        // The name half escapes LIKE's wildcards so `%` and `_` match themselves rather than everything;
+        // the content half needs nothing — websearch_to_tsquery has no wildcards, and `simple` drops
+        // punctuation-only input to an empty query that matches no row.
         if (!string.IsNullOrWhiteSpace(q))
-            query = query.Where(d => EF.Functions.ILike(d.Name, $"%{q}%")
+        {
+            var pattern = $"%{q.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_")}%";
+            query = query.Where(d => EF.Functions.ILike(d.Name, pattern, @"\")
                 || db.DocumentTexts.Any(t => t.DocumentId == d.Id
                     && t.SearchVector.Matches(EF.Functions.WebSearchToTsQuery("simple", q))));
+        }
 
         var rows = query.Select(d => new SortableDoc
         {
@@ -535,11 +557,11 @@ public static class DocumentEndpoints
             if (name.Length == 0) return Problem.Of(400, "Invalid request", "name cannot be empty.");
             doc!.Name = name;
         }
-        if (req.FolderId is { } fid)
+        if (req.HasFolderId)
         {
-            if (!await FolderExistsAsync(db, orgId, fid))
+            if (req.FolderId is { } fid && !await FolderExistsAsync(db, orgId, fid))
                 return Problem.Of(400, "Invalid folder", "folderId does not exist in your org.");
-            doc!.FolderId = fid;
+            doc!.FolderId = req.FolderId; // explicit null == move to the top level
         }
         db.Add(Audit.Event(orgId, doc!.Id, CurrentUser.UserId(ctx.User), "document.updated", "document", id.ToString(),
             new { name = doc.Name, folderId = doc.FolderId }));
@@ -572,6 +594,9 @@ public static class DocumentEndpoints
         if (doc!.DeletedAt is not null)
         {
             doc.DeletedAt = null;
+            // Its folder may have been trashed with it (DELETE /folders?mode=trash). Back at the top
+            // level rather than inside a folder nothing can reach.
+            if (doc.FolderId is { } fid && !await FolderExistsAsync(db, doc.OrgId, fid)) doc.FolderId = null;
             db.Add(Audit.Event(doc.OrgId, doc.Id, CurrentUser.UserId(ctx.User), "document.restored", "document", id.ToString(), null));
             await db.SaveChangesAsync(ctx.RequestAborted);
         }

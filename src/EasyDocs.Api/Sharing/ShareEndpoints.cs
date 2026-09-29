@@ -55,6 +55,9 @@ public static class ShareEndpoints
             case AccessResult.Forbidden: return Problem.Of(403, "Forbidden", "You do not have access to this document.");
         }
 
+        if (req.ExpiresAt <= DateTimeOffset.UtcNow)
+            return Problem.Of(400, "Invalid request", "expiresAt is already in the past; a link that is dead on arrival is never what was meant.");
+
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)); // 128-bit, url-safe
         var link = new ShareLink
         {
