@@ -119,8 +119,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
 - **A version's text no longer includes tracked-deleted wording or field codes.** `/text`,
   `get_version_text` and content search read a merge result as "The tenant pays rent
   quarterlymonthly." Only `w:t` text is extracted now (inserted text stays: it is the current
-  content). A migration re-queues every indexed document, so existing search entries are rebuilt
-  on the first boot after upgrade.
+  content). Existing search entries are rebuilt the next time each document is saved; until then an
+  old merge result can still match a word its tracked deletion removed. `/text` and the MCP tool are
+  correct immediately.
 - **The browser editor shows who is editing.** WOPI `CheckFileInfo` reported every user as
   "EasyDocs user", so Collabora attributed all comments, tracked changes and presence to it. It now
   sends the session user's display name (falling back to their email).
