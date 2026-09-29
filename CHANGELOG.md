@@ -116,6 +116,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   so a reader could not tell what replaced what. Redlines are cached by content, so each render is
   now stamped with a render version and a cached redline from the old renderer is recomputed on its
   next view rather than served.
+- **A version's text no longer includes tracked-deleted wording or field codes.** `/text`,
+  `get_version_text` and content search read a merge result as "The tenant pays rent
+  quarterlymonthly." Only `w:t` text is extracted now (inserted text stays: it is the current
+  content). A migration re-queues every indexed document, so existing search entries are rebuilt
+  on the first boot after upgrade.
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
   with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
