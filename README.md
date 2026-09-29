@@ -92,6 +92,12 @@ Set up easydocs (https://github.com/AptsNY/easydocs) on this machine. Docker mus
    https://aptsny.github.io/easydocs/self-hosting/
 ```
 
+### Coming from Simuldocs
+
+[`deploy/import-simuldocs.py`](deploy/import-simuldocs.py) rebuilds an exported Simuldocs library over
+the API — folders from collections, every revision in order, labels as version names. Its docstring
+documents the export layout it reads and what cannot be carried over (original timestamps and authors).
+
 ### Developing or building from source instead
 
 ```bash

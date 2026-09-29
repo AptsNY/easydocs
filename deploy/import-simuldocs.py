@@ -1,17 +1,38 @@
 #!/usr/bin/env python3
-"""Import a Simuldocs export into easydocs, history intact.
+"""Import a Simuldocs export into easydocs: every revision, in order, with its label.
 
-Usage:  ED_TOKEN=ed_xxx python3 import-simuldocs.py /path/to/export [--dry-run]
+Usage:  ED_TOKEN=ed_xxx [ED_BASE=https://docs.example.com] \\
+          python3 import-simuldocs.py /path/to/simuldocs-export [--dry-run]
 
-Reads manifest.json, creates one easydocs folder per collection and one
-document per Simuldocs document, then imports every revision in order via
-POST /documents/{id}/versions:import and names each version with its
-Simuldocs label. Idempotent-ish: re-running skips documents whose name
-already exists in the target folder.
+INPUT. Simuldocs itself ships no bulk export. This reads the layout written by the exporter used to
+migrate AptsNY off Simuldocs; build the same shape from any other export and it works too:
+
+  simuldocs-export/            <- pass this directory
+    manifest.json              <- a JSON array, one row per revision:
+      {"documentId": "…",      stable id grouping a document's revisions
+       "document":   "Lease",  document name
+       "collection": "Leases", folder name ("" or absent = no folder)
+       "order":      3,        revision order within the document (number)
+       "label":      "Signed", becomes the easydocs version name (optional)
+       "saved":      "C:\\\\…\\\\simuldocs-export\\\\Leases\\\\Lease\\\\3.docx",
+                               where the exporter wrote the file; the part after
+                               "simuldocs-export\\\\" is resolved inside this directory
+       "result":     "ok"}     rows with any other result are counted and skipped
+    <collection>/<document>/…  the files `saved` points at
+
+WHAT IS AND IS NOT KEPT. Order and labels are kept. Timestamps and authors are not: every version is
+created now, by the token's owner, and no easydocs API can backdate them. Run it as the person who
+should own the documents: each one is created with the token's owner as its sole Owner, and a re-run
+only sees documents that person can see.
+
+RE-RUNS. A document already present in its folder is skipped when it has all its revisions, and
+resumed from the next revision when an earlier run died partway (it compares versionCount). A failed
+document is reported and the run carries on; the exit status is non-zero if anything failed.
 """
 import json, os, sys, uuid, mimetypes, urllib.request, urllib.error
+from urllib.parse import urlparse
 
-BASE = os.environ.get("ED_BASE", "http://localhost:8080")
+BASE = os.environ.get("ED_BASE", "http://localhost:8080").rstrip("/")
 TOKEN = os.environ.get("ED_TOKEN", "")
 
 def api(method, path, body=None, ctype="application/json"):
@@ -36,16 +57,29 @@ def upload(doc_id, filepath):
                f"multipart/form-data; boundary={boundary}")
 
 def local_path(export_root, saved):
-    # manifest 'saved' is the exporter's Windows path; the tail after
-    # 'simuldocs-export\' mirrors this export directory's layout.
-    tail = saved.replace("\\", "/").split("simuldocs-export/", 1)[-1]
-    return os.path.join(export_root, tail)
+    # The tail after 'simuldocs-export\' mirrors this directory's layout. Resolved and then required to
+    # stay inside it: a manifest is input, and a '../' or absolute path must not upload a local file.
+    tail = saved.replace("\\", "/").split("simuldocs-export/", 1)[-1].lstrip("/")
+    root = os.path.realpath(export_root)
+    p = os.path.realpath(os.path.join(root, tail))
+    return p if os.path.commonpath([p, root]) == root else None
 
 def main():
-    export_root = sys.argv[1]
+    args = [a for a in sys.argv[1:] if a != "--dry-run"]
     dry = "--dry-run" in sys.argv
+    if len(args) != 1:
+        sys.exit(__doc__)
+    export_root = args[0]
+    if not dry and not TOKEN:
+        sys.exit("ED_TOKEN is empty: mint a token in Settings -> API tokens.")
+    if urlparse(BASE).scheme == "http" and urlparse(BASE).hostname not in ("localhost", "127.0.0.1"):
+        print(f"warning: {BASE} is plain http; the token travels in the clear.", file=sys.stderr)
+
     with open(os.path.join(export_root, "manifest.json"), encoding="utf-8-sig") as f:
-        rows = [r for r in json.load(f) if r.get("result") == "ok"]
+        manifest = json.load(f)
+    rows = [r for r in manifest if r.get("result") == "ok"]
+    if len(rows) < len(manifest):
+        print(f"  SKIP {len(manifest) - len(rows)} manifest rows whose export result was not ok")
 
     docs = {}  # documentId -> {name, collection, revisions[]}
     for r in rows:
@@ -54,47 +88,69 @@ def main():
             "revisions": []})
         d["revisions"].append(r)
     for d in docs.values():
-        d["revisions"].sort(key=lambda r: r["order"])
+        d["revisions"].sort(key=lambda r: int(r["order"]))
 
-    # Drop revisions whose file isn't in this copy of the export (warn), then
-    # drop documents left with no revisions at all.
+    # Drop revisions whose file isn't in this copy of the export (warn), then documents left empty.
     for d in docs.values():
-        for r in [r for r in d["revisions"] if not os.path.isfile(local_path(export_root, r["saved"]))]:
-            print(f"  SKIP missing file: {d['name']} / {r.get('label') or r['order']}")
-            d["revisions"].remove(r)
+        for r in list(d["revisions"]):
+            path = local_path(export_root, r["saved"])
+            if path is None or not os.path.isfile(path):
+                print(f"  SKIP missing file: {d['name']} / {r.get('label') or r['order']}")
+                d["revisions"].remove(r)
     docs = {k: d for k, d in docs.items() if d["revisions"]}
     total = sum(len(d["revisions"]) for d in docs.values())
-    print(f"{len(docs)} documents, {total} revisions to import")
+    print(f"{len(docs)} documents, {total} revisions in the export")
+    if rows and not total:
+        sys.exit("no manifest file resolved: pass the simuldocs-export directory itself.")
     if dry:
-        sys.exit(0)
+        return
 
-    existing, cursor = {}, None
+    existing, cursor = {}, None  # (folderId, name) -> (id, versionCount)
     while True:  # cursor-paginated, max 100/page
-        page = api("GET", "/api/v1/documents?limit=100"
-                   + (f"&cursor={cursor}" if cursor else ""))
+        page = api("GET", "/api/v1/documents?limit=100" + (f"&cursor={cursor}" if cursor else ""))
         for doc in page["items"]:
-            existing[(doc.get("folderId"), doc["name"])] = doc["id"]
+            existing[(doc.get("folderId"), doc["name"])] = (doc["id"], doc.get("versionCount", 0))
         cursor = page.get("nextCursor")
         if not cursor:
             break
     folders = {f["name"]: f["id"] for f in api("GET", "/api/v1/folders")}
 
-    for did, d in docs.items():
-        fid = None
-        if d["collection"]:
-            fid = folders.get(d["collection"]) or \
-                  api("POST", "/api/v1/folders", {"name": d["collection"], "parentId": None})["id"]
-            folders[d["collection"]] = fid
-        if (fid, d["name"]) in existing:
-            print(f"skip (exists): {d['name']}")
-            continue
-        doc_id = api("POST", "/api/v1/documents", {"name": d["name"], "folderId": fid})["id"]
-        for r in d["revisions"]:
-            v = upload(doc_id, local_path(export_root, r["saved"]))
-            label = (r.get("label") or "").strip()
-            if label:
-                api("PATCH", f"/api/v1/versions/{v['versionId']}", {"name": label})
-        print(f"imported: {d['name']} ({len(d['revisions'])} versions)")
+    failed = 0
+    for d in docs.values():
+        revs = d["revisions"]
+        try:
+            fid = None
+            if d["collection"]:
+                fid = folders.get(d["collection"]) or \
+                      api("POST", "/api/v1/folders", {"name": d["collection"], "parentId": None})["id"]
+                folders[d["collection"]] = fid
+            doc_id, done = existing.get((fid, d["name"]), (None, 0))
+            if doc_id and done >= len(revs):
+                print(f"skip (complete): {d['name']}")
+                continue
+            if doc_id:
+                # ponytail: resumes by count, trusting the first `done` versions are the first `done`
+                # revisions (true for this script's in-order imports); a label lost to a crash between
+                # import and PATCH is not re-applied.
+                print(f"resume: {d['name']} has {done} of {len(revs)}")
+            else:
+                doc_id = api("POST", "/api/v1/documents", {"name": d["name"], "folderId": fid})["id"]
+            for r in revs[done:]:
+                v = upload(doc_id, local_path(export_root, r["saved"]))
+                label = (r.get("label") or "").strip()
+                if label:
+                    api("PATCH", f"/api/v1/versions/{v['versionId']}", {"name": label})
+            print(f"imported: {d['name']} ({len(revs)} versions)")
+        except urllib.error.HTTPError as e:
+            failed += 1
+            print(f"FAILED: {d['name']}: HTTP {e.code} {e.read()[:300].decode(errors='replace')}",
+                  file=sys.stderr)
+        except (urllib.error.URLError, OSError) as e:
+            failed += 1
+            print(f"FAILED: {d['name']}: {e}", file=sys.stderr)
+
+    if failed:
+        sys.exit(f"{failed} document(s) failed; re-run to resume them.")
 
 if __name__ == "__main__":
     main()
