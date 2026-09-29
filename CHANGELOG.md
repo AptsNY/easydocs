@@ -27,6 +27,12 @@ descriptions are **document** versions, produced by the versioning engine. They 
   now extract as newlines, so a long agreement reads as paragraphs instead of one line — a change
   invisible to content search, which tokenizes both the same way.
 
+- **An operator can recover an account no admin can reach.**
+  `deploy/scripts/issue-password-reset.sh <email>` issues a reset link straight from the database,
+  for an account no admin can reach — the sole owner of an organization, or an install where every
+  owner is locked out. It writes a reset row rather than a password hash, so the link runs
+  through the same endpoint as any other and cannot drift out of step with how passwords are hashed.
+
 - **A locked-out member can be given their account back.** Until now there was no password reset at
   all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
   An org Owner (or an Admin, for a plain Member) now mints a single-use link from **Settings →

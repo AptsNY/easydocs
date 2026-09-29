@@ -14,6 +14,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public Task InitializeAsync() => _pg.StartAsync();
 
+    // For tests that drive deploy/scripts against the suite's own database (docker exec by id).
+    public string PostgresContainerId => _pg.Id;
+
     public new Task DisposeAsync() => _pg.DisposeAsync().AsTask();
 
     protected override void ConfigureWebHost(IWebHostBuilder b) =>

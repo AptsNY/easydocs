@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
 
@@ -324,5 +327,170 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.NotFound,
             (await CompleteAsync(dto.Token, "works-after-removal")).StatusCode);
+    }
+
+    // ---- the operator break-glass path ---------------------------------------------------------
+
+    // deploy/scripts/issue-password-reset.sh does not call the API — it writes a PasswordResets row
+    // straight into the database and prints the link, because the accounts it exists for (a sole
+    // owner, anyone the cross-org gate refuses) are exactly the ones no caller is allowed to mint for.
+    //
+    // That makes the row shape and the token hashing a contract between a shell script and this code,
+    // with nothing in the type system holding the two together. This test is that hold: it builds the
+    // row the way the script does — independently, from the script's own recipe of uppercase hex
+    // SHA-256 — and proves the ordinary endpoint accepts it. If HashToken's encoding or the table's
+    // shape ever moves, the script silently starts minting dead links, and an operator finds out while
+    // locked out of their own install. This fails first instead.
+    [Fact]
+    public async Task A_reset_row_written_the_way_the_operator_script_writes_it_is_consumable()
+    {
+        var owner = await _f.RegisterAsync();
+
+        // The script's recipe, reimplemented rather than reused: openssl base64url of 24 random bytes,
+        // then `openssl dgst -sha256` upper-cased.
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+
+        await SeedResetRowAsync(owner.UserId, owner.OrgId, hash);
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(token, "set-by-the-operator")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = owner.Email, password = "set-by-the-operator" })).StatusCode);
+    }
+
+    // The operator script bypasses the in-app mint's checks, so the consume endpoint is the last line:
+    // a service account's link is dead, and it never gains a password to sign in with.
+    [Fact]
+    public async Task A_service_accounts_reset_link_is_refused_on_use()
+    {
+        var owner = await _f.RegisterAsync();
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "ingest" });
+        created.EnsureSuccessStatusCode();
+        var svc = (await created.Content.ReadFromJsonAsync<SvcDto>())!;
+        var (token, hash) = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(svc.UserId, owner.OrgId, hash);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(token, "a-password-it-must-not-get")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = svc.Email, password = "a-password-it-must-not-get" })).StatusCode);
+    }
+
+    private record SvcDto(Guid UserId, string Email);
+
+    // The operator script itself, run against this suite's database: the link it prints works, the
+    // issuance is audited, and the accounts it must refuse are refused. The C#-side recipe tests above
+    // cannot catch a drift in the script's openssl/cut/SQL — this does.
+    [Fact]
+    public async Task The_operator_script_issues_a_working_audited_link_and_refuses_what_it_must()
+    {
+        var owner = await _f.RegisterAsync();
+        var superseded = await IssueWithScriptAsync(owner.Email);
+        var token = await IssueWithScriptAsync(owner.Email); // a second run supersedes the first link
+        Assert.Equal(HttpStatusCode.NotFound, (await CompleteAsync(superseded, "a-long-enough-password")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(token, "set-by-the-real-script")).StatusCode);
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            Assert.True(await db.AuditEvents.AnyAsync(a => a.OrgId == owner.OrgId && a.Action == "password_reset.issued"
+                && a.TargetId == owner.UserId.ToString() && a.ActorUserId == null));
+        }
+
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "ingest" });
+        var svc = (await created.Content.ReadFromJsonAsync<SvcDto>())!;
+        Assert.NotEqual(0, (await RunScriptAsync(svc.Email)).Code);
+
+        var ssoOnly = await _f.RegisterAsync();
+        await _f.ClearPasswordHashAsync(ssoOnly.UserId);
+        Assert.NotEqual(0, (await RunScriptAsync(ssoOnly.Email)).Code);
+    }
+
+    private async Task<string> IssueWithScriptAsync(string email)
+    {
+        var (code, stdout, stderr) = await RunScriptAsync(email);
+        Assert.True(code == 0, stderr);
+        return stdout.Split('\n').Select(l => l.Trim())
+            .First(l => l.StartsWith("http://x/password-reset/", StringComparison.Ordinal))["http://x/password-reset/".Length..];
+    }
+
+    private async Task<(int Code, string Stdout, string Stderr)> RunScriptAsync(string email)
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "easydocs.slnx"))) root = Path.GetDirectoryName(root)!;
+        var psi = new System.Diagnostics.ProcessStartInfo("bash")
+        {
+            ArgumentList = { Path.Combine(root, "deploy", "scripts", "issue-password-reset.sh"), email },
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            Environment = { ["DB_CONTAINER"] = _f.PostgresContainerId, ["POSTGRES_USER"] = "postgres",
+                            ["POSTGRES_DB"] = "postgres", ["BASE_URL"] = "http://x" },
+        };
+        // Never inherit a real database or a dry run from the developer's shell: this must only ever
+        // talk to the suite's own container.
+        psi.Environment.Remove("DATABASE_URL");
+        psi.Environment.Remove("DRY_RUN");
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await p.WaitForExitAsync(timeout.Token);
+        return (p.ExitCode, await stdout, await stderr);
+    }
+
+    // The helper the operator script's SQL is modelled on.
+    private async Task SeedResetRowAsync(Guid userId, Guid orgId, string tokenHash)
+    {
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        db.Add(new PasswordReset
+        {
+            UserId = userId,
+            OrgId = orgId,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private static (string Token, string Hash) MintTokenTheScriptsWay()
+    {
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        return (token, Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))));
+    }
+
+    // Which org a reset row names is not free choice, and this is the rule the operator script has to
+    // obey. The consume check asks "is this user in some OTHER org — other than the row's — with more
+    // than one member?", so for the ordinary invited colleague (a solo personal org from registration,
+    // plus one real team) the row must name the TEAM. Stamped with the personal org, the team counts as
+    // "another team" and the link 404s on use.
+    //
+    // Shipped wrong once: the script picked the oldest membership, which is the personal org, and every
+    // link it issued for a multi-org account died on arrival. Both directions are asserted so the rule
+    // cannot be half-remembered.
+    [Fact]
+    public async Task A_reset_row_must_name_the_targets_real_team_not_their_personal_org()
+    {
+        var team = await _f.RegisterAsync();
+        var subject = await _f.RegisterAsync();               // registration gives them a solo org
+        var personalOrg = subject.OrgId;
+        await _f.AddOrgMemberAsync(team.OrgId, subject.UserId, OrgRole.Member);
+
+        // Stamped with the personal org: the populated team is now "another team" — refused.
+        var wrong = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, personalOrg, wrong.Hash);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await CompleteAsync(wrong.Token, "stamped-with-the-wrong-org")).StatusCode);
+
+        // Stamped with the team: the only other org is their solo one, which the check ignores.
+        var right = MintTokenTheScriptsWay();
+        await SeedResetRowAsync(subject.UserId, team.OrgId, right.Hash);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await CompleteAsync(right.Token, "stamped-with-the-team")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.CreateClient().PostAsJsonAsync("/api/v1/auth/login",
+            new { email = subject.Email, password = "stamped-with-the-team" })).StatusCode);
     }
 }

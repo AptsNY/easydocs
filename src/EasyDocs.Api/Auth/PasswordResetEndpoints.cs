@@ -144,6 +144,9 @@ public static class PasswordResetEndpoints
         if (await OnAnotherTeamAsync(db, reset.UserId, reset.OrgId, ct)) return notFound;
 
         var user = await db.Users.FirstAsync(u => u.Id == reset.UserId, ct);
+        // A service account must never gain a password (spec 2026-09-24): the in-app mint refuses it
+        // (no password to reset), but a link can also come from the operator script, so refuse here too.
+        if (user.ManagedBy is not null) return notFound;
         user.PasswordHash = hasher.Hash(req.Password!);
         reset.UsedAt = now;
 
