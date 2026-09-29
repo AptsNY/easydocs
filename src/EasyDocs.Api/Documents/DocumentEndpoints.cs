@@ -177,8 +177,6 @@ public static class DocumentEndpoints
         // Fresh under the lock: against a stale tracked copy, setting the value it already held would
         // look unchanged to EF and write nothing, while a concurrent save had moved the real row.
         var doc = await db.LockDocumentAsync(id, ctx.RequestAborted);
-
-
         doc.VersionCounterMajor = req.Major;
         doc.VersionCounterMinor = req.Minor;
         doc.VersionCounterRev = req.Rev;

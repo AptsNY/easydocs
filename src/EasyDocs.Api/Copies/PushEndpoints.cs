@@ -74,7 +74,10 @@ public static class PushEndpoints
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.LockDocumentAsync(id, ct);
         if (await db.PushRequests.AnyAsync(p => p.TargetDocumentId == targetId && p.SourceVersionId == source.Id
-                && (p.Status == "pending" || p.Status == "accepted" || p.Status == "auto_accepted"), ct))
+                // An auto_accepted row whose materialize found nothing to add holds no version: it must not
+                // block this version for good.
+                && (p.Status == "pending" || p.Status == "accepted"
+                    || (p.Status == "auto_accepted" && p.MaterializedVersionId != null)), ct))
             return Problem.Of(409, "Already pushed",
                 "This version has already been sent to that document and is pending review or accepted.");
 

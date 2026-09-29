@@ -33,8 +33,8 @@ The dashboard is folders on the left, documents on the right.
 - **Delete a folder** that has contents and you choose: **keep contents** moves its subfolders and
   documents up one level; **delete folder and contents** removes it with every folder beneath it, and moves the
   documents inside to the trash. A document you do not own cannot be trashed by you, so it moves to
-  the top level instead. A document restored from the trash after its folder is gone comes back at
-  the top level.
+  the top level instead. Trashed folders cannot be restored: a document restored from the trash after
+  its folder is gone comes back at the top level.
 - **Create document** makes an empty document; its first upload becomes version `0.0.1`.
 - **Import document** does both at once: pick a `.docx` and you get a document already holding it as
   version `0.0.1`. The name comes from the file, and you can change it before importing.
