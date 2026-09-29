@@ -107,7 +107,7 @@ Principles retained: versions immutable, blobs content-addressed (written once, 
 
 - **Draft save (R2):** under the `FOR UPDATE` lock, read-and-increment `version_counter_rev`; the new version takes the current counter. Concurrent branches serialize on the lock, so each save gets a distinct `Z`.
 - **Publish (R3/R4):** minor → `version_counter_minor += 1, rev = 0`; major → `version_counter_major += 1, minor = 0, rev = 0`. The published version is renumbered to the new counter; future drafts continue from it — regardless of which branch head exists, and even if the published version was not the head (R6).
-- **Manual override (R5):** write all three counter columns to any non-negative ints (incl. `0.0.0`); governs all future revisions. *(Amended 2026-09-29: not below the highest version number already on the document — `409` — since the next save would otherwise reuse a number.)*
+- **Manual override (R5):** write all three counter columns to any non-negative ints (incl. `0.0.0`); governs all future revisions.
 
 The source spec's head-based `next_draft_number` pseudocode is **superseded** by the counter-based rule above.
 
