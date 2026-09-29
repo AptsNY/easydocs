@@ -128,11 +128,16 @@ descriptions are **document** versions, produced by the versioning engine. They 
   other reworded, changes among repeated identical paragraphs (blank lines, repeated signature lines)
   whose placement is ambiguous, a paragraph one side moved and the other edited, an incoming change to
   footnotes, endnotes or a displayed header or footer, an incoming link or image main does not share,
-  and very large rewrites (about 2000 changed paragraphs). Not carried over from the incoming version:
-  formatting other than bold/italic/underline/strike/caps/size/colour/highlight/super- and subscript,
-  paragraph style, alignment and list format (a change that is only to fonts, spacing or indents is
-  not merged), page/section setup, new style or list definitions, and comments (comments were already
-  dropped by every merge). A branch with no recorded
+  and very large rewrites (about 2000 changed paragraphs). Body-level bookmarks (pandoc writes them
+  between paragraphs; the editor moves them inside) are no longer mistaken for edits.
+  **Formatting outside the compared set is not merged**, in either direction. The compared set is
+  bold/italic/underline/strike/caps/size/colour/highlight/super- and subscript, paragraph style,
+  alignment and list format. From the incoming version, a change that is only to fonts, spacing,
+  indents, table layout, theme colours or small caps is not carried over. And in a paragraph or table
+  the incoming side edited, main's own fonts, theme colours, small caps and cell widths can revert to
+  the incoming version's (main's paragraph indents/spacing and table column widths are kept) — the
+  same as the two-way merge did before. Also not carried over: page/section setup, new style or list
+  definitions, and comments (comments were already dropped by every merge). A branch with no recorded
   fork point (legacy rows) still gets the old two-way compare, and the review screen says what that
   means.
 - **The HTML redline shows each deletion where it happened.** It used to collect every deletion at

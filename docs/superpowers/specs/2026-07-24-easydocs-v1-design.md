@@ -158,7 +158,11 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 > `409` "merge unavailable": both sides in one table or content control, reformat-vs-reword,
 > ambiguous changes among repeated identical paragraphs, move-vs-edit, incoming footnote/endnote/header/footer changes, incoming
 > links/images main does not share, oversized rewrites. Incoming page setup, new styles and comments
-> are not carried. With no fork point (legacy rows) the two-way compare remains the fallback.
+> are not carried. Formatting outside the compared set (fonts, theme colours, small caps, spacing,
+> indents, table layout) is not merged either way: an incoming change that is only that is dropped,
+> and in a block the incoming side edited main's run fonts/theme colours/small caps and cell widths can
+> revert (main's paragraph and table properties are carried). Body-level range markers are anchored
+> into paragraphs before aligning. With no fork point (legacy rows) the two-way compare remains the fallback.
 
 > **[D] Merge-model decision (M1).** The original "run `WmlComparer` on `base→left` and `base→right` and consolidate both authors' revisions over the common ancestor" was found **not implementable** with the OSS comparer (Clippit/OpenXmlPowerTools): `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly one `AuthorForRevisions` per call, so dual-author tracked changes over a shared ancestor cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). We therefore adopt **merge-into-main**: the first author's edits are the accepted base, the incoming branch comes in as a clean single-author redline. Nothing is lost (both branch versions persist in history). The "both-authors-over-common-ancestor" redline (a manual XML fuse of two `Compare(base, side)` revision sets) is a possible **future enhancement**, not v1.
 

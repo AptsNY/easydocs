@@ -38,8 +38,12 @@ namespace EasyDocs.Api.Merging;
 ///
 /// ponytail: block-level, not word-level — two edits to different words of one paragraph, or one side
 /// splitting a paragraph the other edited, are a conflict (incoming's version proposed over main's, and
-/// named). Formatting outside DocxMeaning's subset (fonts, spacing, indents, borders, table layout) is
-/// invisible, so an incoming change that is only that is not carried. Not carried from the incoming
+/// named). Formatting outside DocxMeaning's subset (fonts, spacing, indents, borders, table layout,
+/// theme colours, small caps) is invisible, so an incoming change that is only that is not carried —
+/// and where the incoming side edited a block main did not change in meaning, incoming's copy is taken:
+/// main's paragraph properties and table properties/grid are carried onto it (AddIncoming), but main's
+/// RUN formatting outside the subset (fonts, theme colours, small caps) and cell properties (tcW) are
+/// not, and can revert. Same as the old two-way compare; the review screen says so. Not carried from the incoming
 /// side either: section/page setup (main's final sectPr is kept), new style or list definitions, and
 /// comments (WmlComparer drops comments on every path). Refusals are conservative on repeated wording.
 /// Upgrade path: recurse into w:tbl/w:tc and w:sdtContent when all three shapes agree, word-level
@@ -74,14 +78,22 @@ public static class ThreeWayMerge
             var part = doc.MainDocumentPart!;
             var xdoc = Load(part);
             var body = xdoc.Root!.Element(W + "body")!;
+            AnchorRangeMarkers(body);
             var m = Blocks(xdoc);
 
-            var fold = new Fold(Blocks(Load(ancDoc.MainDocumentPart!)), m, Blocks(Load(incDoc.MainDocumentPart!)),
+            var ancBody = Load(ancDoc.MainDocumentPart!);
+            var incBody = Load(incDoc.MainDocumentPart!);
+            AnchorRangeMarkers(ancBody.Root!.Element(W + "body")!);
+            AnchorRangeMarkers(incBody.Root!.Element(W + "body")!);
+
+            var fold = new Fold(Blocks(ancBody), m, Blocks(incBody),
                 new DocxMeaning(ancDoc.MainDocumentPart!), new DocxMeaning(part), new DocxMeaning(incDoc.MainDocumentPart!));
             var merged = fold.Run();
             overlaps = fold.Overlaps;
 
+            var fromMain = new HashSet<XElement>(m);
             var content = merged.Select(b => new XElement(b)).ToList();
+            UniqueBookmarks(content, [.. merged.Select(fromMain.Contains)]);
             foreach (var e in m) e.Remove();
             body.AddFirst(content); // main's final sectPr stays last
 
@@ -92,6 +104,63 @@ public static class ThreeWayMerge
     }
 
     private record Hunk(int AStart, int AEnd, int XStart, int XEnd);
+
+    private static readonly HashSet<string> RangeMarkers =
+    [
+        "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd", "commentRangeStart", "commentRangeEnd",
+        "moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
+    ];
+
+    // Range markers written directly in w:body (pandoc does this) are not blocks, and LibreOffice moves
+    // them into the adjacent paragraph on save — so, compared as blocks, a save read as "deleted a
+    // block" on both sides. Anchor them the way LibreOffice does, before aligning: a start marker at
+    // the start of the next paragraph, an end marker at the end of the previous one (the other way at
+    // a document edge). Proofing marks carry nothing and are dropped. Main's body is the output, so
+    // main's anchors are kept, just inside a paragraph instead of between two.
+    private static void AnchorRangeMarkers(XElement body)
+    {
+        foreach (var mark in body.Elements().Where(e => e.Name.Namespace == W && RangeMarkers.Contains(e.Name.LocalName)).ToList())
+        {
+            var before = mark.ElementsBeforeSelf(W + "p").LastOrDefault();
+            var after = mark.ElementsAfterSelf(W + "p").FirstOrDefault();
+            mark.Remove();
+            if (mark.Name == W + "proofErr") continue;
+            var target = mark.Name.LocalName.EndsWith("End") ? before ?? after : after ?? before;
+            if (target is null) continue; // a body with no paragraph at all has nothing to anchor to
+            if (target != after) target.Add(mark);
+            else if (target.Element(W + "pPr") is { } ppr) ppr.AddAfterSelf(mark);
+            else target.AddFirst(mark);
+        }
+    }
+
+    // Blocks from two packages each number their bookmarks independently (LibreOffice renumbers on
+    // every save). Keep main's; give incoming bookmarks whose id main already uses a fresh id, and drop
+    // an incoming bookmark whose NAME main already has — two anchors of one name is not a document.
+    private static void UniqueBookmarks(List<XElement> content, List<bool> fromMain)
+    {
+        var mainBlocks = content.Where((_, k) => fromMain[k]).ToList();
+        var incomingBlocks = content.Where((_, k) => !fromMain[k]).ToList();
+        var ids = mainBlocks.SelectMany(b => b.DescendantsAndSelf()).Where(IsBookmark)
+            .Select(e => (string?)e.Attribute(W + "id")).OfType<string>().ToHashSet();
+        var names = mainBlocks.SelectMany(b => b.Descendants(W + "bookmarkStart"))
+            .Select(e => (string?)e.Attribute(W + "name")).OfType<string>().ToHashSet();
+
+        var marks = incomingBlocks.SelectMany(b => b.DescendantsAndSelf()).Where(IsBookmark).ToList();
+        var dropped = marks.Where(e => e.Name == W + "bookmarkStart" && names.Contains((string?)e.Attribute(W + "name") ?? ""))
+            .Select(e => (string?)e.Attribute(W + "id")).ToHashSet();
+        var next = ids.Select(v => int.TryParse(v, out var n) ? n : 0).DefaultIfEmpty(0).Max() + 1;
+        var renumbered = new Dictionary<string, string>();
+        foreach (var e in marks)
+        {
+            var id = (string?)e.Attribute(W + "id") ?? "";
+            if (dropped.Contains(id)) { e.Remove(); continue; }
+            if (!ids.Contains(id)) continue;
+            if (!renumbered.TryGetValue(id, out var fresh)) renumbered[id] = fresh = (next++).ToString();
+            e.SetAttributeValue(W + "id", fresh);
+        }
+    }
+
+    private static bool IsBookmark(XElement e) => e.Name == W + "bookmarkStart" || e.Name == W + "bookmarkEnd";
 
     private sealed class Fold(
         List<XElement> a, List<XElement> m, List<XElement> i,
@@ -151,12 +220,12 @@ public static class ThreeWayMerge
         {
             bool mChanged = NM(mk) != NA(k), iChanged = NI(ik) != NA(k);
             if (!iChanged) { result.Add(m[mk]); return; }
-            if (!mChanged) { AddIncoming(i[ik]); return; }
+            if (!mChanged) { AddIncoming(i[ik], m[mk]); return; }
             Overlaps.Add(new Overlap(k, Label(a[k])));
             if (NM(mk) == NI(ik)) { result.Add(m[mk]); return; } // the same change on both sides, once
             if (ancestorCount[ka[k]] > 1) throw Ambiguous();
             if (a[k].Name != W + "p" || m[mk].Name != W + "p" || i[ik].Name != W + "p")
-                throw new NotSupportedException("Both sides changed the same table or content control.");
+                throw new NotSupportedException($"Both sides changed the same {Describe(a[k].Name != W + "p" ? a[k] : m[mk].Name != W + "p" ? m[mk] : i[ik])}, which is merged only whole.");
             // Proposing incoming's paragraph is only honest when both sides changed its WORDS. If one
             // side only reformatted it, taking incoming would revert main's wording (or its formatting)
             // for a change the reviewer may not even see — refuse instead.
@@ -215,8 +284,8 @@ public static class ThreeWayMerge
 
             // A genuine conflict of different shapes. Only paragraphs, and only when the alignment is
             // unambiguous; then incoming's version is proposed over main's and every block is named.
-            if (!a[gs..ge].Concat(m[ms..me]).Concat(i[@is..ie]).All(e => e.Name == W + "p"))
-                throw new NotSupportedException("Both sides changed the same table or content control.");
+            if (a[gs..ge].Concat(m[ms..me]).Concat(i[@is..ie]).FirstOrDefault(e => e.Name != W + "p") is { } other)
+                throw new NotSupportedException($"Both sides changed the same region, and it holds a {Describe(other)}, which is merged only whole.");
             // Likewise a side's new block whose wording also exists in the ancestor: it may be a copy the
             // alignment placed here rather than where the author put it.
             if (km[ms..me].Concat(ki[@is..ie]).Any(ancestorCount.ContainsKey)) throw Ambiguous();
@@ -233,12 +302,47 @@ public static class ThreeWayMerge
             return (0, 0); // an empty range this side did not touch: nothing to place
         }
 
+        private static string Describe(XElement block) =>
+            block.Name == W + "tbl" ? "table" : block.Name == W + "sdt" ? "content control" : $"<w:{block.Name.LocalName}>";
+
         private static NotSupportedException Ambiguous() =>
             new("Both sides changed paragraphs whose wording repeats; which copy each meant is ambiguous.");
 
-        private void AddIncoming(XElement block) =>
-            result.Add(Portable(block) ? block : Relisted(block)
-                ?? throw new NotSupportedException("An incoming change uses a link, image, note or list main does not share."));
+        // `mainTwin`: main's copy of the same block, when main did not change what it means. Main may
+        // still have changed its layout outside DocxMeaning's subset (an indent, spacing, column widths),
+        // so that layout is carried onto incoming's copy — as long as the result still means exactly
+        // what incoming's copy meant. Otherwise incoming's copy is taken as it is.
+        private void AddIncoming(XElement block, XElement? mainTwin = null)
+        {
+            if (mainTwin is not null && WithLayoutOf(block, mainTwin) is { } laidOut && Portable(block, laidOut))
+                result.Add(laidOut);
+            else
+                result.Add(Portable(block, block) ? block : Relisted(block)
+                    ?? throw new NotSupportedException("An incoming change uses a link, image, note or list main does not share."));
+        }
+
+        private static XElement? WithLayoutOf(XElement block, XElement twin)
+        {
+            if (block.Name != twin.Name) return null;
+            var copy = new XElement(block);
+            if (block.Name == W + "p")
+            {
+                copy.Element(W + "pPr")?.Remove();
+                if (twin.Element(W + "pPr") is { } ppr) copy.AddFirst(new XElement(ppr));
+                return copy;
+            }
+            if (block.Name == W + "tbl")
+            {
+                copy.Element(W + "tblPr")?.Remove();
+                if (twin.Element(W + "tblPr") is { } tblPr) copy.AddFirst(new XElement(tblPr));
+                // Main's column grid only when it still describes this table's columns.
+                if (twin.Element(W + "tblGrid") is { } grid && copy.Element(W + "tblGrid") is { } own
+                    && grid.Elements(W + "gridCol").Count() == own.Elements(W + "gridCol").Count())
+                    own.ReplaceWith(new XElement(grid));
+                return copy;
+            }
+            return null;
+        }
 
         // LibreOffice renumbers list ids on every save, so an incoming list item's numId can mean
         // another list — or nothing — in main's package. Re-point it at the list of the nearest
@@ -254,18 +358,19 @@ public static class ThreeWayMerge
             if (host?.Element(W + "numId")?.Attribute(W + "val")?.Value is not { } numId) return null;
             var copy = new XElement(block);
             copy.Element(W + "pPr")!.Element(W + "numPr")!.Element(W + "numId")?.SetAttributeValue(W + "val", numId);
-            return Portable(copy) ? copy : null;
+            return Portable(block, copy) ? copy : null;
         }
 
-        // Side X removed ancestor block k and re-inserted the same text elsewhere (a move), while the
-        // other side changed k: a block fold would keep the moved copy AND the edited one.
-        // A block moved from the incoming package into main's must mean the same thing there: the same
-        // styles, list formats, link and image targets and note text — and every relationship id it
-        // carries must exist in main pointing at the same target.
-        private bool Portable(XElement block) =>
-            ip.Of(block) == mp.Of(block)
-            && block.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R)
-                .All(x => ip.Target(x.Value) is { } t && t == mp.Target(x.Value));
+        // An incoming block placed in main's package (as `placed`, possibly adjusted) must mean there
+        // exactly what it meant in incoming's: the same styles, list formats, link and image targets and
+        // note text — and every relationship id it brought must exist in main with the same target.
+        private bool Portable(XElement block, XElement placed) =>
+            ip.Of(block) == mp.Of(placed)
+            && placed.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R)
+                .All(x => mp.Target(x.Value) is { } t && (!Rels(block).Contains(x.Value) || ip.Target(x.Value) == t));
+
+        private static HashSet<string> Rels(XElement block) =>
+            [.. block.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R).Select(x => x.Value)];
 
         // Two changes from different sides that do not overlap can still be ORDERED wrongly: next to a
         // run of identical paragraphs (blank lines, repeated signature lines) a change can "slide" —
@@ -306,6 +411,8 @@ public static class ThreeWayMerge
             }
         }
 
+        // Side X removed ancestor block k and re-inserted the same text elsewhere (a move), while the
+        // other side changed k: a block fold would keep the moved copy AND the edited one.
         private void RefuseMoves(List<Hunk> hx, string[] kx, List<Hunk> hOther, int[] matchOther, Func<int, string> normOther)
         {
             var inserted = hx.SelectMany(h => kx[h.XStart..h.XEnd]).ToHashSet();

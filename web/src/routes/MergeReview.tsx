@@ -178,11 +178,15 @@ export default function MergeReview() {
           {preview.base ? (
             <p data-testid="merge-outcome">
               Merging lands {preview.incoming.authorName}’s changes since{' '}
-              <code>{preview.base.number}</code> onto main as Word tracked changes. Main’s own changes
-              stay as they are
-              {preview.overlaps && preview.overlaps.length > 0 ? ', except as listed above' : ''}. Page
-              setup, new styles and comments from their version are not carried over. Both versions stay
-              in history, and the merge can be reverted afterward like any other version.
+              <code>{preview.base.number}</code> onto main as Word tracked changes. Main’s wording and
+              its visible formatting stay as they are
+              {preview.overlaps && preview.overlaps.length > 0 ? ', except as listed above' : ''}. Finer
+              formatting is not merged: in a paragraph or table {preview.incoming.authorName} edited,
+              main’s fonts, theme colours, small caps and cell widths can come back as{' '}
+              {preview.incoming.authorName}’s version had them, and their changes that are only to
+              fonts, spacing, indents or table layout are not carried over — nor are their page setup,
+              new styles or comments. Both versions stay in history, and the merge can be reverted
+              afterward like any other version.
             </p>
           ) : (
             <p data-testid="merge-outcome">

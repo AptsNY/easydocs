@@ -37,9 +37,14 @@ public class ThreeWayMergeLibreOfficeTests
                 Environment = { ["HOME"] = work },
             };
             using var p = Process.Start(psi)!;
-            p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit(120_000);
+            // Drain both pipes without blocking, so a hung soffice times out instead of hanging the run.
+            var drain = Task.WhenAll(p.StandardOutput.ReadToEndAsync(), p.StandardError.ReadToEndAsync());
+            if (!p.WaitForExit(120_000))
+            {
+                p.Kill(entireProcessTree: true);
+                throw new TimeoutException("soffice did not finish within 120 s");
+            }
+            drain.Wait();
             return File.ReadAllBytes(Path.Combine(outDir, "in.docx"));
         }
         finally
@@ -113,6 +118,20 @@ public class ThreeWayMergeLibreOfficeTests
             Lo(Doc("The tenant pays rent quarterly.", "Repairs by landlord.")),
             Lo(Doc("The tenant pays rent monthly.", "Repairs by the landlord.")),
             "quarterly", "the", ["The tenant pays rent quarterly.", "Deposit is one month.", "Repairs by the landlord."]);
+    }
+
+    // Pandoc (docassemble's markdown attachments) writes bookmarks between paragraphs; LibreOffice
+    // moves them inside on save. That used to read as both sides deleting a block, and refused.
+    [SkippableFact]
+    public void A_pandoc_style_document_with_body_level_bookmarks_merges_after_editor_saves()
+    {
+        Skip.IfNot(SofficeAvailable(), "soffice not installed on this host");
+        byte[] Doc(string a, string d) =>
+            Rich(BookmarkStart("intro", 0), P(a), BookmarkEnd(0), P("Bravo"), P("Charlie"), BookmarkStart("end", 1), P(d), BookmarkEnd(1));
+        AssertMerged(Doc("Alpha", "Delta"),
+            Lo(Doc("Alpha AMENDED", "Delta")),
+            Lo(Doc("Alpha", "Delta EDITED")),
+            "AMENDED", "EDITED", ["Alpha AMENDED", "Bravo", "Charlie", "Delta EDITED"]);
     }
 
     // The same with the ancestor itself an editor save (the steady state once a document has been

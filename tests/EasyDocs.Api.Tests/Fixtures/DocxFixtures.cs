@@ -75,6 +75,25 @@ public static class DocxFixtures
     public static Block Table(params string[][] rows) => _ =>
         new W.Table(rows.Select(r => new W.TableRow(r.Select(c => new W.TableCell(new W.Paragraph(new W.Run(new W.Text(c))))))));
 
+    // A table with an explicit column grid (twips per column).
+    public static Block GridTable(int[] widths, params string[][] rows) => _ =>
+        new W.Table([new W.TableGrid(widths.Select(w => new W.GridColumn { Width = w.ToString() })),
+            .. rows.Select(r => new W.TableRow(r.Select(c => new W.TableCell(new W.Paragraph(new W.Run(new W.Text(c)))))))]);
+
+    // A paragraph with a left indent (twips) — formatting the merge's meaning comparison does not see.
+    public static Block Indented(string text, int left) => _ =>
+        new W.Paragraph(new W.ParagraphProperties(new W.Indentation { Left = left.ToString() }), new W.Run(new W.Text(text)));
+
+    // Body-level range markers, as pandoc writes them: a bookmark opened and closed BETWEEN
+    // paragraphs rather than inside one.
+    public static Block BookmarkStart(string name, int id) => _ => new W.BookmarkStart { Name = name, Id = id.ToString() };
+    public static Block BookmarkEnd(int id) => _ => new W.BookmarkEnd { Id = id.ToString() };
+
+    // The same bookmark as LibreOffice writes it after a save: inside the paragraph.
+    public static Block Bookmarked(string text, string name, int id) => _ =>
+        new W.Paragraph(new W.BookmarkStart { Name = name, Id = id.ToString() }, new W.Run(new W.Text(text)),
+            new W.BookmarkEnd { Id = id.ToString() });
+
     // A paragraph referencing footnote 1, whose text is `note`.
     public static Block Footnoted(string text, string note) => part =>
     {

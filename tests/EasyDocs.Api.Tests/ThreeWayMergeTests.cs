@@ -103,6 +103,53 @@ public class ThreeWayMergeTests
     public void An_incoming_header_edit_is_refused() =>
         Refused(Rich("Header", P("x")), Rich("Header", P("X-main")), Rich("Header, amended", P("x")));
 
+    // Pandoc writes bookmarks BETWEEN paragraphs; LibreOffice moves them inside on save. Neither is a
+    // block, so a save must not read as both sides deleting one — and main's anchor must survive.
+    [Fact]
+    public void Body_level_bookmarks_moved_into_paragraphs_by_a_save_are_not_edits()
+    {
+        var r = Apply(
+            Rich(BookmarkStart("intro", 0), P("Alpha"), BookmarkEnd(0), P("Bravo"), P("Charlie"), P("Delta")),
+            Rich(Bookmarked("Alpha EDITED", "intro", 0), P("Bravo"), P("Charlie"), P("Delta")),
+            Rich(Bookmarked("Alpha", "intro", 0), P("Bravo"), P("Charlie"), P("Delta EDITED")));
+        Assert.Equal(["Alpha EDITED", "Bravo", "Charlie", "Delta EDITED"], Paragraphs(r.Docx));
+        Assert.Empty(r.Overlaps);
+        Assert.Equal("intro", (string?)Body(r.Docx).Descendants(W + "bookmarkStart").Single().Attribute(W + "name"));
+    }
+
+    [Fact]
+    public void Main_body_level_bookmarks_are_kept_when_nobody_saved_through_the_editor()
+    {
+        var anc = Rich(BookmarkStart("intro", 0), P("Alpha"), BookmarkEnd(0), P("Bravo"));
+        var r = Apply(anc, Rich(BookmarkStart("intro", 0), P("Alpha EDITED"), BookmarkEnd(0), P("Bravo")),
+            Rich(BookmarkStart("intro", 0), P("Alpha"), BookmarkEnd(0), P("Bravo EDITED")));
+        Assert.Equal(["Alpha EDITED", "Bravo EDITED"], Paragraphs(r.Docx));
+        var body = Body(r.Docx);
+        Assert.Single(body.Descendants(W + "bookmarkStart"));
+        Assert.Single(body.Descendants(W + "bookmarkEnd"));
+    }
+
+    // Main indents a paragraph (formatting the meaning comparison does not see); incoming rewords it.
+    // Taking incoming's copy wholesale used to drop main's indent without a trace.
+    [Fact]
+    public void Main_paragraph_layout_survives_an_incoming_reword()
+    {
+        var r = Apply(Rich(P("Rent is due monthly."), P("b")), Rich(Indented("Rent is due monthly.", 720), P("b")),
+            Rich(P("Rent is due quarterly."), P("b")));
+        var first = Body(r.Docx).Elements(W + "p").First();
+        Assert.Equal("Rent is due quarterly.", string.Concat(first.Descendants(W + "t").Select(t => t.Value)));
+        Assert.Equal("720", (string?)first.Element(W + "pPr")?.Element(W + "ind")?.Attribute(W + "left"));
+    }
+
+    [Fact]
+    public void Main_column_widths_survive_an_incoming_cell_edit()
+    {
+        var r = Apply(Rich(GridTable([2000, 2000], ["a", "b"])), Rich(GridTable([3000, 1000], ["a", "b"])),
+            Rich(GridTable([2000, 2000], ["a", "B-inc"])));
+        Assert.Equal(["a", "B-inc"], Paragraphs(r.Docx));
+        Assert.Equal(["3000", "1000"], Body(r.Docx).Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
+    }
+
     // Same header text, different logo: text-only header comparison used to miss this and drop it.
     [Fact]
     public void An_incoming_header_image_change_is_refused()
