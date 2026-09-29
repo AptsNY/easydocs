@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using EasyDocs.Api.Auth;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
@@ -216,11 +217,32 @@ public static class WopiEndpoints
         if (parsed is null || parsed.Value.Sid != fileId)
             return new AuthResult(Results.Unauthorized(), null, Guid.Empty, "");
 
-        var session = await db.EditSessions.FirstOrDefaultAsync(
-            s => s.Id == fileId && s.ClosedAt == null, ctx.RequestAborted);
+        var session = await LiveSessionAsync(db, fileId, parsed.Value.Uid, ctx.RequestAborted);
         return session is null
             ? new AuthResult(Results.NotFound(), null, Guid.Empty, "")
             : new AuthResult(null, session, parsed.Value.Uid, parsed.Value.Perms);
+    }
+
+    // The check that makes a session-length token safe, on EVERY WOPI and WebDAV request: the session is
+    // still open and belongs to the token's user, who is still a member of the document's org and still
+    // Editor+ on the document. Losing any of those cuts an open editor off on its next call.
+    // Deliberately NOT DocumentAuthorization.ResolveAsync: that refuses a trashed document, and an editor
+    // open when its document is trashed must keep saving (trash is soft, :restore is lossless — see
+    // CommitSaveTests.A_session_keeps_saving_onto_a_trashed_document).
+    internal static async Task<EditSession?> LiveSessionAsync(EasyDocsDbContext db, Guid sid, Guid uid, CancellationToken ct)
+    {
+        var session = await db.EditSessions.FirstOrDefaultAsync(
+            s => s.Id == sid && s.UserId == uid && s.ClosedAt == null, ct);
+        if (session is null) return null;
+
+        // The user must still belong to the document's org as well as hold Editor+ on the document.
+        var role = await db.DocumentMembers
+            .Where(m => m.DocumentId == session.DocumentId && m.UserId == uid
+                && db.Documents.Any(d => d.Id == m.DocumentId
+                    && db.OrgMembers.Any(o => o.OrgId == d.OrgId && o.UserId == uid)))
+            .Select(m => (DocRole?)m.Role)
+            .FirstOrDefaultAsync(ct);
+        return role is { } r && DocumentAuthorization.CanEdit(r) ? session : null;
     }
 
     private readonly record struct AuthResult(IResult? Error, EditSession? Session, Guid Uid, string Perms);

@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using EasyDocs.Api.Data;
+using EasyDocs.Api.Domain;
 using EasyDocs.Api.Tests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
 
@@ -114,5 +118,63 @@ public class WebdavTests(ApiFactory f) : IClassFixture<ApiFactory>
         var anon = f.CreateClient();
         var res = await anon.PostAsync($"/api/v1/versions/{versionId}/webdav-sessions", null);
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    // Word bakes the one token in the ms-word: URL into every PUT for as long as the document is open;
+    // nothing can refresh it. A document open for 36 minutes must still save.
+    [Fact]
+    public async Task Word_open_for_36_minutes_still_saves()
+    {
+        var (client, _, versionId, _) = await SeedAsync();
+        var mint = (await (await client.PostAsync($"/api/v1/versions/{versionId}/webdav-sessions", null))
+            .Content.ReadFromJsonAsync<MintDto>())!;
+        Guid uid;
+        using (var scope = f.Services.CreateScope())
+            uid = (await scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>().EditSessions
+                .SingleAsync(s => s.Id == mint.SessionId)).UserId;
+
+        var aged = WopiHostTests.AgedToken(f.Services, mint.SessionId, uid, TimeSpan.FromMinutes(36));
+        var put = await f.CreateClient().PutAsync($"/dav/{aged}/Dav%20Doc.docx", new ByteArrayContent(DocxFixtures.Edited()));
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("removed")]
+    [InlineData("demoted")]
+    [InlineData("closed")]
+    [InlineData("left-org")]
+    public async Task Losing_access_cuts_off_word_immediately(string how)
+    {
+        var (client, _, versionId, _) = await SeedAsync();
+        var mint = (await (await client.PostAsync($"/api/v1/versions/{versionId}/webdav-sessions", null))
+            .Content.ReadFromJsonAsync<MintDto>())!;
+        var path = DavPath(mint);
+        var dav = f.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, (await dav.GetAsync(path)).StatusCode);
+
+        await RevokeAsync(f.Services, mint.SessionId, how);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await dav.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await dav.PutAsync(path, new ByteArrayContent(DocxFixtures.Edited()))).StatusCode);
+    }
+
+    // The ways the session's user stops being entitled to edit, applied straight to the database.
+    internal static async Task RevokeAsync(IServiceProvider sp, Guid sid, string how)
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var s = await db.EditSessions.SingleAsync(x => x.Id == sid);
+        var member = await db.DocumentMembers.SingleAsync(m => m.DocumentId == s.DocumentId && m.UserId == s.UserId);
+        var doc = await db.Documents.SingleAsync(d => d.Id == s.DocumentId);
+        switch (how)
+        {
+            case "removed": db.Remove(member); break;
+            case "demoted": member.Role = DocRole.Viewer; break;
+            case "closed": s.ClosedAt = DateTimeOffset.UtcNow; break;
+            case "left-org": db.Remove(await db.OrgMembers.SingleAsync(m => m.OrgId == doc.OrgId && m.UserId == s.UserId)); break;
+            default: throw new ArgumentOutOfRangeException(nameof(how));
+        }
+        await db.SaveChangesAsync();
     }
 }
