@@ -22,13 +22,11 @@ public static class FolderEndpoints
     /// A magic string sentinel ("none") would have to widen the field to `string` and teach every client
     /// a word that is not a folder id; a `JsonElement` would erase the schema.
     ///
-    /// ponytail: presence-tracking is inlined here rather than generalised into an Optional&lt;T&gt;.
-    /// Ceiling: one property on one endpoint. Two sibling gaps share this shape and are NOT fixed here —
-    /// PATCH /documents/{id} cannot move a document back to the top level, and GET /documents has no way
-    /// to ask for "folderId is null" (Dashboard.tsx records both). Neither is one mechanism away: the
-    /// documents body needs this same flag, but a GET filter is a query string where absent and null are
-    /// genuinely the same value and only a sentinel token can separate them. Upgrade path: repeat this
-    /// pattern on DocumentEndpoints.UpdateRequest, and add `folderId=none` to ListDocuments.
+    /// ponytail: presence-tracking is inlined here (and repeated on DocumentEndpoints.UpdateRequest)
+    /// rather than generalised into an Optional&lt;T&gt;. Ceiling: two properties. One sibling gap is NOT
+    /// fixed — GET /documents has no way to ask for "folderId is null" (Dashboard.tsx records it): a
+    /// query string's absent and null are genuinely the same value, so only a sentinel token can separate
+    /// them. Upgrade path: `folderId=none` on ListDocuments.
     /// </summary>
     public sealed class UpdateRequest
     {
@@ -138,19 +136,79 @@ public static class FolderEndpoints
             .Where(f => f.OrgId == orgId && f.DeletedAt == null && f.ParentId == id)
             .ToListAsync();
 
-        if (children.Count > 0 && mode is null)
+        // Documents count as contents too: mode=trash now takes them with it, so an unqualified DELETE
+        // must not do that silently.
+        var holdsDocuments = await db.Documents.AnyAsync(d => d.OrgId == orgId && d.DeletedAt == null && d.FolderId == id);
+        if ((children.Count > 0 || holdsDocuments) && mode is null)
             return Problem.Of(400, "Mode required", "Folder is not empty; choose mode=trash or mode=promote_children.");
 
         var now = DateTimeOffset.UtcNow;
+        var userId = CurrentUser.UserId(ctx.User);
+        var trashedDocs = 0;
+        var movedDocs = 0;
         if (mode == "promote_children")
+        {
+            // Everything directly inside moves up a level — documents as well as subfolders, or they
+            // would be left pointing at a deleted folder.
             foreach (var child in children) child.ParentId = folder.ParentId;
-        // mode=trash (or empty folder): soft-delete just this folder; children left in place.
+            await db.Documents.Where(d => d.OrgId == orgId && d.DeletedAt == null && d.FolderId == id)
+                .ForEachAsync(d => { d.FolderId = folder.ParentId; movedDocs++; });
+            folder.DeletedAt = now;
+        }
+        else
+        {
+            // mode=trash ("Delete folder and contents"): the whole subtree goes. Stamping only this
+            // folder left its subfolders live but unreachable — GET /folders walks down from the root.
+            var subtree = await SubtreeAsync(db, orgId, id);
+            await db.Folders.Where(f => subtree.Contains(f.Id)).ForEachAsync(f => f.DeletedAt = now);
 
-        folder.DeletedAt = now;
-        db.Add(Audit.Event(orgId, null, CurrentUser.UserId(ctx.User), "folder.deleted", "folder", id.ToString(),
-            new { mode = mode ?? "trash", promoted = mode == "promote_children" ? children.Count : 0 }));
+            // Documents follow the folder into the trash where the caller could trash them anyway (Owner,
+            // as DELETE /documents/{id} requires). Anyone else's move to the top level: never left
+            // pointing at a trashed folder, and never trashed by someone who could not have done it directly.
+            var docs = await db.Documents
+                .Where(d => d.OrgId == orgId && d.DeletedAt == null && d.FolderId != null && subtree.Contains(d.FolderId.Value))
+                .Select(d => new { Doc = d, Owned = db.DocumentMembers.Any(m => m.DocumentId == d.Id && m.UserId == userId && m.Role == DocRole.Owner) })
+                .ToListAsync();
+            foreach (var x in docs)
+            {
+                if (x.Owned)
+                {
+                    x.Doc.DeletedAt = now;
+                    trashedDocs++;
+                    db.Add(Audit.Event(orgId, x.Doc.Id, userId, "document.trashed", "document", x.Doc.Id.ToString(), new { folderId = id }));
+                }
+                else
+                {
+                    x.Doc.FolderId = null;
+                    movedDocs++;
+                    db.Add(Audit.Event(orgId, x.Doc.Id, userId, "document.updated", "document", x.Doc.Id.ToString(),
+                        new { name = x.Doc.Name, folderId = (Guid?)null }));
+                }
+            }
+        }
+
+        db.Add(Audit.Event(orgId, null, userId, "folder.deleted", "folder", id.ToString(),
+            new { mode = mode ?? "trash", promoted = mode == "promote_children" ? children.Count : 0, trashedDocs, movedDocs }));
         await db.SaveChangesAsync();
         return Results.NoContent();
+    }
+
+    // The folder and every live folder beneath it. Same in-memory walk, and the same ceiling, as
+    // IsDescendantAsync below.
+    private static async Task<HashSet<Guid>> SubtreeAsync(EasyDocsDbContext db, Guid orgId, Guid root)
+    {
+        var byParent = (await db.Folders
+                .Where(f => f.OrgId == orgId && f.DeletedAt == null && f.ParentId != null)
+                .Select(f => new { f.Id, Parent = f.ParentId!.Value })
+                .ToListAsync())
+            .ToLookup(f => f.Parent, f => f.Id);
+
+        var seen = new HashSet<Guid> { root };
+        var queue = new Queue<Guid>([root]);
+        while (queue.TryDequeue(out var at))
+            foreach (var child in byParent[at])
+                if (seen.Add(child)) queue.Enqueue(child);
+        return seen;
     }
 
     private static Task<bool> ExistsAsync(EasyDocsDbContext db, Guid orgId, Guid id) =>

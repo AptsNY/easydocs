@@ -118,6 +118,23 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Conflict, (await MintAsync(owner.Client, target.UserId)).StatusCode);
     }
 
+    // A service account has no password either, but not because of SSO — the refusal should say what
+    // it actually is.
+    [Fact]
+    public async Task A_service_account_target_is_409_and_named_as_one()
+    {
+        var owner = await _f.RegisterAsync();
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "ingest" });
+        created.EnsureSuccessStatusCode();
+        var svc = (await created.Content.ReadFromJsonAsync<SvcDto>())!;
+
+        var res = await MintAsync(owner.Client, svc.UserId);
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var detail = (await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("detail").GetString();
+        Assert.Contains("service account", detail);
+        Assert.DoesNotContain("SSO", detail);
+    }
+
     // ---- consume -------------------------------------------------------------------------------
 
     private record CompleteRequest(string Token, string Password);

@@ -41,8 +41,10 @@ Two consequences fall straight out of that, and neither is possible with head-ba
   the newest version in order to release it.
 
 Each draft save reads-and-increments the revision counter while holding a per-document row lock, so
-concurrent saves serialize and every version gets a distinct `Z`. No two versions ever collide on a
-number, even when two people save at the same instant.
+concurrent saves serialize and every version gets a distinct `Z`. No two saves ever collide on a
+number, even when two people save at the same instant. The one way to reuse a number is deliberate:
+winding the manual counter override back below the history (spec R5 allows any value), after
+which the next save takes the number that follows it.
 
 ### Download filenames
 
@@ -205,8 +207,9 @@ read a document you were not added to. This is enforced at a single authorizatio
 role fallback, and it is what makes copy isolation trustworthy.
 
 **A session carries exactly one organization**, chosen as your oldest membership. Accepting an
-invitation rebinds your session to the inviting organization. There is no org switcher in v1 — this is
-a navigation limit, not an access-control one.
+invitation rebinds your session to the inviting organization, and if you belong to more than one, the
+**switcher in the header** (`POST /api/v1/auth/switch-org`) rebinds it to another. Switching changes
+which organization you are looking at, never what you may do inside it.
 
 ## Audit trail
 

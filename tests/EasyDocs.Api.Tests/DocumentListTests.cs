@@ -325,4 +325,43 @@ public class DocumentListTests : IClassFixture<ApiFactory>
             $"/api/v1/documents?folderId={folderId}&sort=name&limit=100&cursor={Uri.EscapeDataString(invalidUtf8)}");
         Assert.Equal(HttpStatusCode.OK, alsoOk.StatusCode);
     }
+
+    // `%` and `_` went into ILIKE unescaped, so a search for either matched every document.
+    [Fact]
+    public async Task Like_wildcards_in_the_search_box_match_themselves()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Wildcards");
+        var pct = await acct.Client.CreateDocAsync("50% off", folderId);
+        var under = await acct.Client.CreateDocAsync("lease_final", folderId);
+        var slash = await acct.Client.CreateDocAsync(@"C:\drafts", folderId);
+        var plain = await acct.Client.CreateDocAsync("plain", folderId);
+        foreach (var d in new[] { pct, under, slash, plain }) await acct.Client.UploadAsync(d, DocxFixtures.Base());
+
+        async Task<Guid[]> Search(string q) =>
+            (await acct.Client.GetFromJsonAsync<Page>(
+                $"/api/v1/documents?folderId={folderId}&limit=100&q={Uri.EscapeDataString(q)}"))!
+            .Items.Select(t => t.Id).ToArray();
+
+        Assert.Equal([pct], await Search("%"));
+        Assert.Equal([under], await Search("_"));
+        Assert.Equal([slash], await Search(@"\"));
+    }
+
+    // PATCH folderId: null was read as "not sent", so a document could never go back to the top level.
+    [Fact]
+    public async Task Explicit_null_folder_moves_a_document_to_the_top_level_and_an_absent_one_leaves_it()
+    {
+        var acct = await _f.RegisterAsync();
+        var folderId = await acct.Client.CreateFolderAsync("Filed");
+        var docId = await acct.Client.CreateDocAsync("Filed doc", folderId);
+
+        var renamed = await acct.Client.PatchAsJsonAsync($"/api/v1/documents/{docId}", new { name = "Renamed" });
+        renamed.EnsureSuccessStatusCode();
+        Assert.Equal(folderId, (await renamed.Content.ReadFromJsonAsync<Tile>())!.FolderId);
+
+        var moved = await acct.Client.PatchAsJsonAsync($"/api/v1/documents/{docId}", new { folderId = (Guid?)null });
+        moved.EnsureSuccessStatusCode();
+        Assert.Null((await moved.Content.ReadFromJsonAsync<Tile>())!.FolderId);
+    }
 }

@@ -65,7 +65,9 @@ test('the recipient can download the file with no account', async ({ signedIn, b
 // itself is driven through the UI in actions.spec.ts ("3b"), now that GET /documents/{id}/share-links
 // makes the row id reachable.
 test('a dead link and an unknown token show the same human message', async ({ signedIn, browser }) => {
-  const dead = await share(signedIn, 'Expired Draft', '2020-01-01T00:00:00Z')
+  // The API refuses an expiry already in the past, so let a one-second link run out.
+  const dead = await share(signedIn, 'Expired Draft', new Date(Date.now() + 1000).toISOString())
+  await signedIn.waitForTimeout(1500)
 
   const expired = await asOutsider(browser, dead)
   const unknown = await asOutsider(browser, '/s/definitely-not-a-real-token')

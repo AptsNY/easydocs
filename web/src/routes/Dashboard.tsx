@@ -18,6 +18,9 @@ const SORTS = [
   ['created:asc', 'Oldest first'],
 ] as const
 
+// The move select's value for "no folder": not a folder id, and not '' (the placeholder).
+const TOP_LEVEL = 'top-level'
+
 export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const { folderId } = useParams()
   const navigate = useNavigate()
@@ -349,8 +352,8 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                       />
                     </label>
 
-                    {/* PATCH folderId is the move (E1: history and members come along). The API cannot
-                        set folderId back to null, so there is no "move to top level" option. */}
+                    {/* PATCH folderId is the move (E1: history and members come along); an explicit
+                        null moves it back to the top level. */}
                     <label className="inline-field">
                       <span>Move to</span>
                       <span className="visually-hidden"> folder, for {t.name}</span>
@@ -360,11 +363,14 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                           const target = e.target.value
                           if (!target) return
                           void act(() =>
-                            api.patch(`/api/v1/documents/${t.id}`, { folderId: target }),
+                            api.patch(`/api/v1/documents/${t.id}`, {
+                              folderId: target === TOP_LEVEL ? null : target,
+                            }),
                           )
                         }}
                       >
                         <option value="">Choose a folder…</option>
+                        {t.folderId && <option value={TOP_LEVEL}>Top level (no folder)</option>}
                         {tree.known
                           .filter((f) => f.id !== t.folderId)
                           .map((f) => (

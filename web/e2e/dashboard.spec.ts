@@ -224,6 +224,11 @@ test('a document moves between folders (E1)', async ({ signedIn: page }) => {
 
   await openFolder(page, 'Bravo')
   await expect(tile(page, 'Lease')).toBeVisible()
+
+  // ...and back out of every folder.
+  await disclose(tileActions(page, 'Lease'))
+  await tile(page, 'Lease').getByLabel('Move to').selectOption({ label: 'Top level (no folder)' })
+  await expect(tile(page, 'Lease')).toBeHidden()
 })
 
 test('a trashed document is recoverable from the trash view', async ({ signedIn: page }) => {

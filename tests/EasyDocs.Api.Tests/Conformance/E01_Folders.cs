@@ -84,18 +84,22 @@ public class E01_Folders
     }
 
     [Fact]
-    public async Task Trash_mode_removes_the_folder_and_leaves_children_in_place()
+    public async Task Trash_mode_removes_the_folder_and_everything_beneath_it()
     {
         var api = await EdApi.NewAsync(_f);
         var parent = await api.CreateFolderAsync("Doomed");
         var child = await api.CreateFolderAsync("Kid", parent.Id);
+        var grandchild = await api.CreateFolderAsync("Grandkid", child.Id);
 
         var trashed = await api.DeleteFolderRawAsync(parent.Id, "trash");
         Assert.Equal(System.Net.HttpStatusCode.NoContent, trashed.StatusCode);
 
         Assert.DoesNotContain(parent.Id, (await api.ListFoldersAsync()).Select(f => f.Id));
-        // The child is not promoted — it stays under the trashed parent (documented trash semantics).
-        Assert.Contains(child.Id, (await api.ListFoldersAsync(parent.Id)).Select(f => f.Id));
+        // The subtree goes with it: no subfolder is left live under a trashed parent, where the tree
+        // (which walks down from the root) could never reach it again. An already-deleted folder is a
+        // 404 to delete.
+        foreach (var id in new[] { child.Id, grandchild.Id })
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, (await api.DeleteFolderRawAsync(id, "trash")).StatusCode);
     }
 
     [Fact]
