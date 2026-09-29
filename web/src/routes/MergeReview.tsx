@@ -172,11 +172,29 @@ export default function MergeReview() {
             </p>
           )}
 
-          <p>
-            Merging lands {preview.incoming.authorName}’s changes onto main as Word tracked changes.
-            Nothing on either side is discarded, and the merge can be reverted afterward like any other
-            version.
-          </p>
+          {preview.base ? (
+            <p data-testid="merge-outcome">
+              Merging lands {preview.incoming.authorName}’s changes since{' '}
+              <code>{preview.base.number}</code> onto main as Word tracked changes; main’s own changes
+              stay as they are.
+              {preview.overlaps && preview.overlaps.length > 0 && (
+                <>
+                  {' '}
+                  Where both sides changed the same paragraph, {preview.incoming.authorName}’s version is
+                  proposed in place of main’s — reject that tracked change to keep main’s wording.
+                </>
+              )}{' '}
+              Both versions stay in history, and the merge can be reverted afterward like any other
+              version.
+            </p>
+          ) : (
+            <p data-testid="merge-outcome">
+              {/* No fork point: the merge falls back to a two-way compare (WmlComparerMergeService). */}
+              Without a fork point, every difference between main and{' '}
+              {preview.incoming.authorName}’s version is shown as their tracked change — including
+              undoing edits main has that their version lacks. Review each change before accepting.
+            </p>
+          )}
 
           <div className="merge-actions">
             <button type="button" onClick={() => navigate(`/documents/${id}`)}>

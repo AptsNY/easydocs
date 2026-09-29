@@ -111,6 +111,15 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **A merge no longer proposes undoing main's edits.** When main moved on after a branch forked (A
+  saves "monthly" → "quarterly", B edits another clause on the older version), the merge used to
+  compare main against B's version directly, so A's edit came back as a tracked *reversion* attributed
+  to B — and Accept All quietly undid it, while the review screen said only B's changes were landing.
+  The merge now folds only B's own changes since the fork point onto main: main's edits stay as clean,
+  untracked text. Where both sides changed the same paragraph, B's paragraph is proposed over main's
+  (named beforehand by the review's overlap hint, and the screen now says so); a merge whose incoming
+  changes cannot carry over faithfully (a footnote edit, a link or image main does not share) answers
+  `409` "Merge unavailable" instead of guessing.
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
   with `409` ("review the merge again") instead of committing over the newer save — and likewise if the

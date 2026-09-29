@@ -11,7 +11,8 @@ internal static class MergeSides
 {
     internal record Sides(
         DocumentVersion Incoming, Branch IncomingBranch,
-        DocumentVersion MainHead, Branch MainBranch);
+        DocumentVersion MainHead, Branch MainBranch,
+        DocumentVersion? Base);
 
     // Two branch kinds qualify as incoming: a Concurrent branch from a stale-base save (M1, E4) and an
     // IncomingPush branch materialised from a copy (M4, E9). Both are treated identically.
@@ -41,6 +42,12 @@ internal static class MergeSides
             .OrderByDescending(v => v.SeqInBranch).FirstOrDefaultAsync(ct);
         if (mainHead is null) return null;
 
-        return new Sides(incoming, incomingBranch, mainHead, mainBranch);
+        // The fork point. Always present for a Concurrent branch (CommitSaveAsync only creates one when
+        // BaseVersionId is set) and an accepted push; null is the guard for legacy rows.
+        var baseVersion = incomingBranch.RootVersionId is { } rootId
+            ? await db.Versions.FirstOrDefaultAsync(v => v.Id == rootId, ct)
+            : null;
+
+        return new Sides(incoming, incomingBranch, mainHead, mainBranch, baseVersion);
     }
 }

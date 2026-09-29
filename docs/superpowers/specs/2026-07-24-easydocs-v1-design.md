@@ -145,6 +145,16 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 > allowed to disagree silently. Full rationale:
 > `docs/superpowers/specs/2026-08-24-three-way-merge-review-design.md`.
 
+> **Fix (2026-09-29): the fork point is now a merge input.** A plain `Compare(mainHead, incoming)` shows
+> every way main differs from the incoming head as the incoming author's change — so edits main made
+> after the fork, which the branch never had, came back as tracked *reversions* by the incoming author.
+> The merge now first folds only `ancestor → incoming` onto main, block by block
+> (`Merging/ThreeWayMerge.cs`), then runs `Compare(mainHead, folded)`. Same endpoint, same single
+> author, same committed shape; main's content is the clean base as this section always intended.
+> Where both sides changed one paragraph the incoming paragraph is proposed over main's (the review's
+> overlap hint names it); a change that cannot carry over is a `409`. With no fork point (legacy rows)
+> the two-way compare remains the fallback.
+
 > **[D] Merge-model decision (M1).** The original "run `WmlComparer` on `base→left` and `base→right` and consolidate both authors' revisions over the common ancestor" was found **not implementable** with the OSS comparer (Clippit/OpenXmlPowerTools): `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly one `AuthorForRevisions` per call, so dual-author tracked changes over a shared ancestor cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). We therefore adopt **merge-into-main**: the first author's edits are the accepted base, the incoming branch comes in as a clean single-author redline. Nothing is lost (both branch versions persist in history). The "both-authors-over-common-ancestor" redline (a manual XML fuse of two `Compare(base, side)` revision sets) is a possible **future enhancement**, not v1.
 
 ---

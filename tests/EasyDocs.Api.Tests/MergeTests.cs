@@ -142,6 +142,50 @@ public class MergeTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("Alice", authors);
     }
 
+    // The incoming branch never had main's edit, so a two-way Compare(main, incoming) proposes
+    // reverting it — attributed to the incoming author, and silently undone by Accept All. The merge
+    // must bring ONLY the incoming branch's own changes since the fork point.
+    [Fact]
+    public async Task Merge_keeps_main_edits_the_incoming_branch_never_had()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var docId = (await (await a.PostAsJsonAsync("/api/v1/documents", new { name = "Lease" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var up = await a.PostAsync($"/api/v1/documents/{docId}/versions",
+            Docx(DocxFixtures.Build("Rent is paid monthly.", "Clause two.", "Clause three.")));
+        up.EnsureSuccessStatusCode();
+        var v1 = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var imp = await a.PostAsync($"/api/v1/documents/{docId}/versions:import",
+            Docx(DocxFixtures.Build("Rent is paid quarterly.", "Clause two.", "Clause three.")));
+        imp.EnsureSuccessStatusCode();
+        var left = (await imp.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var bobId = await AddMemberAsync(orgId, docId, "Bob", DocRole.Editor);
+        var right = await CommitConcurrentAsync(docId, v1, bobId,
+            DocxFixtures.Build("Rent is paid monthly.", "Clause two.", "Clause three, amended."));
+
+        var resp = await a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right });
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var mergeVersionId = (await resp.Content.ReadFromJsonAsync<MergeDto>())!.MergeVersionId;
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var blobs = scope.ServiceProvider.GetRequiredService<IBlobStore>();
+        var mv = await db.Versions.FirstAsync(v => v.Id == mergeVersionId);
+        var bytes = await ReadBlobAsync(blobs, mv.BlobSha256);
+
+        var (revText, authors) = Revisions(bytes);
+        Assert.DoesNotContain("quarterly", revText); // main's edit is not proposed for deletion...
+        Assert.DoesNotContain("monthly", revText);   // ...nor the ancestor's wording proposed back
+        Assert.Contains("amended", revText);         // Bob's own change IS tracked
+        Assert.Equal(["Bob"], authors);
+
+        using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+        using var s = zip.GetEntry("word/document.xml")!.Open();
+        var first = XDocument.Load(s).Descendants(W + "p").First();
+        Assert.Equal("Rent is paid quarterly.", string.Concat(first.Descendants(W + "t").Select(t => t.Value)));
+        Assert.DoesNotContain(first.Descendants(), e => e.Name == W + "ins" || e.Name == W + "del");
+    }
+
     // A merge is computed against a main head read seconds earlier. If a save lands on main meanwhile,
     // committing the merge on top would drop that save from the head, so the write path refuses it —
     // driven here with exactly the stale base a slow merge would carry.

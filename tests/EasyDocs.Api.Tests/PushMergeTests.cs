@@ -13,10 +13,9 @@ using Microsoft.Extensions.DependencyInjection;
 // Merging an accepted push into the target's main branch (spec §8 merge base, §5.3, E9).
 //
 // What the fork point actually buys: it is stored on the incoming branch as its RootVersionId, giving the
-// branch a root inside the TARGET's own history so nothing has to walk into the copy document. Under
-// merge-into-main (§5.3 [D]) the redline itself is Compare(main head, incoming) — the ancestor is
-// provenance and topology, not an input to the comparison. See the ponytail note in
-// WmlComparerMergeService.
+// branch a root inside the TARGET's own history so nothing has to walk into the copy document. It is
+// also the merge's common ancestor: only ancestor -> incoming is folded onto main before the redline
+// (ThreeWayMerge), so main's own later edits are never proposed back. See WmlComparerMergeService.
 public class PushMergeTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _f;

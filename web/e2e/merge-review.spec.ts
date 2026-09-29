@@ -55,6 +55,8 @@ test('the overlap hint names the shared paragraph both sides edited', async ({ s
   await expect(overlaps).toBeVisible()
   await expect(overlaps).toContainText('Bravo')
   await expect(overlaps).toContainText('A hint, not a guarantee')
+  // ...and what the merge will do there: incoming's paragraph is proposed over main's, not silently.
+  await expect(page.getByTestId('merge-outcome')).toContainText('proposed in place of main’s')
 })
 
 // Cancel has to be a real cancel: back at the console, the branch is still unmerged and still offers

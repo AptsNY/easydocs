@@ -45,21 +45,17 @@ public sealed class MergePreviewService(
         // needs its own decision.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftId, rightId, ct);
         if (sides is null) return null;
-        var (incoming, incomingBranch, mainHead, _) = sides;
+        var (incoming, _, mainHead, _, baseVersion) = sides;
 
         var names = await AuthorNames.ForAsync(db, [mainHead.CreatedBy, incoming.CreatedBy], ct);
         string Who(Guid id) => names.GetValueOrDefault(id, AuthorNames.Unknown);
         static string Num(Domain.DocumentVersion v) => $"{v.Major}.{v.Minor}.{v.Revision}";
 
-        // Does the merge itself have a chance? Same pair, same engine, same bytes as MergeAsync — so
-        // this predicts the merge exactly rather than guessing at it.
+        // Does the merge itself have a chance? Same engine and bytes as MergeAsync: main <-> incoming
+        // compares, and (with a fork point) the three-way fold MergeAsync runs first can carry every
+        // incoming change over. The final Compare(main, folded) is not re-run here; it compares a subset
+        // of the same content, so it failing where main <-> incoming succeeded is not a case seen yet.
         var mergeable = await diff.SummaryAsync(mainHead.BlobSha256, incoming.BlobSha256, ct);
-
-        // The fork point. Always present for a Concurrent branch (CommitSaveAsync only creates one when
-        // BaseVersionId is set); null is the guard for IncomingPush and legacy rows.
-        var baseVersion = incomingBranch.RootVersionId is { } rootId
-            ? await db.Versions.FirstOrDefaultAsync(v => v.Id == rootId, ct)
-            : null;
 
         if (baseVersion is null)
             return new Preview(
@@ -72,7 +68,7 @@ public sealed class MergePreviewService(
         var incomingLeg = await diff.SummaryAsync(baseVersion.BlobSha256, incoming.BlobSha256, ct);
 
         return new Preview(
-            mergeable.Available,
+            mergeable.Available && await FoldsAsync(baseVersion.BlobSha256, mainHead.BlobSha256, incoming.BlobSha256, ct),
             new BaseSide(baseVersion.Id, Num(baseVersion)),
             new VersionSide(mainHead.Id, Num(mainHead), Who(mainHead.CreatedBy), Summary(mainLeg)),
             new VersionSide(incoming.Id, Num(incoming), Who(incoming.CreatedBy), Summary(incomingLeg)),
@@ -119,6 +115,20 @@ public sealed class MergePreviewService(
             // Degrade, never throw: the redlines and counts are still worth showing without the hint.
             log.LogWarning(ex, "Three-way overlap failed for {Base}/{Main}/{Incoming}", baseSha, mainSha, incomingSha);
             return null;
+        }
+    }
+
+    private async Task<bool> FoldsAsync(string baseSha, string mainSha, string incomingSha, CancellationToken ct)
+    {
+        try
+        {
+            ThreeWayMerge.Apply(await ReadAsync(baseSha, ct), await ReadAsync(mainSha, ct), await ReadAsync(incomingSha, ct));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log.LogInformation(ex, "Three-way fold unavailable for {Base}/{Main}/{Incoming}", baseSha, mainSha, incomingSha);
+            return false;
         }
     }
 

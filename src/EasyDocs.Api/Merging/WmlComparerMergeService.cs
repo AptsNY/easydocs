@@ -11,11 +11,12 @@ using Microsoft.EntityFrameworkCore;
 namespace EasyDocs.Api.Merging;
 
 // Concrete (no interface): merge-into-main (spec §5.3, E4, and cross-document pushes in E9). The
-// main-branch head is the accepted content, so it becomes the BASE (not tracked changes). A single guarded
-// WmlComparer.Compare(mainHead, incoming) renders the incoming branch's edits as a clean single-author
-// redline (stamped with the incoming author's DisplayName) on top of current main — ready to accept/reject.
-// The compare is guarded: any failure (malformed blob, no incoming branch) degrades to Available=false,
-// NEVER throws / partial-commits.
+// main-branch head is the accepted content, so it becomes the BASE (not tracked changes). The incoming
+// branch's OWN changes since the fork point are folded onto main (ThreeWayMerge), and one guarded
+// WmlComparer.Compare(mainHead, thatResult) renders them as a clean single-author redline (stamped with
+// the incoming author's DisplayName) on top of current main — ready to accept/reject. Everything is
+// guarded: any failure (malformed blob, no incoming branch, a change that cannot carry over) degrades to
+// Available=false, NEVER throws / partial-commits.
 public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext db, VersioningService versioning, EventBus bus)
 {
     public record MergeResult(bool Available, Guid? MergeVersionId);
@@ -25,28 +26,38 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         // Sides live in MergeSides so the preview endpoint resolves them identically (spec:
         // 2026-08-24-three-way-merge-review-design.md).
         //
-        // ponytail: an incoming_push branch carries the fork point in RootVersionId (spec §8), and
-        // merge-into-main (§5.3 [D]) still does not read it — it compares the current main head against
-        // the incoming head, so the common ancestor is provenance, not a merge input. The three-way
-        // REVIEW surfaces that ancestor to the user without changing this. Ceiling unchanged: a true
-        // three-way fuse of both authors over the ancestor is the deferred v1.1 enhancement in §5.3.
+        // Why the fork point is a merge INPUT: a plain Compare(mainHead, incoming) shows every way main
+        // differs from incoming as the incoming author's change — including main's own edits the branch
+        // never had, proposed as deletions that Accept All silently applies. Folding only
+        // ancestor -> incoming onto main (ThreeWayMerge) is what makes the redline "their changes".
+        //
+        // ponytail: the fold is block-level (see ThreeWayMerge): where both sides changed the SAME
+        // paragraph, incoming's paragraph is proposed over main's, so main's edit there shows as a
+        // tracked reversion — named beforehand by the preview's overlap hint, never silent elsewhere.
+        // With no fork point at all (a legacy branch row with a null RootVersionId) there is nothing to
+        // fold against and this falls back to the two-way compare, reversions included; the review
+        // screen says so. Upgrade path: word-level three-way inside conflicting paragraphs.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftVersionId, rightVersionId, ct);
         if (sides is null) return new MergeResult(false, null);
-        var (incoming, _, mainHead, mainBranch) = sides;
+        var (incoming, _, mainHead, mainBranch, baseVersion) = sides;
 
         var incomingAuthor = await AuthorNameAsync(incoming.CreatedBy, ct);
 
         byte[] mergedBytes;
         try
         {
-            var mainDoc = new WmlDocument("main.docx", await ReadBytesAsync(mainHead.BlobSha256, ct));
-            var incomingDoc = new WmlDocument("incoming.docx", await ReadBytesAsync(incoming.BlobSha256, ct));
+            var mainBytes = await ReadBytesAsync(mainHead.BlobSha256, ct);
+            var incomingBytes = await ReadBytesAsync(incoming.BlobSha256, ct);
+            if (baseVersion is not null)
+                incomingBytes = ThreeWayMerge.Apply(await ReadBytesAsync(baseVersion.BlobSha256, ct), mainBytes, incomingBytes);
+            var mainDoc = new WmlDocument("main.docx", mainBytes);
+            var incomingDoc = new WmlDocument("incoming.docx", incomingBytes);
             var merged = WmlComparer.Compare(mainDoc, incomingDoc, SettingsFor(incomingAuthor));
             mergedBytes = merged.DocumentByteArray;
         }
         catch
         {
-            // Uncomparable (malformed docx, …): degrade — nothing committed, branches untouched.
+            // Uncomparable (malformed docx, a change ThreeWayMerge cannot carry over, …): degrade — nothing committed, branches untouched.
             return new MergeResult(false, null);
         }
 

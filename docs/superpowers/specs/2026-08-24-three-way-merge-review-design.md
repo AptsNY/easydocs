@@ -93,7 +93,9 @@ business enumerating what a merge would collide with.
 
 `available` is the only one that disables the Merge button, because it is the only one that predicts
 failure: the merge runs the same `WmlComparer.Compare(mainHead, incoming)` on the same bytes, so if
-the preview could not compare that pair, neither will the merge. Letting the user click into a
+the preview could not compare that pair, neither will the merge. (Since 2026-09-29 the merge compares
+main against the three-way fold of the incoming side's own changes — v1 design §5.3 — and the preview
+also runs that fold, so a change that cannot carry over disables Merge here too.) Letting the user click into a
 guaranteed 409 is worse than saying so up front.
 
 `404` and `403` mirror `POST /merges` exactly. `409` only when the merge could not be *attempted* at
