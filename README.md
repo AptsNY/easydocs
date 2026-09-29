@@ -95,7 +95,7 @@ Set up easydocs (https://github.com/AptsNY/easydocs) on this machine. Docker mus
 ### Coming from Simuldocs
 
 [`deploy/import-simuldocs.py`](deploy/import-simuldocs.py) rebuilds an exported Simuldocs library over
-the API — folders from collections, every revision in order (one identical to the revision before it adds no version), labels as version names, resumable. Its docstring
+the API — folders from collections, every revision in order, labels as version names, resumable. A document whose export is incomplete is reported, not half-imported. Its docstring
 documents the export layout it reads and what cannot be carried over (original timestamps and authors).
 
 ### Developing or building from source instead
