@@ -111,6 +111,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **The HTML redline shows each deletion where it happened.** It used to collect every deletion at
+  the end of its paragraph (`…<ins>quarterly</ins> in <ins>arrears</ins> …office.<del>monthly</del><del>advance</del>`),
+  so a reader could not tell what replaced what. Redlines are cached by content, so each render is
+  now stamped with a render version and a cached redline from the old renderer is recomputed on its
+  next view rather than served.
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
   with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
