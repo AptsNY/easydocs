@@ -54,9 +54,20 @@ public static class WopiEndpoints
             blob.SizeBytes,
             doc.CreatedBy.ToString(),
             auth.Uid.ToString(),
-            "EasyDocs user",
+            // Collabora attributes comments, tracked changes and presence to this name.
+            await FriendlyNameAsync(db, auth.Uid, ctx.RequestAborted),
             auth.Perms == "w",
             baseVersion.Id.ToString()));
+    }
+
+    // Display name, else email, else AuthorNames' placeholder (a session outliving its user).
+    private static async Task<string> FriendlyNameAsync(EasyDocsDbContext db, Guid uid, CancellationToken ct)
+    {
+        var u = await db.Users.Where(x => x.Id == uid)
+            .Select(x => new { x.DisplayName, x.Email }).FirstOrDefaultAsync(ct);
+        return !string.IsNullOrWhiteSpace(u?.DisplayName) ? u.DisplayName
+            : !string.IsNullOrWhiteSpace(u?.Email) ? u.Email
+            : AuthorNames.Unknown;
     }
 
     /// <summary>

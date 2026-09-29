@@ -121,6 +121,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
   quarterlymonthly." Only `w:t` text is extracted now (inserted text stays: it is the current
   content). A migration re-queues every indexed document, so existing search entries are rebuilt
   on the first boot after upgrade.
+- **The browser editor shows who is editing.** WOPI `CheckFileInfo` reported every user as
+  "EasyDocs user", so Collabora attributed all comments, tracked changes and presence to it. It now
+  sends the session user's display name (falling back to their email).
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
   with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
