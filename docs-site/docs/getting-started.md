@@ -75,8 +75,9 @@ design: every query in easydocs is filtered by organization, so a user without o
 nothing at all.
 
 !!! note "A session carries exactly one organization"
-    There is no org switcher in v1. If you later accept an invitation to a different organization, your
-    session rebinds to the inviting one. See [Concepts](concepts.md#organizations-and-membership).
+    If you later accept an invitation to a different organization, your session rebinds to the
+    inviting one; once you belong to more than one, a switcher in the header moves between them. See
+    [Concepts](concepts.md#organizations-and-membership).
 
 ## 4. Create a folder
 

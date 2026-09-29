@@ -29,7 +29,12 @@ download, share), *Editor* (everything Viewers do, plus edit, import, publish, r
 The dashboard is folders on the left, documents on the right.
 
 - **Create a folder** to group documents; folders nest freely, and moving a document never touches
-  its history or members.
+  its history or members. A document's **Move to** menu also offers **Top level (no folder)**.
+- **Delete a folder** that has contents and you choose: **keep contents** moves its subfolders and
+  documents up one level; **delete folder and contents** removes it with every folder beneath it, and moves the
+  documents inside to the trash. A document you do not own cannot be trashed by you, so it moves to
+  the top level instead. A document restored from the trash after its folder is gone comes back at
+  the top level.
 - **Create document** makes an empty document; its first upload becomes version `0.0.1`.
 - **Import document** does both at once: pick a `.docx` and you get a document already holding it as
   version `0.0.1`. The name comes from the file, and you can change it before importing.
@@ -103,7 +108,8 @@ me**, filterable by status. A pending request can be cancelled while open; a dec
 history — for the "send it to the client's lawyers" workflow. When the copy's people finish, they
 use **Send back** on the copy's **Copies → Pushes** tab. A member of the original then reviews the
 push: **accept** lands it as a clearly-labelled incoming branch (mergeable like any branch);
-**reject** and it never enters the history. Either way the original's history only ever gains
+**reject** and it never enters the history. Sending the same version again while it is waiting for
+review (or after it was accepted) is refused, so a double-click cannot open two identical branches. Either way the original's history only ever gains
 clearly-attributed versions.
 
 ### Sharing

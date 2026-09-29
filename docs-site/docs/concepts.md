@@ -22,7 +22,7 @@ unchanged document creates no version at all.
 | **Upload / import / edit-save** (a draft) | bumps `Z` — `0.0.1` → `0.0.2` → `0.0.3` |
 | **Publish minor** | `X.(Y+1).0` — `0.0.7` → `0.1.0` |
 | **Publish major** | `(X+1).0.0` — `0.0.7` → `1.0.0` |
-| **Manual override** | any three non-negative integers, including `0.0.0` |
+| **Manual override** | any three non-negative integers (including `0.0.0` on a document with no versions yet), as long as it is not below the highest number already in the history |
 
 A first upload is always **`0.0.1`**. Drafts stay in the revision digit until somebody publishes.
 
@@ -35,7 +35,9 @@ version currently sits at the head of a branch.**
 Two consequences fall straight out of that, and neither is possible with head-based numbering:
 
 - **Manual override works.** Set the counter to `2.4.0` and every subsequent draft continues from
-  there, regardless of what numbers already exist in the history.
+  there, regardless of which version sits at a branch head. It can jump forward freely; it cannot go
+  below the highest number already in the history (that is a `409`), because the next save would
+  then reuse a number.
 - **You can publish a version that is not the head.** Publishing renumbers *the version you selected*
   from the counter, and future drafts continue from the new counter. You do not have to make something
   the newest version in order to release it.
@@ -205,8 +207,9 @@ read a document you were not added to. This is enforced at a single authorizatio
 role fallback, and it is what makes copy isolation trustworthy.
 
 **A session carries exactly one organization**, chosen as your oldest membership. Accepting an
-invitation rebinds your session to the inviting organization. There is no org switcher in v1 — this is
-a navigation limit, not an access-control one.
+invitation rebinds your session to the inviting organization, and if you belong to more than one, the
+**switcher in the header** (`POST /api/v1/auth/switch-org`) rebinds it to another. Switching changes
+which organization you are looking at, never what you may do inside it.
 
 ## Audit trail
 

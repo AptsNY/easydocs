@@ -19,8 +19,9 @@ These recipes are worked examples, not a reference. The reference is generated f
 Two credentials, same surface:
 
 - **`Authorization: Bearer ed_…`** — a personal access token. Use this for automation.
-- **the `ed_session` cookie** — what the browser uses. Also what server-sent events require, since
-  `EventSource` cannot set headers.
+- **the `ed_session` cookie** — what the browser uses, including for server-sent events, since a
+  browser's `EventSource` cannot set headers. (Outside a browser, SSE takes the `Authorization`
+  header like everything else.)
 
 A token **never exceeds the role of the user who minted it**. There is no way to create a token more
 powerful than yourself.
@@ -223,11 +224,12 @@ Poll a worklist with `GET /api/v1/approvals?filter=assigned&status=open` (`filte
 ```bash
 curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/v1/versions/$V2/share-links" \
-  -d '{"expiresAt":"2026-09-01T00:00:00Z"}'
+  -d '{"expiresAt":"2027-01-01T00:00:00Z"}'
 # {"token":"kQ8…","url":"/s/kQ8…"}
 ```
 
-Body is just `{ "expiresAt": timestamp? }` — `null` for no expiry. The **raw token is returned once**;
+Body is just `{ "expiresAt": timestamp? }` — `null` for no expiry; a time already in the past is a
+`400`. The **raw token is returned once**;
 only its hash is stored, so it cannot be recovered later. Prefix `url` with your `PUBLIC_BASE_URL` to get
 something sendable.
 
@@ -276,14 +278,20 @@ curl -sS -H "$AUTH" "$BASE/api/v1/me"
 # (branchId, branchKind, branchOrdinal, branchMergedIntoVersionId).
 curl -sS -H "$AUTH" "$BASE/api/v1/documents/$DOC/versions?order=desc&limit=50"
 
-# Search documents by name
+# Search documents by name or content. `%` and `_` are literal characters, not wildcards.
 curl -sS -H "$AUTH" "$BASE/api/v1/documents?q=supply"
+
+# Move a document to another folder, or back to the top level with an explicit null
+# (leaving folderId out of the body leaves the folder alone)
+curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
+  -X PATCH "$BASE/api/v1/documents/$DOC" -d '{"folderId":null}'
 
 # A version's plain text, to read or summarize. .docx only — a PDF or legacy .doc
 # version answers 409 naming what its bytes actually are, never an empty string.
 curl -sS -H "$AUTH" "$BASE/api/v1/versions/$V1/text"
 
-# Revert: appends a new version equal to an older one; history is untouched
+# Revert: appends a new version equal to an older one (201); history is untouched. If that
+# content is already the head, nothing is written: 200 with the existing head.
 curl -sS -H "$AUTH" -X POST "$BASE/api/v1/versions/$V1/revert"
 
 # Merge a concurrent branch into main
@@ -296,7 +304,8 @@ curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/v1/versions/$V2/copies" \
   -d '{"name":"Counterparty review copy"}'
 
-# Manual version-counter override (R5) — note the field is `rev`, not `revision`
+# Manual version-counter override (R5) — note the field is `rev`, not `revision`.
+# 409 if it is below the highest version number the document already has.
 curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
   -X PUT "$BASE/api/v1/documents/$DOC/version-counter" \
   -d '{"major":2,"minor":4,"rev":0}'
@@ -311,9 +320,10 @@ curl -sS -H "$AUTH" "$BASE/api/v1/documents/$DOC/audit"
 curl -N -b cookies.txt "$BASE/api/v1/documents/$DOC/events"
 ```
 
-Server-sent events. Authorized by the **session cookie** or a short-lived `?token=` capability
-parameter — native `EventSource` cannot send an `Authorization` header, which is why a `Bearer ed_…` is
-not the credential here.
+Server-sent events, authorized like every other route: the **session cookie** or an
+**`Authorization: Bearer`** header (an `ed_…` token works). There is no `?token=` query parameter. A
+browser's native `EventSource` cannot set headers, so in a browser the cookie is the credential;
+from a script, `curl -N -H "$AUTH" …` or any SSE client that sends headers works as well.
 
 Events: `version.created`, `version.published`, `merge.completed`, `diff.ready`, `member.added`,
 `push.requested`, `push.reviewed`, `approval.responded`, `pdf.ready`, `version.named`,

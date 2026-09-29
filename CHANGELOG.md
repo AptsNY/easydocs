@@ -144,6 +144,34 @@ descriptions are **document** versions, produced by the versioning engine. They 
   every compare forever. The loser now updates the winner's row (deterministic content makes that
   idempotent). Found by a CI flake on a docs-only commit; now pinned by a deterministic race test.
 
+- **Deleting a folder with "delete folder and contents" (`mode=trash`) no longer strands its
+  subfolders.** Only the folder itself was marked deleted: its subfolders stayed live but unreachable
+  from the tree, still holding their documents. The whole subtree now goes, and the documents in it
+  move to the trash — those the deleting user owns; anyone else's move to the top level, since
+  trashing a document still takes its Owner. "Keep contents" (`mode=promote_children`) now moves the
+  folder's documents up a level along with its subfolders, a folder holding only documents needs a
+  mode like any other non-empty folder, and a document restored after its folder is gone comes back
+  at the top level.
+- **A document can be moved back to the top level.** `PATCH /api/v1/documents/{id}` with
+  `"folderId": null` returned 200 and changed nothing; an explicit null now means "no folder" (an
+  absent `folderId` still leaves it alone), and the dashboard's **Move to** menu offers **Top level**.
+- **`%` and `_` in the search box match themselves**, not every document.
+- **Sending the same copy version back twice no longer opens two identical incoming branches.** A
+  second push of a version that is already pending review or accepted is a `409`, including two
+  racing requests from a double-click.
+- **The version counter can no longer be set below a number the history already holds** (`409`),
+  which let the next save create a second `0.0.1`. Jumping forward, and `0.0.0` on a document with no
+  versions, work as before.
+- **A share link cannot be created already expired** — an `expiresAt` in the past is a `400`, not a
+  dead link.
+- **Reverting to the content that is already the head** returns `200` with the existing head and no
+  longer records a `version.reverted` audit row or event for a revert that wrote nothing.
+- **A password reset for a service account** is refused with a message that says it is a service
+  account, not that it "signs in through SSO".
+- **Docs:** server-sent events take the session cookie or an `Authorization` header — there is no
+  `?token=` parameter, as the automation recipes claimed; and the org switcher, which ships, is no
+  longer described as missing.
+
 ## [1.1.0] - 2026-08-01
 
 The whole v1.1 milestone — every feature below was a documented v1 exclusion, tracked as issues
