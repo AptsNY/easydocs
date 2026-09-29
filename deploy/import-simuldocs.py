@@ -99,6 +99,9 @@ def plan(export_root):
             d["revisions"].sort(key=lambda r: int(r["order"]))
         except (KeyError, TypeError, ValueError):
             sys.exit(f"manifest: document {did} ({d['name']}) has a revision whose order is not an integer.")
+        orders = [int(r["order"]) for r in d["revisions"]]
+        if len(set(orders)) != len(orders):  # resume tracks uploads by order: two 3s would be one
+            d["problems"].append("two revisions share an order")
 
     # Same name in the same collection would be one easydocs document: give each duplicate the first
     # free suffix. Over the whole manifest, in documentId order, so a name never shifts between runs.
@@ -210,12 +213,13 @@ def run(docs, export_root, state_path):
                 created = multipart("/api/v1/documents:import", local_path(export_root, first["saved"]),
                                     {"name": d["name"], "folderId": fid})
                 mine = state[did] = {"id": created["id"], "orders": [], "last": None}
+                save_state()  # the document exists now, whatever happens to the label PATCH below
                 record(first, created["versionId"])
             todo = [r for r in revs if int(r["order"]) not in mine["orders"]]
             if not todo:
                 print(f"{'imported' if created_now else 'skip (done)'}: {d['name']} ({len(mine['orders'])} revisions)")
                 continue
-            if int(todo[0]["order"]) < max(mine["orders"]):
+            if mine["orders"] and int(todo[0]["order"]) < max(mine["orders"]):
                 failed += 1
                 print(f"FAILED: {d['name']}: revision {todo[0]['order']} is in the export but later revisions were"
                       " already imported, and history cannot be inserted into. To re-import it whole, delete the"
