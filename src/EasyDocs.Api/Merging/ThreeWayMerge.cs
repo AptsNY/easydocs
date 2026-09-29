@@ -284,7 +284,8 @@ public static class ThreeWayMerge
         // change what it means. Main may still have changed layout outside DocxMeaning's subset (an
         // indent, spacing, borders, column widths), so its layout is merged onto incoming's copy
         // property by property, three-way: main's property wins only where incoming left that property
-        // as the ancestor had it — so incoming's own layout change in the same block is kept. The
+        // as the ancestor had it — so incoming's own paragraph layout change in the same block is kept,
+        // and where both changed the same property incoming's wins. The
         // result must still mean exactly what incoming's copy meant; otherwise incoming's copy is taken
         // as it is.
         private void AddIncoming(XElement block, XElement? mainTwin = null, XElement? ancestor = null)
@@ -308,6 +309,10 @@ public static class ThreeWayMerge
             }
             if (inc.Name != W + "tbl") return null;
 
+            // For tables this is one-directional in the COMMITTED output: it is what keeps main's own
+            // table layout (e.g. column widths) when incoming edited a cell, but the final
+            // WmlComparer.Compare(main, fold) does not carry incoming's own tblPr/tblGrid changes for a
+            // matched table, so incoming's borders/widths in a table it edited are not carried.
             Merge3(copy, "tblPr", anc.Element(W + "tblPr"), main.Element(W + "tblPr"), TblPrOrder);
             // Column widths live in two places (tblGrid and each cell's tcW) that must agree, so they
             // are only merged when all three tables have the same shape, and then cell by cell.

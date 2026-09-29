@@ -141,13 +141,16 @@ public class ThreeWayMergeTests
         Assert.Equal("720", (string?)first.Element(W + "pPr")?.Element(W + "ind")?.Attribute(W + "left"));
     }
 
+    // Table layout is not merged by the fold (the final WmlComparer.Compare keeps main's tblPr/tblGrid
+    // for a matched table regardless). Asserted on the COMMITTED output, via Merge, so it says what users
+    // actually get: main's column widths are kept...
     [Fact]
     public void Main_column_widths_survive_an_incoming_cell_edit()
     {
-        var r = Apply(Rich(GridTable([2000, 2000], ["a", "b"])), Rich(GridTable([3000, 1000], ["a", "b"])),
-            Rich(GridTable([2000, 2000], ["a", "B-inc"])));
-        Assert.Equal(["a", "B-inc"], Paragraphs(r.Docx));
+        var r = WmlComparerMergeService.Merge(Rich(GridTable([2000, 2000], ["a", "b"])), Rich(GridTable([3000, 1000], ["a", "b"])),
+            Rich(GridTable([2000, 2000], ["a", "B-inc"])), "Bob");
         Assert.Equal(["3000", "1000"], Body(r.Docx).Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
+        Assert.Contains("B-inc", string.Concat(Body(r.Docx).Descendants(W + "t").Select(t => t.Value)));
     }
 
     // ...but carrying main's layout must not revert the incoming side's OWN layout change: main's copy
@@ -163,16 +166,18 @@ public class ThreeWayMergeTests
         Assert.Equal(["Late charges are due.", "B-main"], Paragraphs(r.Docx));
     }
 
+    // ...and the incoming side's own table layout (borders, widths) in a table it edited is NOT carried —
+    // only its text change lands. Documented in the CHANGELOG, spec §5.3 and the review screen.
     [Fact]
-    public void Incoming_table_borders_and_widths_survive_an_incoming_cell_edit()
+    public void Incoming_table_layout_is_not_carried_only_its_cell_text()
     {
-        var r = Apply(Rich(StyledTable([3000, 3000], false, ["a", "b"]), P("x")),
+        var r = WmlComparerMergeService.Merge(Rich(StyledTable([3000, 3000], false, ["a", "b"]), P("x")),
             Rich(StyledTable([3000, 3000], false, ["a", "b"]), P("X-main")),
-            Rich(StyledTable([5000, 3000], true, ["A-inc", "b"]), P("x")));
+            Rich(StyledTable([5000, 3000], true, ["A-inc", "b"]), P("x")), "Bob");
         var tbl = Body(r.Docx).Element(W + "tbl")!;
-        Assert.NotNull(tbl.Element(W + "tblPr")?.Element(W + "tblBorders"));
-        Assert.Equal(["5000", "3000"], tbl.Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
-        Assert.Equal("5000", (string?)tbl.Descendants(W + "tcW").First().Attribute(W + "w"));
+        Assert.Null(tbl.Element(W + "tblPr")?.Element(W + "tblBorders"));
+        Assert.Equal(["3000", "3000"], tbl.Descendants(W + "gridCol").Select(g => (string)g.Attribute(W + "w")!));
+        Assert.Contains("A-inc", string.Concat(tbl.Descendants(W + "t").Select(t => t.Value)));
     }
 
     // Same header text, different logo: text-only header comparison used to miss this and drop it.

@@ -184,7 +184,8 @@ export default function MergeReview() {
               formatting is not merged: in a paragraph or table {preview.incoming.authorName} edited,
               main’s fonts, theme colours, small caps and cell widths can come back as{' '}
               {preview.incoming.authorName}’s version had them, and their changes that are only to
-              fonts, spacing, indents or table layout are not carried over — nor are their page setup,
+              fonts, spacing, indents or table layout are not carried over, nor is their table layout
+              (borders, column widths) in a table they edited — nor are their page setup,
               new styles or comments. Every merge also drops comments and bookmarks (so links to
               places inside the document stop working). Both versions stay in history, and the merge can be reverted
               afterward like any other version.

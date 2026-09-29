@@ -133,9 +133,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
   **Formatting outside the compared set is not merged**, in either direction. The compared set is
   bold/italic/underline/strike/caps/size/colour/highlight/super- and subscript, paragraph style,
   alignment and list format. From the incoming version, a change that is only to fonts, spacing,
-  indents, table layout, theme colours or small caps is not carried over. And in a paragraph or table
+  indents, table layout, theme colours or small caps is not carried over — nor are the incoming side's
+  table borders or column widths in a table it edited (only its text lands). And in a paragraph or table
   the incoming side edited, main's own fonts, theme colours, small caps and cell widths can revert to
-  the incoming version's (main's paragraph indents/spacing and table column widths are kept) — the
+  the incoming version's (main's paragraph indents/spacing are kept unless the incoming side changed
+  the same property, and main's table column widths are kept) — the
   same as the two-way merge did before. Also not carried over: page/section setup, new style or list
   definitions. **Every merge drops comments and bookmarks** — and with them internal
   cross-reference links (a pandoc table of contents, "see section 3") — on the old two-way path too. A branch with no recorded
