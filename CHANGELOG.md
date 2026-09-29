@@ -111,6 +111,20 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **The HTML redline shows each deletion where it happened.** It used to collect every deletion at
+  the end of its paragraph (`…<ins>quarterly</ins> in <ins>arrears</ins> …office.<del>monthly</del><del>advance</del>`),
+  so a reader could not tell what replaced what. Redlines are cached by content, so each render is
+  now stamped with a render version and a cached redline from the old renderer is recomputed on its
+  next view rather than served.
+- **A version's text no longer includes tracked-deleted wording or field codes.** `/text`,
+  `get_version_text` and content search read a merge result as "The tenant pays rent
+  quarterlymonthly." Only `w:t` text is extracted now (inserted text stays: it is the current
+  content). Existing search entries are rebuilt the next time each document is saved; until then an
+  old merge result can still match a word its tracked deletion removed. `/text` and the MCP tool are
+  correct immediately.
+- **The browser editor shows who is editing.** WOPI `CheckFileInfo` reported every user as
+  "EasyDocs user", so Collabora attributed all comments, tracked changes and presence to it. It now
+  sends the session user's display name (falling back to their email).
 - **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
   compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
   with `409` ("review the merge again") instead of committing over the newer save — and likewise if the

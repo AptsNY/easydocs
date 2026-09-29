@@ -14,12 +14,12 @@ public class WopiHostTests : IClassFixture<ApiFactory>
     private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private static readonly byte[] BaseBytes = { 1, 2, 3, 4, 5 };
 
-    private async Task<HttpClient> AuthedClientAsync()
+    private async Task<HttpClient> AuthedClientAsync(string displayName = "D")
     {
         var client = _f.CreateClient();
         var email = $"wopi-{Guid.NewGuid():N}@example.com";
         var reg = await client.PostAsJsonAsync("/api/v1/auth/register",
-            new { email, displayName = "D", password = "pw-at-least-12", orgName = $"Org-{Guid.NewGuid():N}" });
+            new { email, displayName, password = "pw-at-least-12", orgName = $"Org-{Guid.NewGuid():N}" });
         reg.EnsureSuccessStatusCode();
         var setCookie = reg.Headers.GetValues("Set-Cookie").First(c => c.StartsWith("ed_session="));
         var jwt = setCookie["ed_session=".Length..].Split(';')[0];
@@ -48,6 +48,21 @@ public class WopiHostTests : IClassFixture<ApiFactory>
     private record UploadDto(Guid VersionId);
     private record MintDto(Guid SessionId, string AccessToken);
     private record CheckFileInfoDto(string BaseFileName, long Size, string UserId, bool UserCanWrite, string Version);
+    private record FriendlyNameDto(string UserFriendlyName);
+
+    // Collabora attributes comments, tracked changes and presence to UserFriendlyName — a constant here
+    // made every editor "EasyDocs user".
+    [Fact]
+    public async Task CheckFileInfo_UserFriendlyName_is_the_session_users_display_name()
+    {
+        var c = await AuthedClientAsync("Dana Okafor");
+        var (sid, token) = await MintSessionAsync(c);
+
+        var info = await _f.CreateClient()
+            .GetFromJsonAsync<FriendlyNameDto>($"/wopi/files/{sid}?access_token={token}");
+
+        Assert.Equal("Dana Okafor", info!.UserFriendlyName);
+    }
 
     [Fact]
     public async Task CheckFileInfo_returns_name_size_write_perm()

@@ -36,9 +36,16 @@ public static class DocxText
                 XmlResolver = null,
             });
             var lastWasBreak = true;
+            // Only text inside a <w:t> (or math <m:t>) is the document's current content. Other text
+            // nodes are not: <w:delText> is tracked-DELETED wording (a merge result read
+            // "quarterlymonthly"), <w:instrText> is a field's code (" PAGE "). Inserted text is
+            // ordinary <w:t> under <w:ins>, so it stays. <w:t> never nests, so a flag is enough.
+            var inText = false;
             while (sb.Length < MaxChars && reader.Read())
             {
-                if (reader.NodeType is XmlNodeType.Text or XmlNodeType.SignificantWhitespace)
+                if (reader.LocalName == "t")
+                    inText = reader.NodeType == XmlNodeType.Element && !reader.IsEmptyElement;
+                else if (inText && reader.NodeType is XmlNodeType.Text or XmlNodeType.SignificantWhitespace)
                 {
                     sb.Append(reader.Value);
                     lastWasBreak = false;
