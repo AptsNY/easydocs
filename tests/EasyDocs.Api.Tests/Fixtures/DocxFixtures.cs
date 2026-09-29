@@ -38,6 +38,18 @@ public static class DocxFixtures
     public static byte[] WithTab(string before, string after)
         => Package(new W.Paragraph(new W.Run(new W.Text(before), new W.TabChar(), new W.Text(after))));
 
+    // "The tenant pays rent <ins>quarterly</ins><del>monthly</del>." followed by a PAGE field — what a
+    // merge result (or any tracked-changes save) looks like. Deleted text and field instructions are
+    // text nodes too, but not the document's current content.
+    public static byte[] WithTrackedChange() => Package(new W.Paragraph(
+        new W.Run(new W.Text("The tenant pays rent ") { Space = DocumentFormat.OpenXml.SpaceProcessingModeValues.Preserve }),
+        new W.InsertedRun(new W.Run(new W.Text("quarterly"))) { Id = "1", Author = "A" },
+        new W.DeletedRun(new W.Run(new W.DeletedText("monthly"))) { Id = "2", Author = "A" },
+        new W.Run(new W.Text(".")),
+        new W.Run(new W.FieldChar { FieldCharType = W.FieldCharValues.Begin }),
+        new W.Run(new W.FieldCode(" PAGE ")),
+        new W.Run(new W.FieldChar { FieldCharType = W.FieldCharValues.End })));
+
     private static byte[] Package(params W.Paragraph[] paragraphs)
     {
         using var ms = new MemoryStream();
