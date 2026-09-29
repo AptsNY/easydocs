@@ -43,6 +43,13 @@ theme:
 extra_css:
   - stylesheets/brand.css
 
+# Declaring `plugins:` replaces the default set, so `search` must be re-listed explicitly.
+# swagger-ui-tag copies the Swagger UI assets into the built site — same-origin, no CDN, which is
+# what lets the API reference page exist without breaking the no-phone-home rule above.
+plugins:
+  - search
+  - swagger-ui-tag
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -64,6 +71,7 @@ nav:
   - Concepts: concepts.md
   - Self-hosting: self-hosting.md
   - Automation recipes: automation-recipes.md
+  - API reference: api/index.md
 
 # `mkdocs build --strict` in CI turns a dead internal link into a failed build. Warn on absolute
 # links and unrecognised links too, so --strict actually catches them.

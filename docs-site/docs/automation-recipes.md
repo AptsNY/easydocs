@@ -3,30 +3,16 @@
 Everything the web UI does, the API does — it is the same surface, not a subset. This page walks one
 document through its whole lifecycle with `curl`, using a personal access token.
 
-## The API reference lives in the app
+## Where the API reference lives
 
-These recipes are worked examples, not a reference. The reference is generated from the running build and
-served by the application itself:
+These recipes are worked examples, not a reference. The reference is generated from the running build:
 
+- **[API reference](api/index.md)** on this site — a committed snapshot of the document below,
+  guarded by CI so it cannot drift from what the application serves.
 - **Interactive docs:** **`/docs`** on your install — e.g. <http://localhost:8080/docs>. Self-contained,
-  no external CDN.
+  no external CDN, and "try it out" works there.
 - **OpenAPI 3.1 document:** **`/openapi/v1.json`** — feed it to a client generator, Bruno, Insomnia, or
   anything else that speaks OpenAPI.
-
-Deliberately not re-rendered here. One source of truth; a second copy would drift.
-
-!!! bug "Known defect: five request bodies share one schema name in the generated document"
-    In the current build, the request-body schemas for **`POST /api/v1/documents`**,
-    **`POST /api/v1/folders`**, **`POST /api/v1/versions/{vid}/share-links`** and
-    **`POST /api/v1/versions/{vid}/copies`** are wrong in `/openapi/v1.json`.
-
-    Five separate C# records are all named `CreateRequest`, and the OpenAPI generator collapses them into
-    a single `#/components/schemas/CreateRequest` component. The one that wins is the token one, so all
-    five endpoints are documented as taking `{ "name": …, "scopes": [...], "expiresAt": … }`.
-
-    **The bodies on this page are read from the endpoint source and are correct.** Where they disagree
-    with `/openapi/v1.json`, trust this page. Response schemas and every other endpoint are unaffected.
-    Tracked for a fix; until then treat those four request bodies as documented here.
 
 ## Authentication
 
@@ -265,6 +251,23 @@ or an Editor of the document may revoke.
 
 ## Other useful calls
 
+### From an AI agent instead of `curl`
+
+The [MCP server](https://github.com/AptsNY/easydocs/tree/main/packages/mcp) exposes the read side of
+this API — every `GET` below — as eighteen tools for Claude Code, Claude Desktop, Cursor, Codex and
+Gemini CLI, authenticated with the same `ed_` token and running on your own machine. It cannot write.
+With [`uv`](https://docs.astral.sh/uv/) installed:
+
+```bash
+claude mcp add easydocs \
+  -e EASYDOCS_URL=https://docs.example.com -e EASYDOCS_TOKEN=ed_... \
+  -- uv run https://raw.githubusercontent.com/AptsNY/easydocs/main/packages/mcp/easydocs_mcp.py
+```
+
+Other clients take the same `command` / `args` / `env` in their JSON config — the
+[package README](https://github.com/AptsNY/easydocs/tree/main/packages/mcp#setup) shows each. Then ask
+*"what changed in the lease between 0.0.4 and 0.1.0?"*
+
 ```bash
 # Who am I, and which org is this session bound to?
 curl -sS -H "$AUTH" "$BASE/api/v1/me"
@@ -275,6 +278,10 @@ curl -sS -H "$AUTH" "$BASE/api/v1/documents/$DOC/versions?order=desc&limit=50"
 
 # Search documents by name
 curl -sS -H "$AUTH" "$BASE/api/v1/documents?q=supply"
+
+# A version's plain text, to read or summarize. .docx only — a PDF or legacy .doc
+# version answers 409 naming what its bytes actually are, never an empty string.
+curl -sS -H "$AUTH" "$BASE/api/v1/versions/$V1/text"
 
 # Revert: appends a new version equal to an older one; history is untouched
 curl -sS -H "$AUTH" -X POST "$BASE/api/v1/versions/$V1/revert"
@@ -322,7 +329,8 @@ If you proxy easydocs, make sure response buffering is off or this stream will s
 - **Errors** are RFC 7807 `application/problem+json`, everywhere, including rate-limit rejections.
 - **Rate limits** return `429` with a `Retry-After` header. Honour it.
 - **No `Idempotency-Key` support.** Version upload is naturally idempotent via sha256 de-duplication;
-  other mutations are low-frequency. Do not blind-retry a publish or an approval request.
+  other mutations are low-frequency. Do not blind-retry an approval request. A retried publish is
+  refused with `409` rather than renumbering the version again.
 - **Timestamps** are ISO 8601, UTC. Send UTC — a non-UTC offset is normalized, but do not rely on it.
 
 ## Error responses worth handling
@@ -333,6 +341,6 @@ If you proxy easydocs, make sure response buffering is off or this stream will s
 | `400` | `kind` not `minor`/`major`; empty `approverIds`; an approver who is not a document member; a negative version counter; a non-multipart or empty upload body. |
 | `403` | You are not a member of the document. Organization role grants **no** document access. |
 | `404` | Also returned instead of `403` where existence itself is sensitive, and for an unknown, revoked, or expired share token. |
-| `409` | PDF requested for an unpublished version; a merge the comparison engine could not produce. |
+| `409` | PDF requested for an unpublished version; publishing a version that is already published (other than promoting a minor to major); a merge the comparison engine could not produce. |
 | `422` | A redline `.docx` could not be produced. |
 | `429` | Rate limited. Check `Retry-After`. |

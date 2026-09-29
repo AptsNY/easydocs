@@ -19,7 +19,7 @@ namespace EasyDocs.Api.Common;
 //
 // Registered for non-nullable DateTimeOffset only: System.Text.Json wraps a struct converter for
 // Nullable<T> automatically, so the three DateTimeOffset? request fields that exist today
-// (ApprovalEndpoints.RequestBody.DueAt, ShareEndpoints/TokenEndpoints.CreateRequest.ExpiresAt) -
+// (ApprovalEndpoints.RequestBody.DueAt, ShareEndpoints.CreateShareLinkRequest.ExpiresAt, TokenEndpoints.CreateTokenRequest.ExpiresAt) -
 // and any future one - get it for free.
 public sealed class UtcDateTimeOffsetConverter : JsonConverter<DateTimeOffset>
 {

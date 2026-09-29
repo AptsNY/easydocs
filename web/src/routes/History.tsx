@@ -48,23 +48,11 @@ export default function History() {
     load(null).catch((e: unknown) => setError(problemText(e)))
   }, [load])
 
-  const act = async (fn: () => Promise<unknown>) => {
-    try {
-      setError('')
-      await fn()
-    } catch (e) {
-      setError(problemText(e))
-    }
-    await load(null).catch((e: unknown) => setError(problemText(e)))
-  }
-
   const rowProps: RowProps = { documentId: id!, role: myRole, onDone: refresh }
 
   const { spine, attached, detached } = layout(rows)
   // Merging needs main's head as the left side. Rows arrive newest-first, so that is the first of them.
   const mainHead = spine[0]?.id
-  const merge = (right: string) =>
-    void act(() => api.post(`/api/v1/documents/${id}/merges`, { left: mainHead, right }))
 
   return (
     <div data-testid="history">
@@ -110,20 +98,14 @@ export default function History() {
             {/* A branch is indented under the version it forked from, which is where a reader looks
                 for it. */}
             {attached.get(v.id)?.map((g) => (
-              <BranchGroup
-                key={g.branchId}
-                group={g}
-                canMerge={!!mainHead}
-                onMerge={merge}
-                rowProps={rowProps}
-              />
+              <BranchGroup key={g.branchId} group={g} mainHead={mainHead} rowProps={rowProps} />
             ))}
           </li>
         ))}
         {/* A group whose fork point is past the loaded page still has to render somewhere. */}
         {detached.map((g) => (
           <li key={g.branchId}>
-            <BranchGroup group={g} canMerge={!!mainHead} onMerge={merge} rowProps={rowProps} />
+            <BranchGroup group={g} mainHead={mainHead} rowProps={rowProps} />
           </li>
         ))}
       </ol>
@@ -151,16 +133,23 @@ type RowProps = { documentId: string; role: DocRole | null; onDone: () => void }
 
 function BranchGroup({
   group,
-  canMerge,
-  onMerge,
+  mainHead,
   rowProps,
 }: {
   group: Group
-  canMerge: boolean
-  onMerge: (right: string) => void
+  mainHead: string | undefined
   rowProps: RowProps
 }) {
   const concurrent = group.kind === 'Concurrent'
+  // The review link needs the document id, and rowProps already carries the one this page was
+  // routed for — threading a second copy of it down would only give the two a way to disagree.
+  const { documentId, role } = rowProps
+  // Merging is Editor+ (the preview and the POST both enforce it). The old button had no role test
+  // either, but offering a Viewer a control that 403s got worse when it became navigation: instead of
+  // an inline error beside the branch, they land on a screen headed "Review this merge" that can only
+  // apologise. Spelled out rather than shared with the server's DocumentAuthorization.CanEdit, which
+  // is not reachable from the client.
+  const canMerge = role === 'Owner' || role === 'Editor'
   return (
     <section
       className="branch-group"
@@ -174,12 +163,17 @@ function BranchGroup({
       {group.mergedInto ? (
         <p className="muted">Merged into the main history.</p>
       ) : concurrent ? (
-        // Merge takes main's head and this branch's head and lands a tracked-changes version on main.
-        // Nothing is discarded, so there is no confirmation step to add.
+        // Merging is a decision, so it goes through the review screen rather than committing on click
+        // (spec: 2026-08-24-three-way-merge-review-design.md). The POST itself is unchanged and still
+        // lives on the API for callers that mean it.
+        mainHead &&
         canMerge && (
-          <button type="button" onClick={() => onMerge(group.rows[0].id)}>
-            Merge
-          </button>
+          <Link
+            className="button"
+            to={`/documents/${documentId}/merge?left=${mainHead}&right=${group.rows[0].id}`}
+          >
+            Review &amp; merge
+          </Link>
         )
       ) : (
         // An incoming push is reviewed (accept/reject) on the Copies tab, not merged by version id.

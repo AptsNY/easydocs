@@ -80,8 +80,11 @@ public static class RateLimits
 
             // 1000 burst, refilling 50 every 10s => 300/min sustained. See the header note on why this
             // is a flood brake rather than a quota.
-            // Path is part of the key, so login and register meter independently. Only two endpoints
-            // carry this policy, so the key space stays bounded — no partition-per-URL growth.
+            // Path is part of the key, so login, register and password-reset:complete meter
+            // independently. All three are FIXED paths, so the key space stays bounded — no
+            // partition-per-URL growth. A route with a secret in the path must never carry this policy:
+            // it would get one fresh bucket per guess. See PasswordResetEndpoints for why the reset
+            // token travels in the body.
             o.AddPolicy(Auth, ctx => RateLimitPartition.GetTokenBucketLimiter(
                 $"{ctx.Request.Path}|{ClientKey(ctx)}", _ => new TokenBucketRateLimiterOptions
                 {

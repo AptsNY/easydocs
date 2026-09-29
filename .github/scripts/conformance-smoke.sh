@@ -142,4 +142,23 @@ say "Collabora discovery is reachable from the app container"
 curl -fsS -X POST "$BASE/api/v1/versions/$VID/sessions" "${AUTH[@]}" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "WOPISrc=" in d["editorUrl"], d; print("  editor url ok")'
 
+say "an oversized body is 413 with the limit named, not a 400 blaming the file"
+# Pinned here rather than in the xUnit suite because the limit is Kestrel's and TestServer does not
+# enforce MaxRequestBodySize -- a 40MB upload returns 201 under the test fixture. Both ingest routes
+# rethrow BadHttpRequestException ahead of their multipart catch precisely so this stays a 413; without
+# that rethrow both answer 400 "The multipart body could not be parsed" and never mention the limit.
+dd if=/dev/zero of="$WORK/oversize.bin" bs=1048576 count=31 2>/dev/null
+for ROUTE in "documents:import" "documents/$DOC_ID/versions"; do
+  CODE="$(curl -s -o "$WORK/oversize.json" -w '%{http_code}' -X POST "$BASE/api/v1/$ROUTE" "${AUTH[@]}" \
+    -F "file=@$WORK/oversize.bin;filename=oversize.docx")"
+  [ "$CODE" = "413" ] || fail "$ROUTE returned $CODE for a 31MB body, expected 413"
+  python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["status"] == 413, d
+assert "max request body size" in d["detail"].lower(), d
+print("  " + sys.argv[2] + ": 413,", d["detail"])' "$WORK/oversize.json" "$ROUTE"
+done
+rm -f "$WORK/oversize.bin"
+
 printf '\nCompose-stack conformance smoke passed.\n'

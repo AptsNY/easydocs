@@ -40,9 +40,9 @@ By making a contribution to this project, I certify that:
 
 ## Licensing
 
-- **Everything in this repository today is AGPL-3.0.**
-- Future API clients / SDKs under `packages/*` will be **MIT** — but there is no `packages/` directory
-  yet, so nothing here is MIT-licensed at the moment.
+- **Everything in this repository is AGPL-3.0, except `packages/*`.**
+- `packages/*` holds API clients and is **MIT** — today that is `packages/mcp`, the MCP server. Each
+  package carries its own `LICENSE`.
 
 By contributing, you agree your contribution is licensed under the license of the directory it lands in.
 The full reasoning and the exact boundary are in the

@@ -625,6 +625,44 @@ namespace EasyDocs.Api.Data.Migrations
                     b.ToTable("Organizations");
                 });
 
+            modelBuilder.Entity("EasyDocs.Api.Domain.PasswordReset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrgId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrgId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PasswordResets");
+                });
+
             modelBuilder.Entity("EasyDocs.Api.Domain.PushRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -731,6 +769,9 @@ namespace EasyDocs.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("citext");
 
+                    b.Property<Guid?>("ManagedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("PasswordHash")
                         .HasColumnType("text");
 
@@ -748,6 +789,8 @@ namespace EasyDocs.Api.Data.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("ManagedBy");
 
                     b.ToTable("Users");
                 });
@@ -1013,6 +1056,21 @@ namespace EasyDocs.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("EasyDocs.Api.Domain.PasswordReset", b =>
+                {
+                    b.HasOne("EasyDocs.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrgId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EasyDocs.Api.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EasyDocs.Api.Domain.PushRequest", b =>
                 {
                     b.HasOne("EasyDocs.Api.Domain.Document", null)
@@ -1058,6 +1116,16 @@ namespace EasyDocs.Api.Data.Migrations
                         .HasForeignKey("VersionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("EasyDocs.Api.Domain.User", b =>
+                {
+                    b.HasOne("EasyDocs.Api.Domain.User", "Manager")
+                        .WithMany()
+                        .HasForeignKey("ManagedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Manager");
                 });
 
             modelBuilder.Entity("EasyDocs.Api.Domain.VersionDiff", b =>

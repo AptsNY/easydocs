@@ -5,12 +5,14 @@
   </picture>
 </p>
 
-**Git-style history for `.docx` — without asking anyone to learn Git.**
+<p align="center"><strong>Git-style history for <code>.docx</code> — without asking anyone to learn Git.</strong></p>
 
-[![CI](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/ci.yml)
-[![Conformance](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml/badge.svg)](https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml)
-[![Release](https://img.shields.io/github/v/release/AptsNY/easydocs)](https://github.com/AptsNY/easydocs/releases/latest)
-[![License: AGPL-3.0](https://img.shields.io/github/license/AptsNY/easydocs)](LICENSE)
+<p align="center">
+  <a href="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml"><img src="https://github.com/AptsNY/easydocs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml"><img src="https://github.com/AptsNY/easydocs/actions/workflows/conformance.yml/badge.svg" alt="Conformance"></a>
+  <a href="https://github.com/AptsNY/easydocs/releases/latest"><img src="https://img.shields.io/github/v/release/AptsNY/easydocs" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/AptsNY/easydocs" alt="License: AGPL-3.0"></a>
+</p>
 
 Open-source, self-hostable version control for Word documents. Every save becomes an immutable,
 numbered version. Two people editing at once branch instead of overwriting each other, and merge in one
@@ -142,11 +144,14 @@ that per-IP rate limiting behind a reverse proxy needs `ASPNETCORE_FORWARDEDHEAD
 
 Everything the UI does, the API does — it is the same surface, not a subset.
 
-- **Interactive docs:** `/docs` on your install (self-contained, no external CDN)
+- **Interactive docs:** [aptsny.github.io/easydocs/api/](https://aptsny.github.io/easydocs/api/), or
+  `/docs` on your install (self-contained, no external CDN)
 - **OpenAPI 3.1:** `/openapi/v1.json`
 - **Auth:** `ed_`-prefixed personal access tokens as `Authorization: Bearer ed_…`, or the session cookie
   for the browser. A token can never exceed the role of the user who minted it.
 - **Live updates:** server-sent events per document at `/api/v1/documents/{id}/events`.
+- **MCP:** a read-only [MCP server](packages/mcp/) for Claude Code, Cursor and other AI coding agents,
+  generated from the OpenAPI document — install with one command, runs on your machine as you.
 
 Worked end-to-end examples: [automation recipes](https://aptsny.github.io/easydocs/automation-recipes/).
 
@@ -165,6 +170,7 @@ Guides are published at **<https://aptsny.github.io/easydocs/>**:
 - [Concepts](https://aptsny.github.io/easydocs/concepts/) — the mental model: numbering, branches, redlines, approvals
 - [Self-hosting guide](https://aptsny.github.io/easydocs/self-hosting/) — TLS, `.env`, proxies, backups, upgrades
 - [Automation recipes](https://aptsny.github.io/easydocs/automation-recipes/) — the full lifecycle over the REST API
+- [API reference](https://aptsny.github.io/easydocs/api/) — every endpoint, rendered from the OpenAPI document
 
 And in the repo:
 
@@ -196,18 +202,17 @@ way it started: people who need it, keeping it alive.
 
 ## License
 
-**Everything in this repository today is AGPL-3.0** ([LICENSE](LICENSE)) — server, SPA, tests, deploy
-files, docs.
+**Everything in this repository is AGPL-3.0** ([LICENSE](LICENSE)) — server, SPA, tests, deploy
+files, docs — except `packages/*`, which is MIT.
 
 | Path | License |
 |---|---|
-| Everything in this repo | **AGPL-3.0** — the whole repository right now |
-| `packages/*` — future API client SDKs | **MIT**, when written. The directory does not exist yet. |
+| Everything outside `packages/*` | **AGPL-3.0** |
+| `packages/*` — API clients | **MIT.** Today: [`packages/mcp`](packages/mcp/), the MCP server. |
 
 AGPL is the right licence for a self-hostable server — it keeps modifications to a *hosted* easydocs
-available to its users. It is the wrong licence for a thin client library, so future SDKs will live
-under `packages/*` with their own MIT `LICENSE`. **Until that directory exists, assume AGPL-3.0 for
-anything you take from here.** Full reasoning:
+available to its users. It is the wrong licence for a thin client library, so clients live
+under `packages/*` with their own MIT `LICENSE`. **Anything outside that directory is AGPL-3.0.** Full reasoning:
 [spec §14](docs/superpowers/specs/2026-07-24-easydocs-v1-design.md).
 
 Contributions are under the **Developer Certificate of Origin** — sign off every commit with

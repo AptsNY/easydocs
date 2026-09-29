@@ -158,6 +158,26 @@ public class PushTests : IClassFixture<ApiFactory>
             (await db.Branches.FirstAsync(b => b.Id == materialized.BranchId)).Kind);
     }
 
+    // Racing accepts on one request: exactly one materializes; the rest are 409, not 500s from colliding
+    // branch ordinals, and never a second incoming branch.
+    [Fact]
+    public async Task Concurrent_accepts_materialize_a_push_once()
+    {
+        var f = await ForkedAsync();
+        var reviewer = await CopyOnlyReviewerAsync(f);
+        var (redlined, _) = await reviewer.Client.UploadAsync(f.CopyId, DocxFixtures.Edited());
+        var push = await PushOkAsync(reviewer.Client, f.CopyId, f.MasterId, redlined);
+
+        var codes = (await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
+            f.Alice.Client.PostAsync($"/api/v1/push-requests/{push.Id}:accept", null)))).Select(r => r.StatusCode).ToList();
+        Assert.Equal(1, codes.Count(c => c == HttpStatusCode.OK));
+        Assert.Equal(3, codes.Count(c => c == HttpStatusCode.Conflict));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Branches.CountAsync(b => b.DocumentId == f.MasterId && b.Kind == BranchKind.IncomingPush));
+    }
+
     [Fact]
     public async Task Rejecting_a_push_keeps_it_out_of_the_target_history_and_notifies_the_pusher()
     {

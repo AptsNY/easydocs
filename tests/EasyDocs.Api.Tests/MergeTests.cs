@@ -142,6 +142,46 @@ public class MergeTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("Alice", authors);
     }
 
+    // A merge is computed against a main head read seconds earlier. If a save lands on main meanwhile,
+    // committing the merge on top would drop that save from the head, so the write path refuses it —
+    // driven here with exactly the stale base a slow merge would carry.
+    [Fact]
+    public async Task A_merge_prepared_against_an_old_main_head_is_refused()
+    {
+        var (a, userId, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedPlusEcho());
+        (await a.PostAsync($"/api/v1/documents/{docId}/versions", Docx(new byte[] { 1, 2, 3 }))).EnsureSuccessStatusCode(); // main moves past `left`
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        var blobs = scope.ServiceProvider.GetRequiredService<IBlobStore>();
+        var versioning = scope.ServiceProvider.GetRequiredService<VersioningService>();
+        var mainId = (await db.Branches.FirstAsync(b => b.DocumentId == docId && b.Ordinal == 0)).Id;
+        var stored = await blobs.PutAsync(new MemoryStream(DocxFixtures.EditedPlusEcho()));
+
+        var ex = await Assert.ThrowsAsync<CommitConflictException>(() => versioning.CommitSaveAsync(
+            new CommitInput(docId, stored.Sha256, stored.SizeBytes, VersionSource.Merge, userId,
+                ExplicitBranchId: mainId, BaseVersionId: left, MergeParentVersionId: right), default));
+        Assert.Equal("Main moved", ex.Title);
+    }
+
+    // Two people pressing Merge on the same branch: one merge, one 409 — never the branch merged twice.
+    [Fact]
+    public async Task Concurrent_merges_of_one_branch_merge_it_once()
+    {
+        var (a, _, orgId) = await RegisterAsync("Alice");
+        var (docId, left, right, _) = await SetupConcurrentAsync(a, orgId, "Bob", DocxFixtures.EditedPlusEcho());
+
+        var codes = (await Task.WhenAll(Enumerable.Range(0, 3).Select(_ =>
+            a.PostAsJsonAsync($"/api/v1/documents/{docId}/merges", new { left, right })))).Select(r => r.StatusCode).ToList();
+        Assert.Equal(1, codes.Count(c => c == HttpStatusCode.Created));
+        Assert.All(codes.Where(c => c != HttpStatusCode.Created), c => Assert.Equal(HttpStatusCode.Conflict, c));
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.Versions.CountAsync(v => v.DocumentId == docId && v.Source == VersionSource.Merge));
+    }
+
     [Fact]
     public async Task Nothing_is_lost()
     {

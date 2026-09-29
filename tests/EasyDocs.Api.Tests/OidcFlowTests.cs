@@ -186,6 +186,36 @@ public class OidcFlowTests(ApiFactory f, FakeIdp idp) : IClassFixture<ApiFactory
         }
     }
 
+    // JIT-create must not be able to provision a *person* under the reserved service-account domain
+    // (see EasyDocs.Api.Auth.ServiceAccounts.ServiceDomain) — that's the address space RequirePerson and
+    // Register_refuses_the_service_domain both rely on staying person-free.
+    [Fact]
+    public async Task Sso_refuses_to_provision_an_account_on_the_reserved_service_domain()
+    {
+        var original = idp.Email;
+        idp.Email = $"sso-{Guid.NewGuid():N}@{EasyDocs.Api.Auth.ServiceAccounts.ServiceDomain}";
+        try
+        {
+            var (api, raw) = Clients();
+
+            var challenge = await api.GetAsync("/api/v1/auth/oidc/login");
+            var fromIdp = await raw.GetAsync(challenge.Headers.Location!.ToString());
+            var callbackRes = await api.GetAsync(fromIdp.Headers.Location!.ToString());
+            Assert.Contains("/api/v1/auth/oidc/complete", callbackRes.Headers.Location!.ToString());
+
+            var complete = await api.GetAsync("/api/v1/auth/oidc/complete");
+            Assert.Equal(HttpStatusCode.Forbidden, complete.StatusCode);
+
+            using var scope = f.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            Assert.False(await db.Users.AnyAsync(u => u.Email == idp.Email));
+        }
+        finally
+        {
+            idp.Email = original;
+        }
+    }
+
     [Fact]
     public async Task Login_endpoint_404s_when_sso_is_not_configured()
     {

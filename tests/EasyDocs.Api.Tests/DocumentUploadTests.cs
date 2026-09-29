@@ -14,6 +14,26 @@ public class DocumentUploadTests : IClassFixture<ApiFactory>
 
     private const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+    // A multipart body that never reaches its closing boundary raises IOException from the body reader,
+    // not the InvalidDataException a bad Content-Disposition raises -- so this route answered client
+    // garbage with a 500 until both were caught. Found while hardening documents:import, which runs the
+    // same bodies through the same block.
+    [Fact]
+    public async Task An_unterminated_multipart_body_is_a_400_and_never_a_500()
+    {
+        var (client, _) = await AuthedClientAsync();
+        var docId = await client.CreateDocAsync("Truncated");
+
+        var body = new StringContent("not a multipart body at all");
+        body.Headers.Remove("Content-Type");
+        body.Headers.TryAddWithoutValidation("Content-Type", "multipart/form-data; boundary=--nonsense");
+
+        var res = await client.PostAsync($"/api/v1/documents/{docId}/versions", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("application/problem+json", res.Content.Headers.ContentType?.MediaType);
+    }
+
     private async Task<(HttpClient client, Guid userId)> AuthedClientAsync()
     {
         var client = _f.CreateClient();

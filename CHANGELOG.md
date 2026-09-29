@@ -17,7 +17,120 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ## [Unreleased]
 
+### Added
+
+- **Read a version's text over the API and MCP** — `GET /api/v1/versions/{vid}/text` returns one
+  version's plain text, exposed as the `get_version_text` MCP tool, so an agent can answer "what does
+  this document say?" and not only "what happened to it?". A version that is not a `.docx` answers
+  409 naming what its bytes actually are — the answer `download` already gives for a version with no
+  PDF — rather than an empty string a reader would take for a blank document. Paragraph boundaries
+  now extract as newlines, so a long agreement reads as paragraphs instead of one line — a change
+  invisible to content search, which tokenizes both the same way.
+
+- **A locked-out member can be given their account back.** Until now there was no password reset at
+  all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
+  An org Owner (or an Admin, for a plain Member) now mints a single-use link from **Settings →
+  Members** that expires in an hour, and the member sets a new password on a page that works with no
+  session. easydocs sends no email, so the link is handed over the way an invitation already is — the
+  admin relays it, and the login screen says so instead of offering a "Forgot password?" button that
+  could not work. Consuming a link revokes every `ed_` token the account holds and leaves MFA armed,
+  so a reset is not a way around someone's second factor, and it issues no session, so a link relayed
+  through a chat window cannot become a live login. An Admin is refused against an Owner or a peer
+  Admin, and anyone active on a second organization is refused outright: a reset is full account
+  takeover, not access to one org. Read
+  [the limitations](SECURITY.md#known-v1-limitations-not-vulnerabilities) before relying on it — a
+  sole Owner still cannot be recovered this way. Minting a link reports how many working tokens
+  consuming it will revoke (`revokesApiTokens`), and Settings warns before the link is sent, so an
+  integration running on that person's token is not broken by surprise.
+- **easydocs can be used from AI coding agents.** `packages/mcp/easydocs_mcp.py` is a read-only
+  [MCP](https://modelcontextprotocol.io) server generated from the install's own `/openapi/v1.json`:
+  seventeen tools covering documents, history, redlines, audit trails, approvals and folders, for
+  Claude Code, Cursor, Codex, Gemini CLI and Claude Desktop. It runs on the user's machine with their
+  own `ed_` token, so every call is authorized exactly as their `curl` would be. Nothing on the
+  server changed. `packages/*` is now real and MIT-licensed, as the licence section always said it
+  would be. The server verifies the token against `/api/v1/me` before it starts, so a mistyped token
+  fails at start-up rather than on the first question.
+- **Merging a branch now goes through a review.** The history's merge control opens a screen showing
+  the version both branches forked from, what each side changed since that fork, and a hint naming the
+  paragraphs both authors touched — so the decision is made with the other side's work visible, rather
+  than discovered afterwards in the redline. `GET /api/v1/documents/{id}/merges/preview` returns the
+  same information to API callers.
+
+  The merge itself is unchanged: same comparison, same tracked changes, same result. `POST
+  /api/v1/documents/{id}/merges` still merges directly and is untouched, so existing scripts see
+  exactly what they saw before — the review is the UI's route to it, not a new gate on the API.
+
+  The overlap hint is best-effort and never blocks a merge. It anchors on a paragraph's position
+  within the shared ancestor, which a paragraph split on one side can shift, so it is worded as a hint
+  and says so on screen. Insertions and deletions in body text only — formatting and header/footer
+  changes are outside the comparison, as they already are on the compare screen.
+- **A document can be imported in one step.** `POST /api/v1/documents:import` takes a multipart body
+  — a file, an optional `name`, an optional `folderId` — and returns a new document already holding
+  that file as version `0.0.1`. The dashboard gains an **Import document** control that uses it,
+  taking the name from the filename and letting you edit it before anything is created. Previously
+  this was `POST /documents` followed by a separate upload, which meant typing the name by hand and
+  left an empty document behind if the upload failed.
+
+  Omitting `name` derives it from the filename; a filename with no usable stem (`.docx`) is a `400`
+  rather than a document nobody named.
+- **The dashboard's document list can be sorted.** `GET /api/v1/documents` accepts `sort` (`created`,
+  `updated`, `name`) and `order` (`asc`, `desc`), and the dashboard toolbar gains a sort menu whose
+  choice lives in the page's address — so it survives a reload and can be shared as a link. The web UI
+  now opens on **last updated first** instead of oldest-created-first; the API's own default is
+  unchanged (`created`/`asc`), so existing API clients see exactly what they saw before. `updated`
+  follows the newest version, falling back to the document's own creation time for a document with no
+  versions yet, and `name` sorts case-insensitively. An unrecognised `sort` is a 400 rather than a
+  silent fallback, because it decides which column a pagination cursor's key means.
+
+  Cursors are now tagged with the column that produced them. A cursor issued before this release does
+  not decode; almost all of them are treated as unusable, which means the next page restarts at the
+  first one. Roughly one in 128 instead draws a `400` saying the sort changed, because its leading byte
+  happens to collide with a tag this release mints — a one-deploy window, and a reload clears it.
+- **S3 blob credentials can come from the ambient IAM role.** With `BlobStore=s3` and **both**
+  `S3__AccessKey`/`S3__SecretKey` unset, easydocs now uses the AWS SDK's default credential chain
+  (environment, `~/.aws`, or the EC2 instance / ECS task role), so a role-based AWS deployment
+  needs no long-lived S3 key at all. Setting exactly one of the two keys still aborts boot. Static
+  keys keep working unchanged (MinIO, R2, or AWS with an IAM user).
+- **`deploy-aws.yml`**: a deploy workflow for AptsNY's ECS platform — builds the Dockerfile, pushes
+  to the platform's private ECR via GitHub OIDC, and rolls the service with zero downtime via the
+  shared `AptsNY/infra-platform` deploy workflow. Fires on `v*` tags and manual dispatch. Only
+  relevant to that install; self-hosters' release pipeline (GHCR, cosign) is untouched.
+- **Service accounts: integrations get an identity no person can lose.** An org Owner or Admin creates
+  one in **Settings → Service accounts**; it cannot sign in, joins documents by its email like a person
+  (at most as Editor), and only the person who created it can mint its tokens. Resetting anyone's
+  password — including its manager's — no longer breaks the integration running on it. Its tokens
+  cannot mint sessions, invitations or share links, and it cannot be named an approver. RFC #60.
+  **Before rolling back to an earlier image**, delete your service accounts (or revoke their tokens):
+  older code has no service-account checks, so a live service token there could open a session.
+
 ### Fixed
+
+- **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
+  compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
+  with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
+  incoming branch itself moved during review, which would have stranded its newer save on a branch
+  marked merged. Two people pressing
+  Merge on the same branch now get one merge and one `409`, not the branch merged twice.
+- **Racing push-request accepts produce one accepted push**, not `500`s or a second materialized
+  version, and an accept racing a reject can no longer leave a "rejected" push in the target's history.
+- **An approval decision stays immutable under concurrency:** a respond racing a cancel (or another
+  respond) leaves exactly one standing. A requester removed from the document can no longer cancel.
+- **An editor session pinned to a branch that has since been merged** opens a fresh branch on its
+  next save instead of piling saves onto one that can never be merged again.
+
+- **Concurrent saves no longer share a version number.** The per-document lock serialized the
+  database, but the code under it read a copy of the document loaded before the lock, so concurrent
+  uploads or editor saves incremented the same stale counter (six at once produced two numbers). The
+  same stale read let concurrent publishes of one version all succeed, and could make a manual counter
+  override silently write nothing.
+- **Saving twice from one editing session no longer forks a branch.** A Collabora or desktop-Word
+  session's base never advanced, so its second save looked stale and opened a concurrent branch —
+  main stopped updating after one save — and the editor re-fetched the session's opening bytes.
+- **Publishing an already-published version is refused (409).** A double-click or retry renumbered a
+  released version (1.0.0 became 2.0.0). Promoting a minor release to major still works; the Actions
+  menu offers only that.
+- **A failed PDF render is retried instead of silently dropped**, and the job lease (now 5 minutes)
+  outlasts a slow render so a second instance cannot start the same render mid-run.
 
 - **A lost redline-cache insert race no longer leaves the cache permanently unfilled.** When an
   inline compare lost the `version_diffs` insert race to the summary worker, the computed HTML

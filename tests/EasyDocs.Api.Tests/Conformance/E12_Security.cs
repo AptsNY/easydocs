@@ -63,6 +63,7 @@ public class E12_Security
             AssertOk(await api.Http.GetAsync($"/api/v1/documents/{c.DocId}/versions"), $"{name} GET versions");
             AssertOk(await api.Http.GetAsync($"/api/v1/versions/{c.VersionId}"), $"{name} GET version");
             AssertOk(await api.DownloadRawAsync(c.VersionId), $"{name} download");
+            AssertOk(await api.Http.GetAsync($"/api/v1/versions/{c.VersionId}/text"), $"{name} GET version text");
             AssertOk(await api.Http.GetAsync($"/api/v1/documents/{c.DocId}/publications"), $"{name} GET publications");
             AssertOk(await api.Http.GetAsync($"/api/v1/documents/{c.DocId}/audit"), $"{name} GET audit");
             AssertOk(await api.Http.GetAsync($"/api/v1/documents/{c.DocId}/members"), $"{name} GET members");
@@ -78,6 +79,7 @@ public class E12_Security
             AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.Http.GetAsync(path), $"stranger GET {path}");
 
         AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.Http.GetAsync($"/api/v1/versions/{c.VersionId}"), "stranger GET version");
+        AssertStatus(HttpStatusCode.Forbidden, await c.Stranger.Http.GetAsync($"/api/v1/versions/{c.VersionId}/text"), "stranger GET version text");
 
         // Another org: 404 everywhere — existence is not leaked.
         foreach (var path in new[]
@@ -85,6 +87,7 @@ public class E12_Security
             $"/api/v1/documents/{c.DocId}", $"/api/v1/documents/{c.DocId}/versions",
             $"/api/v1/documents/{c.DocId}/audit", $"/api/v1/documents/{c.DocId}/members",
             $"/api/v1/documents/{c.DocId}/publications", $"/api/v1/versions/{c.VersionId}",
+            $"/api/v1/versions/{c.VersionId}/text",
         })
             AssertStatus(HttpStatusCode.NotFound, await c.Outsider.Http.GetAsync(path), $"outsider GET {path}");
     }

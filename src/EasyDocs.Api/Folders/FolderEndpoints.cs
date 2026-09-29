@@ -8,7 +8,7 @@ namespace EasyDocs.Api.Folders;
 
 public static class FolderEndpoints
 {
-    public record CreateRequest(string? Name, Guid? ParentId);
+    public record CreateFolderRequest(string? Name, Guid? ParentId);
 
     /// <summary>
     /// PATCH body. Every field is optional, and for ParentId "absent" and "null" have to mean different
@@ -65,7 +65,7 @@ public static class FolderEndpoints
         return Results.Ok(items);
     }
 
-    private static async Task<IResult> Create(CreateRequest req, HttpContext ctx, EasyDocsDbContext db)
+    private static async Task<IResult> Create(CreateFolderRequest req, HttpContext ctx, EasyDocsDbContext db)
     {
         var orgId = CurrentUser.OrgId(ctx.User);
         var name = req.Name?.Trim() ?? "";

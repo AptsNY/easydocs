@@ -15,8 +15,11 @@ public abstract class DurableJobWorker<TPayload>(
     string type, IServiceScopeFactory scopes, IConfiguration cfg, ILogger log) : BackgroundService
 {
     // ponytail: fixed lease/backoff, no per-job tuning — revisit if a job class ever needs more
-    // than 2 minutes or five tries. Poll is configurable only as a test seam (Jobs:PollSeconds).
-    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
+    // than 5 minutes or five tries. Poll is configurable only as a test seam (Jobs:PollSeconds).
+    // The lease must outlast the slowest job, or a second instance claims it mid-run: a PDF render is
+    // up to 2 × 60s of soffice (LibreOfficePdfRenderer) plus blob reads and writes. It is also the retry
+    // backoff for every job type: a failing job retries every 5 minutes and is dropped after ~25.
+    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(5);
     private const int MaxAttempts = 5;
     private readonly TimeSpan _poll = TimeSpan.FromSeconds(cfg.GetValue("Jobs:PollSeconds", 15));
 
@@ -69,8 +72,11 @@ public abstract class DurableJobWorker<TPayload>(
 
         if (job.Attempts > MaxAttempts)
         {
-            // Dropped loudly, not silently: the payload is in the log, so the job can be re-run by
-            // hand (a PDF by re-publishing, a diff by requesting the comparison) once the cause is fixed.
+            // Dropped loudly, not silently: the payload is in the log, so the job can be re-run by hand
+            // once the cause is fixed — a diff by requesting the comparison; a PDF (re-publishing is
+            // refused, it would renumber a release) by re-queueing the logged payload:
+            //   INSERT INTO "BackgroundJobs" ("Type","Payload","Attempts","RunAfter","CreatedAt")
+            //   VALUES ('pdf', '<payload>', 0, now(), now());
             log.LogError("{Type} job {Id} exceeded {Max} attempts; dropping. Payload: {Payload}",
                 type, job.Id, MaxAttempts, job.Payload);
             await db.BackgroundJobs.Where(j => j.Id == job.Id).ExecuteDeleteAsync(ct);

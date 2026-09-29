@@ -20,6 +20,9 @@ download, share), *Editor* (everything Viewers do, plus edit, import, publish, r
 - **Joining someone else's organization:** you don't sign up into it — you follow an **invitation
   link** someone sends you (see [Members](#members-and-the-audit-trail)). If you belong to more than
   one organization, a **switcher appears in the header**; a session is always scoped to exactly one.
+- **Forgotten password:** there is no self-service reset, because easydocs sends no email. Ask an
+  owner or admin of your organization to issue you a **reset link** (see
+  [Settings](#settings)) and send it to you.
 
 ## The dashboard
 
@@ -28,9 +31,14 @@ The dashboard is folders on the left, documents on the right.
 - **Create a folder** to group documents; folders nest freely, and moving a document never touches
   its history or members.
 - **Create document** makes an empty document; its first upload becomes version `0.0.1`.
+- **Import document** does both at once: pick a `.docx` and you get a document already holding it as
+  version `0.0.1`. The name comes from the file, and you can change it before importing.
 - **Search names & content** — the one search box matches document *names* and, since v1.1, the
   *text inside* their current versions. Phrases (`"exact phrase"`) and exclusions (`word -other`)
   work. Content lands in the index a few seconds after a save.
+- **Sort** — documents arrive most-recently-updated first. The sort menu also offers name (A–Z or
+  Z–A) and creation date, either direction. Your choice is part of the page's address, so it survives
+  a reload and can be shared as a link.
 - **Trash** — deleting a document moves it to the trash view, from which it can be restored.
   Nothing in the version history is destroyed by trashing.
 
@@ -127,6 +135,23 @@ membership changes — who, what, when.
   your role.
 - **Organization** — rename it, and manage **organization members** and their org roles. Inviting
   someone here (or from a document's Members panel) produces the invitation link you send them.
+- **Resetting someone's password** — each member row has **Reset password**, for owners (and for
+  admins, against plain members). It produces a link that works **once** and expires in **an hour**,
+  shown exactly once at creation. **easydocs does not email it — you send it**, the same as an
+  invitation. Opening it lets that person set a new password without signing in first.
+
+    Using it signs out nothing, but it does **revoke all of that account's `ed_` API tokens**, and it
+    leaves their two-factor authentication switched on — a reset is not a way past someone's MFA. If
+    they have also lost their authenticator, they need one of their recovery codes.
+
+    A link also stops working early if that person's **organization role changes** or they are
+    **removed from the organization** — it was issued against who they were at the time. Issue a new
+    one.
+
+    Some accounts cannot be reset this way: the **sole owner** of an organization (nobody else can
+    issue the link), anyone who is **also a member of another organization that has other people in
+    it**, and **SSO accounts**, which have no password. The button is hidden where your own role would
+    not allow it; for the other two cases it is shown and the error explains itself when you click.
 
 ## The API
 

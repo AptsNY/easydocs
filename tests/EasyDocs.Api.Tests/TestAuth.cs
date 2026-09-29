@@ -155,6 +155,13 @@ public static class TestAuth
         return (await res.Content.ReadFromJsonAsync<IdDto>())!.Id;
     }
 
+    public static async Task<Guid> CreateFolderAsync(this HttpClient c, string name, Guid? parentId = null)
+    {
+        var res = await c.PostAsJsonAsync("/api/v1/folders", new { name, parentId });
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<IdDto>())!.Id;
+    }
+
     private record UploadDto(Guid VersionId, int Major, int Minor, int Revision);
 
     // Uploads a .docx and returns the new version id plus its X.Y.Z numbers.
@@ -165,5 +172,46 @@ public static class TestAuth
         res.EnsureSuccessStatusCode();
         var dto = (await res.Content.ReadFromJsonAsync<UploadDto>())!;
         return (dto.VersionId, $"{dto.Major}.{dto.Minor}.{dto.Revision}");
+    }
+
+    // ---- password-reset seeding (spec 2026-09-08) ----------------------------------------------
+
+    // Adds an existing user to a second org. Registration always creates a NEW org, so this is the
+    // only way to build the cross-team account the password-reset gate refuses.
+    public static async Task AddOrgMemberAsync(this ApiFactory f, Guid orgId, Guid userId, OrgRole role)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        db.Add(new OrgMember { OrgId = orgId, UserId = userId, Role = role, CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+    }
+
+    // Simulates an SSO-provisioned account, which has no local password to reset.
+    public static async Task ClearPasswordHashAsync(this ApiFactory f, Guid userId)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        await db.Users.Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, (string?)null));
+    }
+
+    // Ages out every outstanding reset for a user, so the expiry branch can be exercised without waiting.
+    public static async Task ExpireResetsAsync(this ApiFactory f, Guid userId)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        await db.PasswordResets.Where(p => p.UserId == userId && p.UsedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
+    }
+
+    // Arms TOTP directly: the reset must not disarm it, and going through /account/mfa/setup+enable
+    // would need a live authenticator.
+    public static async Task ArmMfaAsync(this ApiFactory f, Guid userId)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        await db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(s => s
+            .SetProperty(u => u.TotpSecret, "AAAAAAAAAAAAAAAA")
+            .SetProperty(u => u.TotpEnabledAt, DateTimeOffset.UtcNow));
     }
 }

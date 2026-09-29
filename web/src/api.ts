@@ -94,6 +94,26 @@ export type ChangeSummary = {
   formatChanges: number
 }
 
+// GET /api/v1/documents/{id}/merges/preview — the three-way review (spec:
+// 2026-08-24-three-way-merge-review-design.md). Every field degrades on its own: `base` null means the
+// fork point is unknown and the review falls back to a two-way preview; a null `summary` means that leg
+// could not be compared; null `overlaps` means the hint is unavailable. Only `available: false` means
+// the MERGE would fail.
+export type MergeSideRow = {
+  id: string
+  number: string
+  authorName: string
+  summary: ChangeSummary | null
+}
+export type OverlapParagraph = { ordinal: number; text: string }
+export type MergePreview = {
+  available: boolean
+  base: { id: string; number: string } | null
+  main: MergeSideRow
+  incoming: MergeSideRow
+  overlaps: OverlapParagraph[] | null
+}
+
 export type VersionRow = {
   id: string
   major: number
@@ -119,6 +139,19 @@ export type VersionRow = {
 
 export type Paged<T> = { items: T[]; nextCursor: string | null }
 
+// POST /api/v1/documents:import -- the response names both the document AND the version its bytes
+// landed in, because there is no follow-up read: the dashboard navigates straight to the console with
+// nothing else to ask the API for.
+export type ImportedDocument = {
+  id: string
+  name: string
+  folderId: string | null
+  versionId: string
+  major: number
+  minor: number
+  revision: number
+}
+
 // GET /api/v1/documents/{id} — the console header. Deliberately thinner than Tile: no counts, because
 // the console reads the version list anyway.
 export type DocumentDetail = { id: string; name: string; folderId: string | null; orgId: string }
@@ -127,12 +160,17 @@ export type DocRole = 'Owner' | 'Editor' | 'Viewer'
 
 // GET /api/v1/documents/{id}/members returns a BARE array, not a Paged<T> — the roster is small enough
 // that it was never paginated.
+// A service account's manager (a person), as every roster row reports it.
+export type ManagerRef = { userId: string; displayName: string }
+
 export type Member = {
   userId: string
   email: string
   displayName: string
   role: DocRole
   createdAt: string
+  // Non-null = a service account (an integration's identity), managed by this person.
+  managedBy: ManagerRef | null
 }
 
 // GET /api/v1/documents/{id}/publications — the Major Versions tab. `publishedByName` is resolved
@@ -231,6 +269,8 @@ export type ApiTokenRow = {
   lastUsedAt: string | null
   revokedAt: string | null
   createdAt: string
+  // Set when the token belongs to a service account this caller manages or, as Owner/Admin, can revoke.
+  serviceAccount: { userId: string; name: string } | null
 }
 
 // GET /api/v1/documents/{id}/share-links — paged, newest first, and DOCUMENT-scoped even though a link
@@ -258,5 +298,18 @@ export type OrgMember = {
   email: string
   displayName: string
   role: OrgRole
+  createdAt: string
+  // Non-null = a service account (an integration's identity), managed by this person.
+  managedBy: ManagerRef | null
+}
+
+// GET /api/v1/org/service-accounts — BARE array. Owner/Admin see all; anyone else sees what they manage.
+export type ServiceAccount = {
+  userId: string
+  name: string
+  email: string
+  managedBy: ManagerRef
+  liveTokens: number
+  lastUsedAt: string | null
   createdAt: string
 }

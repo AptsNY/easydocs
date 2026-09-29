@@ -128,19 +128,16 @@ body {
   margin: 0;
 }
 
-/* The column IS the sheet: raised paper between two hairlines, on darker
-   paper. */
+/* The app fills the viewport; readable line lengths come from the inner
+   grids and the 62ch prose cap, not from a fixed outer column. */
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
   min-height: 100svh;
-  margin: 0 auto;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   text-align: start;
   background: var(--paper-raised);
-  border-inline: 1px solid var(--rule);
 }
 
 /* ---------------------------------------------------------------- typography */
@@ -374,7 +371,7 @@ nav a[aria-current='page'] {
   border-block-end-color: var(--accent);
 }
 
-/* First stop in the tab order: the masthead nav is five links deep on every
+/* First stop in the tab order: the masthead nav is seven links deep on every
    screen, and a keyboard reader should not have to walk it to reach the work. */
 .skip-link {
   position: absolute;
@@ -846,6 +843,13 @@ a.button:hover {
   max-width: 100%;
 }
 
+/* .inline-field only gets its row from .tile-actions, so the toolbar copy brings its own. */
+.docs-tools .sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
 /* A link that is a destination, not an action: sans, quiet, no underline until it is asked for. */
 .quiet {
   font-family: var(--sans);
@@ -1048,6 +1052,18 @@ a.button:hover {
   color: var(--text);
 }
 
+/* A .filebutton inside a .stack is still a button, but `.stack label` is (0,1,1) to .filebutton's
+   (0,1,0), so it would otherwise win and render the picker as one of the form's uppercase field
+   labels -- muted, 13px, letter-spaced -- rather than as the control it is. Scoped to the child
+   combinator so the tile's own picker, which has no .stack ancestor, is untouched. */
+.stack > .filebutton {
+  margin-block-start: 0;
+  font-size: 14px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+}
+
 /* The styled file picker: the <input> is clipped to the screen-reader box and its own <label> is the
    button, because the OS "Choose File" control is the one thing in the product nobody designed. The
    input keeps its label association, so it is still nameable and still settable. */
@@ -1198,7 +1214,9 @@ a.button:hover {
   color: var(--text);
 }
 
-.branch-group > button {
+/* The merge control is an anchor now (it navigates to the review screen), so this spacing has to
+   follow it there — otherwise the control loses its gap the moment it stops being a <button>. */
+.branch-group > :where(button, a.button) {
   margin-block-start: var(--s2);
 }
 
@@ -1505,6 +1523,22 @@ button.danger:focus-visible {
 
 .compare > button {
   margin-block-start: var(--s4);
+}
+
+.merge-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+}
+
+.merge-overlaps {
+  border-left: 3px solid currentColor;
+  padding-left: 0.75rem;
+}
+
+.merge-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 /* ------------------------------------------------------ the share landing */

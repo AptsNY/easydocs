@@ -13,6 +13,8 @@ import Editor from './routes/Editor'
 import History from './routes/History'
 import Login from './routes/Login'
 import MajorVersions from './routes/MajorVersions'
+import MergeReview from './routes/MergeReview'
+import PasswordReset from './routes/PasswordReset'
 import Settings from './routes/Settings'
 import ShareLanding from './routes/ShareLanding'
 
@@ -24,6 +26,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       {/* Public on purpose: the anonymous share landing sits outside RequireAuth (spec §11). */}
       <Route path="/s/:token" element={<ShareLanding />} />
+      {/* Public for the same reason: whoever holds an admin-issued reset link is locked out by
+          definition, so requiring a session here would make the link useless. */}
+      <Route path="/password-reset/:token" element={<PasswordReset />} />
       <Route element={<RequireAuth />}>
         <Route element={<Shell />}>
           <Route path="/" element={<Dashboard />} />
@@ -42,6 +47,7 @@ export default function App() {
             <Route path="audit" element={<Audit />} />
           </Route>
           <Route path="/documents/:id/compare" element={<Compare />} />
+          <Route path="/documents/:id/merge" element={<MergeReview />} />
           <Route path="/versions/:vid/edit" element={<Editor />} />
         </Route>
       </Route>
@@ -58,7 +64,7 @@ function Shell() {
 
   return (
     <div className="shell">
-      {/* First stop in the tab order, visible only when focused: the masthead is five links deep on
+      {/* First stop in the tab order, visible only when focused: the masthead is seven links deep on
           every screen, and a keyboard reader should not have to walk it to reach the work. */}
       <a className="skip-link" href="#main">
         Skip to content
@@ -76,6 +82,27 @@ function Shell() {
           <Link to="/">Documents</Link>
           <Link to="/approvals">Approvals</Link>
           <Link to="/settings">Settings</Link>
+          {/* Two different documents, deliberately named apart: "User guide" is the prose that explains
+              every screen, "API docs" is the generated endpoint reference. Both are plain <a>s, not
+              react-router <Link>s — the guide is off-site, and /docs is the Swagger UI the server
+              itself serves, so the router must not intercept it (it would match no route, fall through
+              to index.html, and appear to reload the app onto a blank screen). Both open in a new tab
+              because they leave the app, and nobody should lose the document they were on.
+
+              The guide URL is the project's published site rather than a configurable value: these are
+              the docs for whatever version an install is running, self-hosted or not, and a knob here
+              would just be a knob nobody sets. */}
+          <a
+            href="https://aptsny.github.io/easydocs/user-guide/"
+            target="_blank"
+            rel="noopener"
+            aria-label="User guide (opens in a new tab)"
+          >
+            User guide<span aria-hidden="true"> ↗</span>
+          </a>
+          <a href="/docs" target="_blank" rel="noopener" aria-label="API docs (opens in a new tab)">
+            API docs<span aria-hidden="true"> ↗</span>
+          </a>
         </nav>
         <span className="who">{me?.displayName}</span>
         <button

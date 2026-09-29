@@ -98,6 +98,7 @@ public static class OrgEndpoints
                 email = u.Email,
                 displayName = u.DisplayName,
                 role = m.Role.ToString(),
+                managedBy = u.Manager == null ? null : new { userId = u.Manager.Id, displayName = u.Manager.DisplayName },
                 createdAt = m.CreatedAt,
             })
             .OrderBy(x => x.createdAt).ThenBy(x => x.userId)
@@ -158,10 +159,17 @@ public static class OrgEndpoints
         var target = await db.OrgMembers.FirstOrDefaultAsync(m => m.OrgId == org.Id && m.UserId == uid, ctx.RequestAborted);
         if (target is null) return Problem.Of(404, "Not found", "That user is not a member of this org.");
 
+        if (await ServiceAccounts.IsServiceAsync(db, uid, ctx.RequestAborted))
+            return Problem.Of(409, "Service account", "A service account is always a Member; its reach is its document roles.");
+
         if (target.Role == OrgRole.Owner && role != OrgRole.Owner && !await HasAnotherOwnerAsync(db, org.Id, uid, ctx.RequestAborted))
             return Problem.Of(409, "Last owner", "An organization must keep at least one owner.");
 
         target.Role = role;
+        // A pending password reset was authorized against the role this member held a moment ago. Left
+        // alive, an admin's legitimately-minted link becomes an Owner takeover the instant that member
+        // is promoted — the consume endpoint is anonymous and cannot re-check who issued it.
+        await PasswordResetEndpoints.InvalidateOutstandingAsync(db, uid, DateTimeOffset.UtcNow, ctx.RequestAborted);
         db.Add(Audit.Event(org.Id, null, CurrentUser.UserId(ctx.User), "org_member.role_changed",
             "user", uid.ToString(), new { role = role.ToString() }));
         await db.SaveChangesAsync(ctx.RequestAborted);
@@ -180,10 +188,21 @@ public static class OrgEndpoints
         var target = await db.OrgMembers.FirstOrDefaultAsync(m => m.OrgId == org.Id && m.UserId == uid, ctx.RequestAborted);
         if (target is null) return Problem.Of(404, "Not found", "That user is not a member of this org.");
 
+        // Plain removal would drop only the OrgMembers row, and DocumentAuthorization never reads it —
+        // the tokens would keep full document access while vanishing from every list.
+        if (await ServiceAccounts.IsServiceAsync(db, uid, ctx.RequestAborted))
+            return Problem.Of(409, "Service account", $"Use DELETE /api/v1/org/service-accounts/{uid}.");
+        // A service account nobody can mint for, whose documents nobody can reach, could never be cleaned up.
+        if (await db.Users.AnyAsync(u => u.ManagedBy == uid && db.OrgMembers.Any(m => m.OrgId == org.Id && m.UserId == u.Id), ctx.RequestAborted))
+            return Problem.Of(409, "Manages service accounts", "Delete the service accounts this member manages first.");
+
         if (target.Role == OrgRole.Owner && !await HasAnotherOwnerAsync(db, org.Id, uid, ctx.RequestAborted))
             return Problem.Of(409, "Last owner", "An organization must keep at least one owner.");
 
         db.Remove(target);
+        // Same reason as UpdateRole: an outstanding link must not outlive the membership that justified
+        // it, or whoever issued it keeps a working takeover on someone who has left the org.
+        await PasswordResetEndpoints.InvalidateOutstandingAsync(db, uid, DateTimeOffset.UtcNow, ctx.RequestAborted);
         db.Add(Audit.Event(org.Id, null, CurrentUser.UserId(ctx.User), "org_member.removed", "user", uid.ToString(), null));
         await db.SaveChangesAsync(ctx.RequestAborted);
 

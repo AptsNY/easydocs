@@ -43,7 +43,9 @@ public static class BlobMime
         return known is null ? name : name[..^known.Length].TrimEnd();
     }
 
-    private const int HeadBytes = 8;
+    // Public because /text sniffs the copy it already holds in memory rather than re-reading the
+    // blob — the two paths must agree on how much head to look at.
+    public const int HeadBytes = 8;
     private static readonly byte[] Ole2Signature = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
     // ponytail: magic bytes only, three outcomes. Ceiling: an .xlsx (also a zip) is labelled docx and a

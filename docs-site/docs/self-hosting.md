@@ -481,6 +481,10 @@ Things worth alerting on that easydocs does not alert on for you:
     # S3__ForcePathStyle=false                   # default true, which is what MinIO wants
     ```
 
+    On AWS with an IAM role (EC2 instance profile, ECS task role), leave **both**
+    `S3__AccessKey`/`S3__SecretKey` unset and easydocs uses the SDK's default credential chain —
+    no long-lived key to manage. Setting exactly one of the two aborts boot.
+
     Objects are keyed by their sha256 exactly like files on the volume, so the layout stays
     content-addressed and write-once. An unknown `BlobStore` value, or `BlobStore=s3` with a missing
     key, aborts boot rather than falling back to the filesystem. Migrating existing installs: copy

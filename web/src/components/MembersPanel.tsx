@@ -59,6 +59,9 @@ export default function MembersPanel({
           <li key={m.userId} className="member-row" data-testid="member-row" data-email={m.email}>
             <span className="member-who">
               {m.displayName} <span className="muted">{m.email}</span>
+              {m.managedBy && (
+                <span className="muted"> (service, managed by {m.managedBy.displayName})</span>
+              )}
             </span>
 
             {/* ONE role element per row, not two. The role used to be stated twice — as text and as a
@@ -81,7 +84,10 @@ export default function MembersPanel({
                     )
                   }}
                 >
-                  {ROLES.map((r) => (
+                  {/* A service account can never be made Owner — the API 400s it — so a managed row
+                      offers the option only when it already holds it (a document it created), or the
+                      select would misstate its role as the first option. */}
+                  {ROLES.filter((r) => r !== 'Owner' || !m.managedBy || m.role === 'Owner').map((r) => (
                     <option key={r} value={r}>
                       {r}
                     </option>

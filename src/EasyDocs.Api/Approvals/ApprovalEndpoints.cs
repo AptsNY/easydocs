@@ -142,6 +142,11 @@ public static class ApprovalEndpoints
         if (ids.Except(memberIds).Any())
             return Problem.Of(400, "Invalid request", "Every approverId must be a member of this document.");
 
+        // Respond authorizes on ApproverId alone, so a service approver would let its token holder
+        // approve their own request.
+        if (await db.Users.AnyAsync(u => ids.Contains(u.Id) && u.ManagedBy != null, ctx.RequestAborted))
+            return Problem.Of(400, "Invalid request", "A service account cannot be an approver.");
+
         var now = DateTimeOffset.UtcNow;
         var rows = ids.Select(a => new ApprovalRequest
         {
@@ -179,16 +184,25 @@ public static class ApprovalEndpoints
         var (denied, _) = await AuthorizeAsync(db, ctx, documentId, requireEdit: false);
         if (denied is not null) return denied;
 
-        if (ar.DecidedAt is not null || ar.CancelledAt is not null)
+        // One immutable decision (E7), even under concurrency: the "still open" check and the write are one
+        // conditional UPDATE, so a racing respond or cancel finds nothing left to claim.
+        var now = DateTimeOffset.UtcNow;
+        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+        var claimed = await db.ApprovalRequests
+            .Where(x => x.Id == id && x.DecidedAt == null && x.CancelledAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.Decision, decision)
+                .SetProperty(x => x.DecisionComment, req.Comment)
+                .SetProperty(x => x.DecidedAt, now), ctx.RequestAborted);
+        if (claimed == 0)
             return Problem.Of(409, "Already closed", "This approval request has already been decided or cancelled.");
-
-        ar.Decision = decision;
-        ar.DecisionComment = req.Comment;
-        ar.DecidedAt = DateTimeOffset.UtcNow;
+        db.Entry(ar).State = EntityState.Detached; // written above; the tracked copy is stale
+        (ar.Decision, ar.DecisionComment, ar.DecidedAt) = (decision, req.Comment, now);
 
         db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), documentId, CurrentUser.UserId(ctx.User), "approval.responded",
             "approval", ar.Id.ToString(), new { versionId = ar.VersionId, decision = ar.Decision }));
         await db.SaveChangesAsync(ctx.RequestAborted);
+        await tx.CommitAsync(ctx.RequestAborted);
         bus.Publish(documentId, "approval.responded",
             new { id = ar.Id, versionId = ar.VersionId, decision = ar.Decision, decidedAt = ar.DecidedAt });
 
@@ -201,20 +215,25 @@ public static class ApprovalEndpoints
         if (ar is null) return Problem.Of(404, "Not found", "Approval request not found.");
 
         var documentId = await db.Versions.Where(v => v.Id == ar.VersionId).Select(v => v.DocumentId).FirstAsync(ctx.RequestAborted);
-        // Requester or a document editor may cancel.
-        if (ar.RequestedBy != CurrentUser.UserId(ctx.User))
-        {
-            var (failure, _) = await AuthorizeAsync(db, ctx, documentId, requireEdit: true);
-            if (failure is not null) return failure;
-        }
+        // Requester or a document editor may cancel — the requester only while they can still read the
+        // document: someone removed from it keeps no say over its approvals.
+        var (failure, _) = await AuthorizeAsync(db, ctx, documentId, requireEdit: ar.RequestedBy != CurrentUser.UserId(ctx.User));
+        if (failure is not null) return failure;
 
-        if (ar.DecidedAt is not null || ar.CancelledAt is not null)
+        var now = DateTimeOffset.UtcNow;
+        await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+        var claimed = await db.ApprovalRequests
+            .Where(x => x.Id == id && x.DecidedAt == null && x.CancelledAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CancelledAt, now), ctx.RequestAborted);
+        if (claimed == 0)
             return Problem.Of(409, "Already closed", "This approval request has already been decided or cancelled.");
+        db.Entry(ar).State = EntityState.Detached;
+        ar.CancelledAt = now;
 
-        ar.CancelledAt = DateTimeOffset.UtcNow;
         db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), documentId, CurrentUser.UserId(ctx.User), "approval.cancelled",
             "approval", ar.Id.ToString(), new { versionId = ar.VersionId }));
         await db.SaveChangesAsync(ctx.RequestAborted);
+        await tx.CommitAsync(ctx.RequestAborted);
         return Results.Ok(new { id = ar.Id, cancelledAt = ar.CancelledAt });
     }
 

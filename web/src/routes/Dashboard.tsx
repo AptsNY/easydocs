@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { api, problemText, type Paged, type Tile } from '../api'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { api, problemText, type ImportedDocument, type Paged, type Tile } from '../api'
 import FolderTree, { useFolderTree } from '../components/FolderTree'
 
 // Spec §9's dashboard: folder tree, document tiles, name search — plus the trash view, which is the
 // half that did not exist before M4.5. DELETE soft-deleted and :restore restored, but nothing listed
 // trashed documents, so recovering one meant having kept its GUID.
+
+// One select rather than a key picker plus a direction toggle: six labelled choices is one control
+// and one piece of state, and every label says what you will get rather than naming a column.
+const SORTS = [
+  ['updated:desc', 'Last updated'],
+  ['updated:asc', 'Oldest updated'],
+  ['name:asc', 'Name A–Z'],
+  ['name:desc', 'Name Z–A'],
+  ['created:desc', 'Newest first'],
+  ['created:asc', 'Oldest first'],
+] as const
+
 export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const { folderId } = useParams()
+  const navigate = useNavigate()
   const tree = useFolderTree()
 
   const [tiles, setTiles] = useState<Tile[]>([])
@@ -15,7 +28,24 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
   const [typed, setTyped] = useState('')
   const [q, setQ] = useState('')
   const [docName, setDocName] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importName, setImportName] = useState('')
+  // The name the LAST picked file derived, kept separately from importName so a second pick can tell
+  // "the field still shows what picking a file put there" apart from "the user typed this on
+  // purpose." Comparing only against importName would make every pick look like a fresh, safe-to-
+  // overwrite field, including the one right after someone types a name and then swaps the file.
+  const [derivedImportName, setDerivedImportName] = useState('')
   const [error, setError] = useState('')
+
+  // In the URL, not in state: a sorted view survives a reload, is shareable as a link, and comes
+  // back when you return from a document. The API's own default is created-asc — the web client opts
+  // into last-updated-first the same way History opts into order=desc.
+  const [params, setParams] = useSearchParams()
+  // Not trusted straight from the URL: a hand-typed or stale pair that is not one of the six options
+  // would leave the select showing index 0 -- "Last updated" -- while the list obeyed something else,
+  // and picking that option would fire no change event, so the obvious way back would be a dead control.
+  const pair = `${params.get('sort') ?? 'updated'}:${params.get('order') ?? 'desc'}`
+  const [sort, order] = (SORTS.some(([value]) => value === pair) ? pair : SORTS[0][0]).split(':')
 
   // Debounced so a five-letter word is one query, not five. The filter runs server-side (?q=): the
   // list is cursor-paginated, so filtering the loaded page would hide matches that live past it.
@@ -26,16 +56,18 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
 
   const load = useCallback(
     async (cursor: string | null) => {
-      const params = new URLSearchParams()
-      if (folderId) params.set('folderId', folderId)
-      if (q) params.set('q', q)
-      if (trashed) params.set('trashed', 'true')
-      if (cursor) params.set('cursor', cursor)
-      const page = await api.get<Paged<Tile>>(`/api/v1/documents?${params}`)
+      const search = new URLSearchParams()
+      if (folderId) search.set('folderId', folderId)
+      if (q) search.set('q', q)
+      if (trashed) search.set('trashed', 'true')
+      if (cursor) search.set('cursor', cursor)
+      search.set('sort', sort)
+      search.set('order', order)
+      const page = await api.get<Paged<Tile>>(`/api/v1/documents?${search}`)
       setTiles((prev) => (cursor ? [...prev, ...page.items] : page.items))
       setNextCursor(page.nextCursor)
     },
-    [folderId, q, trashed],
+    [folderId, q, trashed, sort, order],
   )
 
   useEffect(() => {
@@ -94,6 +126,32 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                 />
               </form>
 
+              <label className="inline-field sort">
+                <span>Sort</span>
+                <span className="visually-hidden"> documents</span>
+                <select
+                  data-testid="sort"
+                  value={`${sort}:${order}`}
+                  onChange={(e) => {
+                    const [s, o] = e.target.value.split(':')
+                    const next = new URLSearchParams(params)
+                    next.set('sort', s)
+                    next.set('order', o)
+                    setParams(next)
+                    // "Load more" renders on nextCursor, so leaving it set keeps the button live and
+                    // clickable through the refetch — and the cursor it holds belongs to the sort the
+                    // user just left, a pair the backend rejects with a message written for API clients.
+                    setNextCursor(null)
+                  }}
+                >
+                  {SORTS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <details className="disclose" data-testid="new-document">
                 <summary>New document</summary>
                 <form
@@ -123,6 +181,84 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
                     onChange={(e) => setDocName(e.target.value)}
                   />
                   <button type="submit">Create document</button>
+                </form>
+              </details>
+
+              <details className="disclose" data-testid="import-document">
+                <summary>Import document</summary>
+                <form
+                  className="stack"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!importFile) return
+                    const body = new FormData()
+                    body.append('file', importFile)
+                    // Omitted rather than sent empty: an empty string is still a name to the API, and
+                    // the endpoint's own filename-derived default (spec-required for a bare import) is
+                    // better than this form re-deriving it a second time and risking a mismatch.
+                    if (importName.trim()) body.append('name', importName.trim())
+                    if (folderId) body.append('folderId', folderId)
+                    void act(() =>
+                      api.post<ImportedDocument>('/api/v1/documents:import', body).then((doc) => {
+                        setImportFile(null)
+                        setImportName('')
+                        setDerivedImportName('')
+                        navigate(`/documents/${doc.id}`)
+                      }),
+                    )
+                  }}
+                >
+                  {/* Same clipped-input-under-its-own-label trick as "Upload version" below: the OS
+                      file-choose control is unstyleable, so the label IS the button, and
+                      .visually-hidden (not display:none) keeps the input focusable and settable. This
+                      one appears once on the page rather than once per tile, so its name needs no
+                      per-document suffix to disambiguate it. */}
+                  <label className="filebutton">
+                    <span>Choose file</span>
+                    <input
+                      type="file"
+                      className="visually-hidden"
+                      data-testid="import-input"
+                      accept=".docx"
+                      onChange={(e) => {
+                        const input = e.currentTarget
+                        const file = input.files?.[0]
+                        input.value = '' // so re-picking the same file still fires change
+                        if (!file) return
+                        const stem = stemOf(file.name)
+                        // The one rule that matters here: never clobber a name the user typed. A blank
+                        // field or one still holding what the PREVIOUS pick derived is fair game to
+                        // replace; anything else is a name someone chose on purpose, including after
+                        // picking the wrong file first and swapping it for the right one. Comparing
+                        // against derivedImportName (not just "is it empty") is what makes that
+                        // distinction possible -- drop it and the two cases become indistinguishable,
+                        // and the obvious fix is an unconditional overwrite that silently eats the name.
+                        setImportName((prev) => (prev === '' || prev === derivedImportName ? stem : prev))
+                        setDerivedImportName(stem)
+                        setImportFile(file)
+                      }}
+                    />
+                  </label>
+
+                  <label className="visually-hidden" htmlFor="import-name">
+                    Document name
+                  </label>
+                  <input
+                    id="import-name"
+                    placeholder="Document name"
+                    value={importName}
+                    onChange={(e) => {
+                      setImportName(e.target.value)
+                    }}
+                  />
+                  {/* Disabled rather than validated: a file is this form's one hard requirement, and
+                      clicking Import without one used to return early in silence -- the exact no-op act()
+                      exists to prevent, and the only write on this screen that dodged it. `required` on
+                      the input cannot do the job: it is .visually-hidden, and a browser will not report a
+                      validation message on a control it cannot scroll into view. */}
+                  <button type="submit" disabled={!importFile}>
+                    Import
+                  </button>
                 </form>
               </details>
 
@@ -288,4 +424,17 @@ export default function Dashboard({ trashed = false }: { trashed?: boolean }) {
 // The API sends UTC; the tile shows the reader's own clock.
 function whenLocal(iso: string) {
   return new Date(iso).toLocaleString()
+}
+
+// Mirrors NameFromFileName in DocumentEndpoints.cs, for the PREFILL only: send no name and the server
+// derives the authoritative one itself, so this only has to show the user what they are about to get.
+// It skips the server's `\`-separator handling, because a browser file input hands back a bare filename
+// and never a path.
+function stemOf(fileName: string) {
+  const dot = fileName.lastIndexOf('.')
+  // `>= 0`, matching the server: a file called just ".docx" has no stem, so this yields '' and the form
+  // sends no name at all -- letting the endpoint answer with its own 400. With `> 0` the prefill would
+  // be the literal ".docx", which IS a non-empty name, so it would be sent and accepted, and the UI
+  // would create the very document the API exists to refuse.
+  return dot >= 0 ? fileName.slice(0, dot) : fileName
 }
