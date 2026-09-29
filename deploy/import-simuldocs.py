@@ -26,11 +26,13 @@ are not kept: every version is created now, by the token's owner, and no API can
 it as the person who should own the documents: each is created with the token's owner as sole Owner.
 
 RE-RUNS. Progress is recorded in import-state.json next to the manifest: which easydocs document this
-script created for each Simuldocs document, and how many of its revisions were uploaded. A re-run
-skips finished documents and resumes interrupted ones from exactly where they stopped. It never
-writes into a document it did not create: an existing document with the same name in the same folder
-is reported and left alone. Two export documents with the same name get " (2)", " (3)"... A failed
-document is reported and the run carries on; the exit status is non-zero if anything failed.
+script created for each Simuldocs document, and which of its revisions (by manifest order) were
+uploaded. A re-run skips finished documents and uploads the rest, in order; a revision that turns up
+BEFORE ones already imported (a restored file) cannot be inserted into a history and fails that
+document loudly. It never writes into a document it did not create: an existing document with the
+same name in the same folder is reported, left alone, and makes the run exit non-zero. Two export
+documents with the same name get " (2)", " (3)"... A failed document is reported and the run carries
+on; the exit status is non-zero if anything failed. A lock file stops two runs at once.
 """
 import json, os, sys, uuid, mimetypes, urllib.request, urllib.error
 from urllib.parse import urlparse
@@ -99,6 +101,16 @@ def main():
         except (KeyError, TypeError, ValueError):
             sys.exit(f"manifest: document {did} ({d['name']}) has a revision whose order is not an integer.")
 
+    # Same name in the same collection would be one easydocs document: keep them apart. Assigned over
+    # the WHOLE manifest, before missing files are dropped, so a suffix never shifts between runs.
+    seen = {}
+    for did in sorted(docs):
+        d = docs[did]
+        n = seen[(d["collection"], d["name"])] = seen.get((d["collection"], d["name"]), 0) + 1
+        if n > 1:
+            print(f"  RENAME duplicate name: {d['name']} -> {d['name']} ({n})")
+            d["name"] = f"{d['name']} ({n})"
+
     # Drop revisions whose file isn't in this copy of the export (warn), then documents left empty.
     for d in docs.values():
         for r in list(d["revisions"]):
@@ -108,14 +120,6 @@ def main():
                 d["revisions"].remove(r)
     docs = {k: d for k, d in docs.items() if d["revisions"]}
 
-    # Same name in the same collection would be one easydocs document: keep them apart.
-    seen = {}
-    for did in sorted(docs):
-        d = docs[did]
-        n = seen[(d["collection"], d["name"])] = seen.get((d["collection"], d["name"]), 0) + 1
-        if n > 1:
-            print(f"  RENAME duplicate name: {d['name']} -> {d['name']} ({n})")
-            d["name"] = f"{d['name']} ({n})"
     total = sum(len(d["revisions"]) for d in docs.values())
     print(f"{len(docs)} documents, {total} revisions in the export")
     if rows and not total:
@@ -124,7 +128,20 @@ def main():
         return
 
     state_path = os.path.join(export_root, "import-state.json")
-    state = {}  # Simuldocs documentId -> {"id": easydocs document id, "done": revisions uploaded}
+    lock_path = state_path + ".lock"
+    try:
+        os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL))
+    except FileExistsError:
+        sys.exit(f"another import holds {lock_path}; if none is running, delete it and re-run.")
+    try:
+        return run(docs, export_root, state_path)
+    finally:
+        os.remove(lock_path)
+
+def run(docs, export_root, state_path):
+    # Simuldocs documentId -> {"id": the easydocs document this script created (None while its
+    # creation is pending), "orders": manifest orders uploaded, "last": the last version id returned}
+    state = {}
     if os.path.exists(state_path):
         with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
@@ -134,10 +151,11 @@ def main():
             json.dump(state, f, indent=1)
         os.replace(tmp, state_path)  # atomic: a crash never leaves half a state file
 
-    existing, cursor = set(), None  # (folderId, name) of documents already there
+    existing, cursor = {}, None  # (folderId, name) -> (id, versionCount) of documents already there
     while True:  # cursor-paginated, max 100/page
         page = api("GET", "/api/v1/documents?limit=100" + (f"&cursor={cursor}" if cursor else ""))
-        existing.update((doc.get("folderId"), doc["name"]) for doc in page["items"])
+        for doc in page["items"]:
+            existing[(doc.get("folderId"), doc["name"])] = (doc["id"], doc.get("versionCount", 0))
         cursor = page.get("nextCursor")
         if not cursor:
             break
@@ -146,40 +164,57 @@ def main():
     failed = 0
     for did, d in sorted(docs.items()):
         revs, mine = d["revisions"], state.get(did)
-        if mine and mine["done"] >= len(revs):
-            print(f"skip (done): {d['name']}")
-            continue
         try:
-            if not mine:
+            if not mine or not mine["id"]:
                 fid = None
                 if d["collection"]:
                     fid = folders.get(d["collection"]) or \
                           api("POST", "/api/v1/folders", {"name": d["collection"], "parentId": None})["id"]
                     folders[d["collection"]] = fid
-                if (fid, d["name"]) in existing:
-                    print(f"skip (a document with this name already exists; not created by this import): {d['name']}")
+                found = existing.get((fid, d["name"]))
+                if found and not (mine and found[1] == 0):
+                    # Only a document whose creation THIS import recorded as pending, and that is still
+                    # empty, is adopted; anything else with the name is someone's and left alone.
+                    failed += 1
+                    print(f"NOT IMPORTED: {d['name']}: a document with this name already exists in that folder"
+                          " and was not created by this import. Rename or move it, then re-run.", file=sys.stderr)
                     continue
-                mine = state[did] = {"id": api("POST", "/api/v1/documents", {"name": d["name"], "folderId": fid})["id"],
-                                     "done": 0, "last": None}
+                mine = state[did] = {"id": None, "orders": [], "last": None}
+                save_state()  # pending BEFORE the POST: a lost response is adopted next run, not orphaned
+                mine["id"] = found[0] if found else \
+                    api("POST", "/api/v1/documents", {"name": d["name"], "folderId": fid})["id"]
                 save_state()
-            elif mine["done"]:
-                print(f"resume: {d['name']} from revision {mine['done'] + 1} of {len(revs)}")
-            for r in revs[mine["done"]:]:
+            todo = [r for r in revs if int(r["order"]) not in mine["orders"]]
+            if not todo:
+                print(f"skip (done): {d['name']}")
+                continue
+            if mine["orders"] and int(todo[0]["order"]) < max(mine["orders"]):
+                failed += 1
+                print(f"FAILED: {d['name']}: revision {todo[0]['order']} is now in the export but later revisions"
+                      " were already imported, and history cannot be inserted into. To re-import it whole, delete"
+                      f" the easydocs document and its \"{did}\" entry in import-state.json.", file=sys.stderr)
+                continue
+            if mine["orders"]:
+                print(f"resume: {d['name']} from revision {todo[0]['order']}")
+            for r in todo:
                 v = upload(mine["id"], local_path(export_root, r["saved"]))
                 label = (r.get("label") or "").strip()
-                if v["versionId"] == mine.get("last"):
+                if v["versionId"] == mine["last"]:
                     if label:
                         print(f"  note: {d['name']} / '{label}' is identical to the revision before it; label not applied")
                 elif label:
                     api("PATCH", f"/api/v1/versions/{v['versionId']}", {"name": label})
-                mine["done"], mine["last"] = mine["done"] + 1, v["versionId"]
+                mine["orders"].append(int(r["order"]))
+                mine["last"] = v["versionId"]
                 save_state()
             print(f"imported: {d['name']}")
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 sys.exit("401 from easydocs: the token is invalid or revoked; nothing more was attempted.")
             failed += 1
-            print(f"FAILED: {d['name']}: HTTP {e.code} {e.read()[:300].decode(errors='replace')}",
+            hint = (" (the document may have been trashed or deleted: restore it, or delete its entry in"
+                    " import-state.json to import it afresh)") if e.code == 404 else ""
+            print(f"FAILED: {d['name']}: HTTP {e.code} {e.read()[:300].decode(errors='replace')}{hint}",
                   file=sys.stderr)
         except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
             failed += 1
