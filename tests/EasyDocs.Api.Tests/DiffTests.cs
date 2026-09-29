@@ -138,6 +138,61 @@ public class DiffTests : IClassFixture<ApiFactory>
         }
     }
 
+    // RenderHtml used to walk each paragraph twice — text and insertions, then deletions — so every
+    // deletion was exiled to the end of its paragraph: "…in <ins>arrears</ins> …office.<del>monthly</del>".
+    // A reader could not tell what replaced what. Deletions must sit where they occur.
+    [Fact]
+    public async Task Redline_html_keeps_deletions_where_they_occur()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Order" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var marker = Guid.NewGuid().ToString("N"); // own (from,to) pair — no shared cache row
+        var v1 = await UploadAsync(c, docId, DocxFixtures.Build($"Tenant shall pay rent monthly in advance to the office {marker}."));
+        var v2 = await UploadAsync(c, docId, DocxFixtures.Build($"Tenant shall pay rent quarterly in arrears to the office {marker}."));
+
+        var html = await c.GetStringAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=html");
+
+        var monthly = html.IndexOf("monthly", StringComparison.Ordinal);
+        var advance = html.IndexOf("advance", StringComparison.Ordinal);
+        Assert.True(monthly >= 0 && advance >= 0, html);
+        Assert.True(monthly < html.IndexOf(" in ", StringComparison.Ordinal), html);
+        Assert.True(advance < html.IndexOf("office", StringComparison.Ordinal), html);
+    }
+
+    // Redline HTML is cached by content (ADR-7), so HTML rendered by the old two-pass walk would keep
+    // being served for every pair compared before the fix. A cached render from an older renderer is
+    // recomputed, not served.
+    [Fact]
+    public async Task Redline_html_cached_by_an_older_renderer_is_recomputed()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Stale" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var (from, to) = DocxFixtures.UniquePair();
+        var v1 = await UploadAsync(c, docId, from);
+        var v2 = await UploadAsync(c, docId, to);
+        var shas = await ShasAsync(v1, v2);
+        var pair = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}";
+        // A summary compare creates the row, so seeding it below cannot race the eager worker's insert.
+        (await c.GetAsync($"{pair}&format=summary")).EnsureSuccessStatusCode();
+
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            var blobs = scope.ServiceProvider.GetRequiredService<IBlobStore>();
+            var stale = await blobs.PutAsync(new MemoryStream(
+                System.Text.Encoding.UTF8.GetBytes("<article class=\"redline\"><p>STALE</p></article>")));
+            var row = await db.VersionDiffs.SingleAsync(d => d.FromSha256 == shas.From && d.ToSha256 == shas.To);
+            row.HtmlBlobSha256 = stale.Sha256;
+            await db.SaveChangesAsync();
+        }
+
+        var html = await c.GetStringAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=html");
+        Assert.DoesNotContain("STALE", html);
+        Assert.Contains("EDITED", html);
+    }
+
     // The three compare formats have to agree about WHETHER a comparison exists (spec §7). summary used to
     // swallow DiffSummary.Available == false and answer 0/0/0/0, which is indistinguishable from "these
     // two versions are identical" — the real corpus has both cases (a legacy .doc that cannot be compared,

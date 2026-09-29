@@ -73,7 +73,13 @@ public sealed class WmlComparerDiffService(IBlobStore blobs, EasyDocsDbContext d
         var existing = await db.VersionDiffs
             .FirstOrDefaultAsync(x => x.FromSha256 == fromSha && x.ToSha256 == toSha, ct);
         if (existing?.HtmlBlobSha256 is { } cachedSha)
-            return new DiffRender(true, await ReadTextAsync(cachedSha, ct));
+        {
+            var cached = await ReadTextAsync(cachedSha, ct);
+            if (cached.StartsWith(RenderPrefix, StringComparison.Ordinal))
+                return new DiffRender(true, cached);
+            // An older renderer's output: fall through, recompute, and repoint the row below. The old
+            // blob loses its last reference and BlobGarbageCollector reclaims it.
+        }
 
         string html;
         BlobResult htmlBlob, docxBlob;
@@ -140,21 +146,28 @@ public sealed class WmlComparerDiffService(IBlobStore blobs, EasyDocsDbContext d
         XDocument doc;
         using (var s = entry.Open()) doc = XDocument.Load(s);
 
-        var sb = new StringBuilder("<article class=\"redline\">");
+        var sb = new StringBuilder(RenderPrefix);
         foreach (var p in doc.Descendants(W + "p"))
         {
             sb.Append("<p>");
-            foreach (var t in p.Descendants(W + "t"))
-                if (t.Ancestors(W + "ins").Any())
+            // ONE pass in document order: a deletion sits where it occurred, next to what replaced it.
+            foreach (var t in p.Descendants().Where(e => e.Name == W + "t" || e.Name == W + "delText"))
+                if (t.Name == W + "delText")
+                    sb.Append("<del>").Append(Escape(t.Value)).Append("</del>");
+                else if (t.Ancestors(W + "ins").Any())
                     sb.Append("<ins>").Append(Escape(t.Value)).Append("</ins>");
                 else
                     sb.Append(Escape(t.Value));
-            foreach (var d in p.Descendants(W + "delText"))
-                sb.Append("<del>").Append(Escape(d.Value)).Append("</del>");
             sb.Append("</p>");
         }
         return sb.Append("</article>").ToString();
     }
+
+    // The render version, stamped into every redline. version_diffs caches the HTML by content pair
+    // (ADR-7), so a renderer fix would otherwise never reach pairs compared before it: a cached render
+    // without the CURRENT stamp is recomputed. Bump it whenever RenderHtml's output changes.
+    // v2: deletions in document order (v1, unstamped, exiled them to the end of the paragraph).
+    private const string RenderPrefix = "<article class=\"redline\" data-render=\"2\">";
 
     private static string Escape(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");

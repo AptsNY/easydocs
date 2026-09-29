@@ -12,7 +12,7 @@ namespace EasyDocs.Api.Editing;
 
 // Desktop "Open in Word" (issue #11): a minimal WebDAV class-2 surface under /dav/{token}/{name},
 // exactly the verbs Word needs to open and save one file — OPTIONS, PROPFIND (depth 0), HEAD, GET,
-// LOCK, UNLOCK, PUT. The token in the path is the same short-TTL edit-session capability WOPI uses,
+// LOCK, UNLOCK, PUT. The token in the path is the same session-length edit-session capability WOPI uses,
 // because Word will not carry the app's session cookie; the ms-word:ofe|u| URL hands Word the whole
 // address, token included.
 //
@@ -70,7 +70,7 @@ public static class WebdavEndpoints
         var name = $"{BlobMime.StripKnownExtension(doc.Name)}.{ext}";
         var baseUrl = (cfg["PUBLIC_BASE_URL"] ?? "").TrimEnd('/');
         if (baseUrl.Length == 0) return Problem.Of(500, "Misconfigured", "PUBLIC_BASE_URL is not set.");
-        var token = tokens.Issue(session.Id, userId, "w");
+        var (token, _) = tokens.Issue(session.Id, userId, "w");
         var url = $"{baseUrl}/dav/{token}/{Uri.EscapeDataString(name)}";
 
         return Results.Created($"/api/v1/sessions/{session.Id}", new
@@ -90,8 +90,7 @@ public static class WebdavEndpoints
         var claims = tokens.Validate(token);
         if (claims is null)
             return new(null, Results.Unauthorized());
-        var session = await db.EditSessions.FirstOrDefaultAsync(
-            s => s.Id == claims.Value.Sid && s.ClosedAt == null, ctx.RequestAborted);
+        var session = await WopiEndpoints.LiveSessionAsync(db, claims.Value.Sid, claims.Value.Uid, ctx.RequestAborted);
         return session is null ? new(null, Results.Unauthorized()) : new(session, null);
     }
 

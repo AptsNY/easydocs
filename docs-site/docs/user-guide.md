@@ -72,7 +72,7 @@ Each version row has an **Actions** menu. What you see is role-filtered:
 | Action | Role | What it does |
 |---|---|---|
 | **Open in Collabora** | Editor | Edits in the browser. Saving (or closing the editor) commits a new version automatically. |
-| **Open in Word** | Editor | Hands the document to *desktop* Microsoft Word via an `ms-word:` link. Saving in Word commits a new version, exactly like a browser save. Needs Word installed; the link expires after 30 minutes. |
+| **Open in Word** | Editor | Hands the document to *desktop* Microsoft Word via an `ms-word:` link. Saving in Word commits a new version, exactly like a browser save. Needs Word installed; the link (and saving from that open document) works for 12 hours, or until you lose edit access. |
 | **Import** | Editor | Uploads a `.docx` from disk as the next version — for edits that happened outside easydocs. |
 | **Share** | Viewer | Creates and manages share links for this version (see [Sharing](#sharing)). |
 | **Download** | Viewer | Downloads the version; `?format=pdf` variants exist for published versions with a rendered PDF. |

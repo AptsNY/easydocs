@@ -481,8 +481,8 @@ the only thing that proves both halves of the restore landed.
     from happening by accident. **Do not raise that log level in production.**
 
 If you must debug WOPI, do it on a throwaway instance with throwaway documents, and treat the resulting
-logs as secret material. The tokens expire after 30 minutes, which limits the window but does not close
-it.
+logs as secret material. A token stops working once its edit session is closed or its user loses edit
+access, and otherwise expires after 12 hours, which limits the window but does not close it.
 
 `Logging__LogLevel__Default=Debug` is a different, safer knob — it raises easydocs' own application
 logging without turning on framework request logging. Prefer it.
