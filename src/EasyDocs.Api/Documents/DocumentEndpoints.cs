@@ -178,16 +178,6 @@ public static class DocumentEndpoints
         // look unchanged to EF and write nothing, while a concurrent save had moved the real row.
         var doc = await db.LockDocumentAsync(id, ctx.RequestAborted);
 
-        // Below the highest number already in the history, the next save would reuse one of them. Equal
-        // is fine: every number the counter can produce from there (draft, minor, major) is above it.
-        // Read under the lock, so a save cannot slip a higher version in between.
-        var highest = await db.Versions.Where(v => v.DocumentId == id)
-            .OrderByDescending(v => v.Major).ThenByDescending(v => v.Minor).ThenByDescending(v => v.Revision)
-            .Select(v => new { v.Major, v.Minor, v.Revision })
-            .FirstOrDefaultAsync(ctx.RequestAborted);
-        if (highest is not null && (req.Major, req.Minor, req.Rev).CompareTo((highest.Major, highest.Minor, highest.Revision)) < 0)
-            return Problem.Of(409, "Counter below history",
-                $"Version {highest.Major}.{highest.Minor}.{highest.Revision} already exists; the counter cannot go below it, or the next save would reuse a number.");
 
         doc.VersionCounterMajor = req.Major;
         doc.VersionCounterMinor = req.Minor;

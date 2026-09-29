@@ -22,7 +22,7 @@ unchanged document creates no version at all.
 | **Upload / import / edit-save** (a draft) | bumps `Z` — `0.0.1` → `0.0.2` → `0.0.3` |
 | **Publish minor** | `X.(Y+1).0` — `0.0.7` → `0.1.0` |
 | **Publish major** | `(X+1).0.0` — `0.0.7` → `1.0.0` |
-| **Manual override** | any three non-negative integers (including `0.0.0` on a document with no versions yet), as long as it is not below the highest number already in the history |
+| **Manual override** | any three non-negative integers, including `0.0.0` |
 
 A first upload is always **`0.0.1`**. Drafts stay in the revision digit until somebody publishes.
 
@@ -35,16 +35,16 @@ version currently sits at the head of a branch.**
 Two consequences fall straight out of that, and neither is possible with head-based numbering:
 
 - **Manual override works.** Set the counter to `2.4.0` and every subsequent draft continues from
-  there, regardless of which version sits at a branch head. It can jump forward freely; it cannot go
-  below the highest number already in the history (that is a `409`), because the next save would
-  then reuse a number.
+  there, regardless of what numbers already exist in the history.
 - **You can publish a version that is not the head.** Publishing renumbers *the version you selected*
   from the counter, and future drafts continue from the new counter. You do not have to make something
   the newest version in order to release it.
 
 Each draft save reads-and-increments the revision counter while holding a per-document row lock, so
-concurrent saves serialize and every version gets a distinct `Z`. No two versions ever collide on a
-number, even when two people save at the same instant.
+concurrent saves serialize and every version gets a distinct `Z`. No two saves ever collide on a
+number, even when two people save at the same instant. The one way to reuse a number is deliberate:
+winding the manual counter override back below the history (spec R5 allows any value), after
+which the next save takes the number that follows it.
 
 ### Download filenames
 

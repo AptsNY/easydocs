@@ -159,9 +159,6 @@ descriptions are **document** versions, produced by the versioning engine. They 
 - **Sending the same copy version back twice no longer opens two identical incoming branches.** A
   second push of a version that is already pending review or accepted is a `409`, including two
   racing requests from a double-click.
-- **The version counter can no longer be set below a number the history already holds** (`409`),
-  which let the next save create a second `0.0.1`. Jumping forward, and `0.0.0` on a document with no
-  versions, work as before.
 - **A share link cannot be created already expired** — an `expiresAt` in the past is a `400`, not a
   dead link.
 - **Reverting to the content that is already the head** returns `200` with the existing head and no

@@ -305,7 +305,7 @@ curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"name":"Counterparty review copy"}'
 
 # Manual version-counter override (R5) — note the field is `rev`, not `revision`.
-# 409 if it is below the highest version number the document already has.
+# Any values are accepted: winding it below the history makes the next save reuse a number.
 curl -sS -H "$AUTH" -H 'Content-Type: application/json' \
   -X PUT "$BASE/api/v1/documents/$DOC/version-counter" \
   -d '{"major":2,"minor":4,"rev":0}'
