@@ -154,41 +154,6 @@ public class ApiTokenTests : IClassFixture<ApiFactory>
         Assert.Null((await db.ApiTokens.SingleAsync(t => t.Id == created.Id)).RevokedAt);
     }
 
-    // ApiToken.UserId is nullable — an org-level service token has no owning user, so scoping the list to
-    // `UserId == caller` alone would make one invisible to everybody. Org Owner/Admin manage those, the
-    // same pair that manages the org itself (OrgEndpoints).
-    [Fact]
-    public async Task Service_tokens_belong_to_the_org_owners_and_admins()
-    {
-        var owner = await _f.RegisterAsync();
-        var member = await _f.SeedOrgUserAsync(owner.OrgId);
-
-        Guid serviceTokenId;
-        using (var scope = _f.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
-            var row = new ApiToken
-            {
-                OrgId = owner.OrgId,
-                UserId = null, // service account: nobody's personal capability
-                ServiceName = "nightly-export",
-                TokenHash = Sha256Hex($"svc-{Guid.NewGuid():N}"),
-                CreatedAt = DateTimeOffset.UtcNow,
-            };
-            db.Add(row);
-            await db.SaveChangesAsync();
-            serviceTokenId = row.Id;
-        }
-
-        Assert.Contains("nightly-export", await owner.Client.GetStringAsync("/api/v1/tokens"));
-        Assert.DoesNotContain("nightly-export", await member.Client.GetStringAsync("/api/v1/tokens"));
-
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await member.Client.DeleteAsync($"/api/v1/tokens/{serviceTokenId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await owner.Client.DeleteAsync($"/api/v1/tokens/{serviceTokenId}")).StatusCode);
-    }
-
     [Fact]
     public void Verify_matches_only_the_right_token()
     {

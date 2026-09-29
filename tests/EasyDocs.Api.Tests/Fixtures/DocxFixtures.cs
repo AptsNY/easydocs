@@ -32,6 +32,13 @@ public static class DocxFixtures
     }
 
     public static byte[] Build(params string[] paragraphs)
+        => Package(paragraphs.Select(p => new W.Paragraph(new W.Run(new W.Text(p)))).ToArray());
+
+    // One paragraph with a real <w:tab/> mid-run — a tab STOP, not a tab character in a text node.
+    public static byte[] WithTab(string before, string after)
+        => Package(new W.Paragraph(new W.Run(new W.Text(before), new W.TabChar(), new W.Text(after))));
+
+    private static byte[] Package(params W.Paragraph[] paragraphs)
     {
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
@@ -39,7 +46,7 @@ public static class DocxFixtures
             var main = doc.AddMainDocumentPart();
             var body = new W.Body();
             foreach (var p in paragraphs)
-                body.Append(new W.Paragraph(new W.Run(new W.Text(p))));
+                body.Append(p);
             main.Document = new W.Document(body);
 
             var styles = main.AddNewPart<StyleDefinitionsPart>();

@@ -17,10 +17,10 @@ public static class MfaEndpoints
         // Finishing a login burns nothing but a hash compare, but it IS a credential guess — same
         // budget as login itself (spec §11).
         g.MapPost("/api/v1/auth/login/mfa", FinishLogin).RequireRateLimiting(RateLimits.Auth);
-        g.MapGet("/api/v1/account/mfa", Status).RequireAuthorization();
-        g.MapPost("/api/v1/account/mfa/setup", Setup).RequireAuthorization();
-        g.MapPost("/api/v1/account/mfa/enable", Enable).RequireAuthorization();
-        g.MapPost("/api/v1/account/mfa/disable", Disable).RequireAuthorization();
+        g.MapGet("/api/v1/account/mfa", Status).RequireAuthorization().RequirePerson();
+        g.MapPost("/api/v1/account/mfa/setup", Setup).RequireAuthorization().RequirePerson();
+        g.MapPost("/api/v1/account/mfa/enable", Enable).RequireAuthorization().RequirePerson();
+        g.MapPost("/api/v1/account/mfa/disable", Disable).RequireAuthorization().RequirePerson();
     }
 
     public record FinishLoginRequest(string? MfaToken, string? Code);

@@ -44,10 +44,12 @@ public static class PasswordResetEndpoints
     // the vestigial personal org and still refuses anyone genuinely active on a second team.
     //
     // "Holds Owner or Admin elsewhere" fails for the same reason — everyone owns their personal org.
+    // Service accounts are not people and do not make an org a "team".
     private static Task<bool> OnAnotherTeamAsync(
         EasyDocsDbContext db, Guid uid, Guid thisOrg, CancellationToken ct) =>
         db.OrgMembers.AnyAsync(m => m.UserId == uid && m.OrgId != thisOrg
-            && db.OrgMembers.Count(x => x.OrgId == m.OrgId) > 1, ct);
+            && db.OrgMembers.Count(x => x.OrgId == m.OrgId
+                && db.Users.Any(u => u.Id == x.UserId && u.ManagedBy == null)) > 1, ct);
 
     // Kills every outstanding link for a user.
     //
@@ -108,9 +110,14 @@ public static class PasswordResetEndpoints
         db.Add(Audit.Event(orgId, null, callerId, "password_reset.issued", "user", uid.ToString(), null));
         await db.SaveChangesAsync(ct);
 
+        // Complete revokes these, so the admin learns it BEFORE sending the link: an integration running
+        // on this person's token otherwise dies with no warning. Expired ones already fail auth — not counted.
+        var live = db.ApiTokens.Where(t => t.UserId == uid && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > now));
+        var revokesApiTokens = new { count = await live.CountAsync(ct), lastUsedAt = await live.MaxAsync(t => t.LastUsedAt, ct) };
+
         // Relative, like ShareEndpoints' `/s/{token}`: synthesizing an absolute URL means trusting Host
         // or the forwarded headers behind the reverse proxy the README documents as the TLS terminator.
-        return Results.Ok(new { token, url = $"/password-reset/{token}", expiresAt = now + Lifetime });
+        return Results.Ok(new { token, url = $"/password-reset/{token}", expiresAt = now + Lifetime, revokesApiTokens });
     }
 
     public record CompleteRequest(string? Token, string? Password);

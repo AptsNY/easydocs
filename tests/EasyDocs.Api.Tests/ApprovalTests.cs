@@ -131,6 +131,26 @@ public class ApprovalTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
     }
 
+    // One immutable decision under concurrency: a respond racing a cancel (or another respond) leaves
+    // exactly one of them standing.
+    [Fact]
+    public async Task A_racing_respond_and_cancel_close_the_request_once()
+    {
+        var owner = await _f.RegisterAsync();
+        var docId = await owner.Client.CreateDocAsync("Doc");
+        var approver = await MemberAsync(owner, docId);
+        var (vid, _) = await owner.Client.UploadAsync(docId, DocxFixtures.Base());
+        await PublishAsync(owner, vid);
+        var id = (await RequestAsync(owner, vid, approver.UserId))[0].Id;
+
+        var codes = (await Task.WhenAll(
+            approver.Client.PostAsJsonAsync($"/api/v1/approvals/{id}:respond", new { decision = "approved" }),
+            approver.Client.PostAsJsonAsync($"/api/v1/approvals/{id}:respond", new { decision = "rejected" }),
+            owner.Client.PostAsJsonAsync($"/api/v1/approvals/{id}:cancel", new { }))).Select(r => r.StatusCode).ToList();
+        Assert.Equal(1, codes.Count(c => c == HttpStatusCode.OK));
+        Assert.Equal(2, codes.Count(c => c == HttpStatusCode.Conflict));
+    }
+
     [Fact]
     public async Task Cancel_closes_request()
     {

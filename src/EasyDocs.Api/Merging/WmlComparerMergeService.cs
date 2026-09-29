@@ -32,7 +32,7 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
         // three-way fuse of both authors over the ancestor is the deferred v1.1 enhancement in §5.3.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftVersionId, rightVersionId, ct);
         if (sides is null) return new MergeResult(false, null);
-        var (incoming, incomingBranch, mainHead, mainBranch) = sides;
+        var (incoming, _, mainHead, mainBranch) = sides;
 
         var incomingAuthor = await AuthorNameAsync(incoming.CreatedBy, ct);
 
@@ -56,9 +56,8 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
                 ExplicitBranchId: mainBranch.Id, BaseVersionId: mainHead.Id, MergeParentVersionId: incoming.Id),
             ct);
 
-        incomingBranch.MergedIntoVersionId = commit.VersionId; // close the merged concurrent branch
-        await db.SaveChangesAsync(ct);
-
+        // CommitSaveAsync closed the incoming branch (MergedIntoVersionId) inside its transaction, and
+        // refused with a 409 if main moved or the branch was merged while this comparison ran.
         bus.Publish(documentId, "merge.completed", new { mergeVersionId = commit.VersionId });
         return new MergeResult(true, commit.VersionId);
     }

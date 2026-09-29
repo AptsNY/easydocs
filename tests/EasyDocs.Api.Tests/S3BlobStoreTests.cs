@@ -14,9 +14,11 @@ namespace EasyDocs.Api.Tests;
 // Testcontainers approach the rest of the suite uses for Postgres.
 public sealed class MinioFixture : IAsyncLifetime
 {
-    // Pinned like postgres:16 in ApiFactory; this is the tag the builder itself documents.
+    // MinIO withdrew its community images from Docker Hub and quay.io (CI red since 2026-09-16:
+    // "pull access denied for minio/minio"). pgsty/minio is the community-maintained fork and a
+    // drop-in for MinioBuilder; pinned by digest so a re-pushed tag cannot change what CI runs.
     public MinioContainer Container { get; } =
-        new MinioBuilder("minio/minio:RELEASE.2023-01-31T02-24-19Z").Build();
+        new MinioBuilder("pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372").Build();
     public const string Bucket = "easydocs-test";
 
     public async Task InitializeAsync()
@@ -34,8 +36,8 @@ public sealed class MinioFixture : IAsyncLifetime
         {
             ServiceURL = Container.GetConnectionString(),
             ForcePathStyle = true,
-            // Same settings as S3BlobStore.FromConfiguration: the SDK's default trailing checksums
-            // are rejected by this MinIO release.
+            // Same settings as S3BlobStore.FromConfiguration, so the test client talks to the bucket
+            // exactly as the app does.
             RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
             ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED,
         });

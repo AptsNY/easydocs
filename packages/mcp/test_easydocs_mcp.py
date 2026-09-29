@@ -18,7 +18,7 @@ EXPECTED = {
     "list_documents", "get_document", "list_versions", "get_version", "compare_versions",
     "list_audit_events", "list_members", "list_publications", "preview_merge", "list_copies",
     "list_push_requests", "list_my_approvals", "list_version_approvals", "list_folders",
-    "whoami", "get_org", "list_my_orgs",
+    "whoami", "get_org", "list_my_orgs", "get_version_text",
 }
 
 

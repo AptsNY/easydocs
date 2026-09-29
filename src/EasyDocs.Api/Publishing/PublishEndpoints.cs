@@ -31,7 +31,9 @@ public static class PublishEndpoints
         if (failure is not null) return failure;
 
         var result = await svc.PublishAsync(version.DocumentId, vid, kind, req.Name?.Trim(), actor, ctx.RequestAborted);
-        return Results.Ok(result);
+        return result is null
+            ? Problem.Of(409, "Already published", "A published version can only be promoted from minor to major.")
+            : Results.Ok(result);
     }
 
     // The "Major Versions" list (E6): published versions only, newest first. Viewer+.

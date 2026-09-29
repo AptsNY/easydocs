@@ -139,7 +139,10 @@ export default function ActionsMenu({
       run: () => window.location.assign(`/api/v1/versions/${vid}/download`),
     },
     { label: 'Name', need: 'edit', run: () => setModal('name') },
-    { label: 'Publish', need: 'edit', run: () => setModal('publish') },
+    // Only a draft or a minor release can be published; the API 409s anything else (a major is final).
+    ...(version.publishedKind === 'major'
+      ? []
+      : [{ label: 'Publish', need: 'edit' as Need, run: () => setModal('publish') }]),
     // No confirmation: a revert commits the target's bytes as a NEW head and touches no existing version
     // (E11), so there is nothing to lose and nothing to confirm.
     { label: 'Revert', need: 'edit', run: () => void act(() => api.post(`/api/v1/versions/${vid}/revert`)) },
@@ -330,8 +333,13 @@ export default function ActionsMenu({
                 Versions.
               </p>
               <label htmlFor={`${fieldId}-kind`}>Kind</label>
-              <select id={`${fieldId}-kind`} name="kind" defaultValue="minor">
-                <option value="minor">minor</option>
+              {/* A minor release can only be promoted; offering "minor" again would be a 409. */}
+              <select
+                id={`${fieldId}-kind`}
+                name="kind"
+                defaultValue={version.publishedKind === 'minor' ? 'major' : 'minor'}
+              >
+                {version.publishedKind !== 'minor' && <option value="minor">minor</option>}
                 <option value="major">major</option>
               </select>
               <label htmlFor={`${fieldId}-publish-name`}>Publish name</label>

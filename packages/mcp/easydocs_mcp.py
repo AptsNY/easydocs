@@ -17,7 +17,7 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
-# The seventeen tools. Keys are "METHOD path" exactly as they appear in the OpenAPI document. The
+# The eighteen tools. Keys are "METHOD path" exactly as they appear in the OpenAPI document. The
 # document has no operationIds (minimal APIs emit none without .WithName), so names live here — the
 # table in the spec and this dict are the same thing.
 NAMES = {
@@ -25,6 +25,7 @@ NAMES = {
     "GET /api/v1/documents/{id}": "get_document",
     "GET /api/v1/documents/{id}/versions": "list_versions",
     "GET /api/v1/versions/{vid}": "get_version",
+    "GET /api/v1/versions/{vid}/text": "get_version_text",
     "GET /api/v1/documents/{id}/compare": "compare_versions",
     "GET /api/v1/documents/{id}/audit": "list_audit_events",
     "GET /api/v1/documents/{id}/members": "list_members",

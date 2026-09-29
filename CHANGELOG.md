@@ -19,11 +19,20 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **Read a version's text over the API and MCP** — `GET /api/v1/versions/{vid}/text` returns one
+  version's plain text, exposed as the `get_version_text` MCP tool, so an agent can answer "what does
+  this document say?" and not only "what happened to it?". A version that is not a `.docx` answers
+  409 naming what its bytes actually are — the answer `download` already gives for a version with no
+  PDF — rather than an empty string a reader would take for a blank document. Paragraph boundaries
+  now extract as newlines, so a long agreement reads as paragraphs instead of one line — a change
+  invisible to content search, which tokenizes both the same way.
+
 - **An operator can recover an account no admin can reach.**
   `deploy/scripts/issue-password-reset.sh <email>` issues a reset link straight from the database,
   for the cases the admin-issued flow deliberately refuses — the sole owner of an organization, and
   anyone active on a second one. It writes a reset row rather than a password hash, so the link runs
   through the same endpoint as any other and cannot drift out of step with how passwords are hashed.
+
 - **A locked-out member can be given their account back.** Until now there was no password reset at
   all: a forgotten password meant an operator writing an Argon2id hash into the `Users` table by hand.
   An org Owner (or an Admin, for a plain Member) now mints a single-use link from **Settings →
@@ -36,7 +45,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
   Admin, and anyone active on a second organization is refused outright: a reset is full account
   takeover, not access to one org. Read
   [the limitations](SECURITY.md#known-v1-limitations-not-vulnerabilities) before relying on it — a
-  sole Owner still cannot be recovered this way.
+  sole Owner still cannot be recovered this way. Minting a link reports how many working tokens
+  consuming it will revoke (`revokesApiTokens`), and Settings warns before the link is sent, so an
+  integration running on that person's token is not broken by surprise.
 - **easydocs can be used from AI coding agents.** `packages/mcp/easydocs_mcp.py` is a read-only
   [MCP](https://modelcontextprotocol.io) server generated from the install's own `/openapi/v1.json`:
   seventeen tools covering documents, history, redlines, audit trails, approvals and folders, for
@@ -90,8 +101,42 @@ descriptions are **document** versions, produced by the versioning engine. They 
   to the platform's private ECR via GitHub OIDC, and rolls the service with zero downtime via the
   shared `AptsNY/infra-platform` deploy workflow. Fires on `v*` tags and manual dispatch. Only
   relevant to that install; self-hosters' release pipeline (GHCR, cosign) is untouched.
+- **Service accounts: integrations get an identity no person can lose.** An org Owner or Admin creates
+  one in **Settings → Service accounts**; it cannot sign in, joins documents by its email like a person
+  (at most as Editor), and only the person who created it can mint its tokens. Resetting anyone's
+  password — including its manager's — no longer breaks the integration running on it. Its tokens
+  cannot mint sessions, invitations or share links, and it cannot be named an approver. RFC #60.
+  **Before rolling back to an earlier image**, delete your service accounts (or revoke their tokens):
+  older code has no service-account checks, so a live service token there could open a session.
 
 ### Fixed
+
+- **A merge can no longer silently drop a save that landed while it was being prepared.** The merge
+  compares against the main head it read seconds earlier; if main moved meanwhile, it is now refused
+  with `409` ("review the merge again") instead of committing over the newer save — and likewise if the
+  incoming branch itself moved during review, which would have stranded its newer save on a branch
+  marked merged. Two people pressing
+  Merge on the same branch now get one merge and one `409`, not the branch merged twice.
+- **Racing push-request accepts produce one accepted push**, not `500`s or a second materialized
+  version, and an accept racing a reject can no longer leave a "rejected" push in the target's history.
+- **An approval decision stays immutable under concurrency:** a respond racing a cancel (or another
+  respond) leaves exactly one standing. A requester removed from the document can no longer cancel.
+- **An editor session pinned to a branch that has since been merged** opens a fresh branch on its
+  next save instead of piling saves onto one that can never be merged again.
+
+- **Concurrent saves no longer share a version number.** The per-document lock serialized the
+  database, but the code under it read a copy of the document loaded before the lock, so concurrent
+  uploads or editor saves incremented the same stale counter (six at once produced two numbers). The
+  same stale read let concurrent publishes of one version all succeed, and could make a manual counter
+  override silently write nothing.
+- **Saving twice from one editing session no longer forks a branch.** A Collabora or desktop-Word
+  session's base never advanced, so its second save looked stale and opened a concurrent branch —
+  main stopped updating after one save — and the editor re-fetched the session's opening bytes.
+- **Publishing an already-published version is refused (409).** A double-click or retry renumbered a
+  released version (1.0.0 became 2.0.0). Promoting a minor release to major still works; the Actions
+  menu offers only that.
+- **A failed PDF render is retried instead of silently dropped**, and the job lease (now 5 minutes)
+  outlasts a slow render so a second instance cannot start the same render mid-run.
 
 - **A lost redline-cache insert race no longer leaves the cache permanently unfilled.** When an
   inline compare lost the `version_diffs` insert race to the summary worker, the computed HTML

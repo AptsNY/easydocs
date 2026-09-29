@@ -40,20 +40,6 @@ public sealed class PushService(EasyDocsDbContext db, VersioningService versioni
         var forkPoint = await db.Documents.Where(d => d.Id == pr.CopyDocumentId)
             .Select(d => d.ForkedFromVersionId).FirstAsync(ct);
 
-        var maxOrdinal = await db.Branches.Where(b => b.DocumentId == pr.TargetDocumentId)
-            .MaxAsync(b => b.Ordinal, ct);
-        var branch = new Branch
-        {
-            Id = Guid.NewGuid(),
-            DocumentId = pr.TargetDocumentId,
-            Ordinal = maxOrdinal + 1,
-            Kind = BranchKind.IncomingPush,
-            RootVersionId = forkPoint,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.Add(branch);
-        await db.SaveChangesAsync(ct); // CommitSaveAsync resolves ExplicitBranchId with a DB query
-
         var size = await db.Blobs.Where(b => b.Sha256 == source.BlobSha256).Select(b => b.SizeBytes).FirstAsync(ct);
 
         // Through the single write path (spec §5.2), so the target's counter, the version.created audit row
@@ -62,7 +48,7 @@ public sealed class PushService(EasyDocsDbContext db, VersioningService versioni
         // summary against the content the reviewer actually started from.
         var commit = await versioning.CommitSaveAsync(
             new CommitInput(pr.TargetDocumentId, source.BlobSha256, size, VersionSource.CopyPush, pr.PushedBy,
-                ExplicitBranchId: branch.Id, BaseVersionId: forkPoint), ct);
+                NewBranchKind: BranchKind.IncomingPush, BaseVersionId: forkPoint), ct);
 
         pr.MaterializedVersionId = commit.VersionId;
         return commit.VersionId;

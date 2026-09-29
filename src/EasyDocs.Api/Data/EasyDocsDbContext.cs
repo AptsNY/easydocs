@@ -5,6 +5,18 @@ namespace EasyDocs.Api.Data;
 
 public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : DbContext(options)
 {
+    // Takes the per-document row lock (spec §5.1) and returns the row as it is NOW. Every caller
+    // authorizes first, which tracks this row in the same context, and EF never refreshes a tracked
+    // entity from a later query: without the reload the counter under the lock is the pre-lock value,
+    // and concurrent saves share a version number.
+    public async Task<Document> LockDocumentAsync(Guid id, CancellationToken ct)
+    {
+        await Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {id} FOR UPDATE", ct);
+        var doc = await Documents.FirstAsync(d => d.Id == id, ct);
+        await Entry(doc).ReloadAsync(ct);
+        return doc;
+    }
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<User> Users => Set<User>();
     public DbSet<OrgMember> OrgMembers => Set<OrgMember>();
@@ -49,6 +61,7 @@ public class EasyDocsDbContext(DbContextOptions<EasyDocsDbContext> options) : Db
         {
             e.Property(x => x.Email).HasColumnType("citext");
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasOne(x => x.Manager).WithMany().HasForeignKey(x => x.ManagedBy).OnDelete(R);
         });
 
         b.Entity<OrgMember>(e =>

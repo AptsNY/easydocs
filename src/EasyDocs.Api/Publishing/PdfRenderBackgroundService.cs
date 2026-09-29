@@ -48,7 +48,10 @@ public sealed class PdfRenderBackgroundService(
 
         await using var docx = await blobs.OpenReadAsync(version.BlobSha256, ct);
         var pdf = await renderer.RenderToBlobAsync(docx, ct);
-        if (pdf is null) return; // guard: soffice absent/failed — leave PdfBlobSha256 null
+        // Throw, don't return: returning consumes the job, so one soffice hiccup left the publication
+        // without a PDF forever. Throwing leaves the row for the queue to retry (and drop loudly at the cap).
+        ct.ThrowIfCancellationRequested(); // shutdown mid-render is a cancellation, not a render failure
+        if (pdf is null) throw new InvalidOperationException($"PDF render failed for version {versionId}.");
 
         // Versions.PdfBlobSha256 is a foreign key onto `blobs`, so the row has to exist before we
         // point at it. The renderer only writes the content-addressed file; registering the blob is

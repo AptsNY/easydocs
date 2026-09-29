@@ -1,22 +1,12 @@
 name: deploy-aws
-# Deploys easydocs onto AptsNY's shared ECS Fargate platform (AptsNY/infra-platform).
-#
-# Split from release.yml on purpose: a version tag first has to pass release.yml's verify
-# gate to become a public GHCR release, and this workflow deploys the same commit to
-# easydocs.aptsny.net. The image here goes to the platform's private ECR (immutable,
-# per-commit tags — the task definition pins :<sha>, never a mutable version tag), built
-# amd64-only because Fargate is; the multi-arch GHCR image stays the self-hosters' artifact.
-#
-# Auth is GitHub OIDC against the platform's per-app deploy role — no stored AWS keys.
-# The role trusts refs/heads/main and refs/tags/v* (tofu/iam_app_roles.tf + the easydocs
-# deploy_refs entry in the platform repo), which is exactly this workflow's trigger set.
+# Manual rollback deploy for AptsNY's parked ECS Fargate service. Production releases use
+# deploy-gcp.yml after infra-platform#104. Revert that cutover before dispatching this workflow.
+# Auth is GitHub OIDC against the platform's per-app deploy role; no stored AWS keys.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       smoke_url:
-        description: "Public URL curled after rollout (expects 2xx/3xx). Clear it before the DNS cutover — easydocs.aptsny.net does not resolve yet."
+        description: "Public URL curled after rollback (expects 2xx/3xx)."
         required: false
         type: string
         default: "https://easydocs.aptsny.net/health/ready"
