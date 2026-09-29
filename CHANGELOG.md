@@ -111,6 +111,38 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Fixed
 
+- **A merge no longer proposes undoing main's edits.** When main moved on after a branch forked (A
+  saves "monthly" → "quarterly", B edits another clause on the older version), the merge used to
+  compare main against B's version directly, so A's edit came back as a tracked *reversion* attributed
+  to B — and Accept All quietly undid it, while the review screen said only B's changes were landing.
+  The merge now folds only B's own changes since the fork point onto main, paragraph by paragraph:
+  main's edits stay as clean, untracked text. Paragraphs are compared by what they say and how they
+  look (text, visible formatting, style, list format, link and image targets), not by their XML —
+  every save from the browser editor rewrites the XML of paragraphs nobody touched, and must not read
+  as an edit. Where both sides changed the same paragraph differently,
+  B's paragraph is proposed over main's as a tracked change. The review screen now runs the merge dry,
+  so its list of "paragraphs both sides changed" is exactly what the merge settles (it used to be a
+  separate, per-paragraph hint that missed tables). Whatever the merge cannot get right it now
+  **refuses** with `409` "Merge unavailable" — and the review disables Merge beforehand — rather than
+  guess: both sides editing the same table or content control, one side reformatting a paragraph the
+  other reworded, changes among repeated identical paragraphs (blank lines, repeated signature lines)
+  whose placement is ambiguous, a paragraph one side moved and the other edited, an incoming change to
+  footnotes, endnotes or a displayed header or footer, an incoming link or image main does not share,
+  and very large rewrites (about 2000 changed paragraphs). Body-level bookmarks (pandoc writes them
+  between paragraphs; the editor moves them inside) are no longer mistaken for edits.
+  **Formatting outside the compared set is not merged**, in either direction. The compared set is
+  bold/italic/underline/strike/caps/size/colour/highlight/super- and subscript, paragraph style,
+  alignment and list format. From the incoming version, a change that is only to fonts, spacing,
+  indents, table layout, theme colours or small caps is not carried over — nor are the incoming side's
+  table borders or column widths in a table it edited (only its text lands). And in a paragraph or table
+  the incoming side edited, main's own fonts, theme colours, small caps and cell widths can revert to
+  the incoming version's (main's paragraph indents/spacing are kept unless the incoming side changed
+  the same property, and main's table column widths are kept) — the
+  same as the two-way merge did before. Also not carried over: page/section setup, new style or list
+  definitions. **Every merge drops comments and bookmarks** — and with them internal
+  cross-reference links (a pandoc table of contents, "see section 3") — on the old two-way path too. A branch with no recorded
+  fork point (legacy rows) still gets the old two-way compare, and the review screen says what that
+  means.
 - **The HTML redline shows each deletion where it happened.** It used to collect every deletion at
   the end of its paragraph (`…<ins>quarterly</ins> in <ins>arrears</ins> …office.<del>monthly</del><del>advance</del>`),
   so a reader could not tell what replaced what. Redlines are cached by content, so each render is

@@ -1,11 +1,8 @@
-using Clippit;
-using Clippit.Word;
 using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Versioning;
-using Microsoft.EntityFrameworkCore;
 
 namespace EasyDocs.Api.Merging;
 
@@ -18,11 +15,12 @@ public sealed class MergePreviewService(
     public record BaseSide(Guid Id, string Number);
     public record VersionSide(Guid Id, string Number, string AuthorName, ChangeSummary? Summary);
 
-    // Available == can main <-> incoming be compared, i.e. WILL the merge work. Every other field
-    // degrades on its own: a failed base leg costs a panel, not the merge.
+    // Available == WILL the merge work (it runs the merge dry). Overlaps == the ancestor blocks both
+    // sides changed, as the merge settled them; null when the merge would refuse or there is no fork
+    // point. The leg summaries degrade on their own: a failed base leg costs a panel, not the merge.
     public record Preview(
         bool Available, BaseSide? Base, VersionSide Main, VersionSide Incoming,
-        IReadOnlyList<ThreeWayOverlap.Paragraph>? Overlaps);
+        IReadOnlyList<ThreeWayMerge.Overlap>? Overlaps);
 
     // null => the merge cannot be attempted at all; the endpoint turns that into the same 409 the POST
     // would have returned.
@@ -45,79 +43,51 @@ public sealed class MergePreviewService(
         // needs its own decision.
         var sides = await MergeSides.ResolveAsync(db, documentId, leftId, rightId, ct);
         if (sides is null) return null;
-        var (incoming, incomingBranch, mainHead, _) = sides;
+        var (incoming, _, mainHead, _, baseVersion) = sides;
 
         var names = await AuthorNames.ForAsync(db, [mainHead.CreatedBy, incoming.CreatedBy], ct);
         string Who(Guid id) => names.GetValueOrDefault(id, AuthorNames.Unknown);
         static string Num(Domain.DocumentVersion v) => $"{v.Major}.{v.Minor}.{v.Revision}";
 
-        // Does the merge itself have a chance? Same pair, same engine, same bytes as MergeAsync — so
-        // this predicts the merge exactly rather than guessing at it.
-        var mergeable = await diff.SummaryAsync(mainHead.BlobSha256, incoming.BlobSha256, ct);
-
-        // The fork point. Always present for a Concurrent branch (CommitSaveAsync only creates one when
-        // BaseVersionId is set); null is the guard for IncomingPush and legacy rows.
-        var baseVersion = incomingBranch.RootVersionId is { } rootId
-            ? await db.Versions.FirstOrDefaultAsync(v => v.Id == rootId, ct)
-            : null;
-
         if (baseVersion is null)
+        {
+            // No fork point: the merge is the two-way Compare(main, incoming), so that is what to predict.
+            var mergeable = await diff.SummaryAsync(mainHead.BlobSha256, incoming.BlobSha256, ct);
             return new Preview(
                 mergeable.Available, null,
                 new VersionSide(mainHead.Id, Num(mainHead), Who(mainHead.CreatedBy), null),
                 new VersionSide(incoming.Id, Num(incoming), Who(incoming.CreatedBy), null),
                 null);
+        }
 
         var mainLeg = await diff.SummaryAsync(baseVersion.BlobSha256, mainHead.BlobSha256, ct);
         var incomingLeg = await diff.SummaryAsync(baseVersion.BlobSha256, incoming.BlobSha256, ct);
+        // The merge itself, dry: the same fold and the same Compare MergeAsync runs, on the same bytes, so
+        // `available` predicts the POST exactly and the overlaps ARE the blocks the merge settles.
+        var merge = await MergeAsync(baseVersion.BlobSha256, mainHead.BlobSha256, incoming.BlobSha256, ct);
 
         return new Preview(
-            mergeable.Available,
+            merge is not null,
             new BaseSide(baseVersion.Id, Num(baseVersion)),
             new VersionSide(mainHead.Id, Num(mainHead), Who(mainHead.CreatedBy), Summary(mainLeg)),
             new VersionSide(incoming.Id, Num(incoming), Who(incoming.CreatedBy), Summary(incomingLeg)),
-            // Overlap needs BOTH base legs to have compared; without both there is nothing to intersect.
-            mainLeg.Available && incomingLeg.Available
-                ? await OverlapsAsync(baseVersion.BlobSha256, mainHead.BlobSha256, incoming.BlobSha256, ct)
-                : null);
+            merge?.Overlaps);
     }
 
     private static ChangeSummary? Summary(WmlComparerDiffService.DiffSummary s) =>
         s.Available ? new ChangeSummary(s.Insertions, s.Deletions, s.Moves, s.FormatChanges) : null;
 
-    // Re-runs both base comparisons to get the compared PACKAGES — SummaryAsync only returns counts, and
-    // the walker needs the XML. Not cached: the redline cache stores rendered html/docx, not the
-    // in-memory WmlDocument, and adding a third cached artefact for a screen this size is not worth it.
-    //
-    // ponytail: these two Compare calls DUPLICATE the two SummaryAsync just ran — five full comparisons
-    // per preview, where three would do. Worse than it looks: WmlComparerDiffService.SummaryAsync does not
-    // read the version_diffs cache at all (the cache-first path lives in its caller,
-    // DocumentEndpoints.Compare, which this bypasses), so base->main is recomputed even though
-    // DiffSummaryWorker almost certainly cached it already. Nothing rate-limits this endpoint, so it is
-    // the most expensive authenticated GET in the app — amplifying /compare's existing exposure rather
-    // than adding a new one.
-    //
-    // Ceiling accepted for now because it is correct and the screen is not hot. Upgrade path, in order:
-    // hoist both base comparisons into BuildAsync, derive the leg summaries from them with
-    // WmlComparer.GetRevisions, and hand the compared documents straight to ThreeWayOverlap.Find — five
-    // compares becomes three and the version_diffs write leaves the GET path. Then, if still needed,
-    // .RequireRateLimiting on the endpoint.
-    private async Task<IReadOnlyList<ThreeWayOverlap.Paragraph>?> OverlapsAsync(
-        string baseSha, string mainSha, string incomingSha, CancellationToken ct)
+    // null when the merge would refuse (409 "Merge unavailable").
+    private async Task<ThreeWayMerge.Result?> MergeAsync(string baseSha, string mainSha, string incomingSha, CancellationToken ct)
     {
         try
         {
-            var b = await ReadAsync(baseSha, ct);
-            var main = WmlComparer.Compare(new WmlDocument("base.docx", b),
-                new WmlDocument("main.docx", await ReadAsync(mainSha, ct)), new WmlComparerSettings());
-            var incoming = WmlComparer.Compare(new WmlDocument("base.docx", b),
-                new WmlDocument("incoming.docx", await ReadAsync(incomingSha, ct)), new WmlComparerSettings());
-            return ThreeWayOverlap.Find(main, incoming);
+            return WmlComparerMergeService.Merge(await ReadAsync(baseSha, ct), await ReadAsync(mainSha, ct),
+                await ReadAsync(incomingSha, ct), "preview");
         }
         catch (Exception ex)
         {
-            // Degrade, never throw: the redlines and counts are still worth showing without the hint.
-            log.LogWarning(ex, "Three-way overlap failed for {Base}/{Main}/{Incoming}", baseSha, mainSha, incomingSha);
+            log.LogInformation(ex, "Merge unavailable for {Base}/{Main}/{Incoming}", baseSha, mainSha, incomingSha);
             return null;
         }
     }

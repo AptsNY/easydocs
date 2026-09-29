@@ -141,14 +141,14 @@ export default function MergeReview() {
             </p>
           )}
 
-          {/* null (could not be computed) and [] (computed, no overlap) both render nothing here —
-              neither is a warning, and conflating them would turn "nothing to report" into "look, an
-              empty problem". */}
+          {/* null (no fork point, or the merge would refuse) and [] (nothing both sides changed) both
+              render nothing here. When present, this is not a hint: the preview runs the merge dry, so
+              these are exactly the blocks the merge settles. */}
           {preview.overlaps && preview.overlaps.length > 0 && (
             <div data-testid="merge-overlaps" className="merge-overlaps">
               <h3>
                 {preview.overlaps.length} paragraph{preview.overlaps.length === 1 ? '' : 's'} both sides
-                touched
+                changed
               </h3>
               <ul>
                 {preview.overlaps.map((o) => (
@@ -156,7 +156,8 @@ export default function MergeReview() {
                 ))}
               </ul>
               <p className="muted">
-                A hint, not a guarantee — body-text paragraphs only. Review the changes below.
+                Where the two versions of one of these differ, {preview.incoming.authorName}’s is
+                proposed in place of main’s as a tracked change — reject it to keep main’s wording.
               </p>
             </div>
           )}
@@ -168,15 +169,35 @@ export default function MergeReview() {
 
           {!preview.available && (
             <p data-testid="merge-unavailable" role="alert" className="error">
-              Comparison failed — download both versions and merge manually.
+              These versions cannot be merged automatically — download both and merge them manually.
+              {preview.base &&
+                ' This happens when both sides changed the same table, when one side reformatted a paragraph the other reworded, when changes land among repeated identical paragraphs, when one side moved a paragraph the other edited, or when the incoming version changed footnotes, headers, links or images this version does not share.'}
             </p>
           )}
 
-          <p>
-            Merging lands {preview.incoming.authorName}’s changes onto main as Word tracked changes.
-            Nothing on either side is discarded, and the merge can be reverted afterward like any other
-            version.
-          </p>
+          {preview.base ? (
+            <p data-testid="merge-outcome">
+              Merging lands {preview.incoming.authorName}’s changes since{' '}
+              <code>{preview.base.number}</code> onto main as Word tracked changes. Main’s wording and
+              its visible formatting stay as they are
+              {preview.overlaps && preview.overlaps.length > 0 ? ', except as listed above' : ''}. Finer
+              formatting is not merged: in a paragraph or table {preview.incoming.authorName} edited,
+              main’s fonts, theme colours, small caps and cell widths can come back as{' '}
+              {preview.incoming.authorName}’s version had them, and their changes that are only to
+              fonts, spacing, indents or table layout are not carried over, nor is their table layout
+              (borders, column widths) in a table they edited — nor are their page setup,
+              new styles or comments. Every merge also drops comments and bookmarks (so links to
+              places inside the document stop working). Both versions stay in history, and the merge can be reverted
+              afterward like any other version.
+            </p>
+          ) : (
+            <p data-testid="merge-outcome">
+              {/* No fork point: the merge falls back to a two-way compare (WmlComparerMergeService). */}
+              Without a fork point, every difference between main and{' '}
+              {preview.incoming.authorName}’s version is shown as their tracked change — including
+              undoing edits main has that their version lacks. Review each change before accepting.
+            </p>
+          )}
 
           <div className="merge-actions">
             <button type="button" onClick={() => navigate(`/documents/${id}`)}>

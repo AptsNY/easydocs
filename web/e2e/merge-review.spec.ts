@@ -44,8 +44,8 @@ test('the review names the fork point and both sides', async ({ signedIn: page }
 })
 
 // The feature's headline behaviour: when both authors touched the same paragraph, that has to surface
-// BEFORE the merge commits anything, not as a surprise inside the redline afterward. It is explicitly a
-// hint rather than a conflict marker, and the screen has to say so.
+// BEFORE the merge commits anything, not as a surprise inside the redline afterward. The preview runs
+// the merge dry, so the list is exactly what the merge settles, and the screen says what it will do.
 test('the overlap hint names the shared paragraph both sides edited', async ({ signedIn: page }) => {
   const documentId = await raceConcurrentBranch(page, 'Shared Paragraph')
   await page.goto(`/documents/${documentId}`)
@@ -54,7 +54,9 @@ test('the overlap hint names the shared paragraph both sides edited', async ({ s
   const overlaps = page.getByTestId('merge-overlaps')
   await expect(overlaps).toBeVisible()
   await expect(overlaps).toContainText('Bravo')
-  await expect(overlaps).toContainText('A hint, not a guarantee')
+  // ...and what the merge will do there: incoming's paragraph is proposed over main's, not silently.
+  await expect(overlaps).toContainText('proposed in place of main’s')
+  await expect(page.getByTestId('merge-outcome')).toContainText('except as listed above')
 })
 
 // Cancel has to be a real cancel: back at the console, the branch is still unmerged and still offers

@@ -97,8 +97,9 @@ export type ChangeSummary = {
 // GET /api/v1/documents/{id}/merges/preview — the three-way review (spec:
 // 2026-08-24-three-way-merge-review-design.md). Every field degrades on its own: `base` null means the
 // fork point is unknown and the review falls back to a two-way preview; a null `summary` means that leg
-// could not be compared; null `overlaps` means the hint is unavailable. Only `available: false` means
-// the MERGE would fail.
+// could not be compared; `overlaps` are the ancestor blocks both sides changed, exactly as the merge
+// settles them (null with no fork point, or when the merge would refuse). Only `available: false`
+// means the MERGE would fail.
 export type MergeSideRow = {
   id: string
   number: string

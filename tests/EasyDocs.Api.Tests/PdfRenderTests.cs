@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
+[Collection(SofficeCollection.Name)]
 public class PdfRenderTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _f;

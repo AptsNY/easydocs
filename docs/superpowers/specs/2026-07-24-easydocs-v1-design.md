@@ -145,6 +145,28 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 > allowed to disagree silently. Full rationale:
 > `docs/superpowers/specs/2026-08-24-three-way-merge-review-design.md`.
 
+> **Fix (2026-09-29): the fork point is now a merge input.** A plain `Compare(mainHead, incoming)` shows
+> every way main differs from the incoming head as the incoming author's change — so edits main made
+> after the fork, which the branch never had, came back as tracked *reversions* by the incoming author.
+> The merge now first folds only `ancestor → incoming` onto main, block by block
+> (`Merging/ThreeWayMerge.cs`), then runs `Compare(mainHead, folded)`. Same endpoint, same single
+> author, same committed shape; main's content is the clean base as this section always intended.
+> Blocks are compared by meaning (text, visible run formatting, style, list format, link/image targets —
+> `Merging/DocxMeaning.cs`), not markup: every Collabora save rewrites untouched paragraphs' XML.
+> Where both sides changed one paragraph's words differently the incoming paragraph is proposed over main's,
+> and the preview (which runs the same merge dry) lists it. Anything the fold cannot guarantee is a
+> `409` "merge unavailable": both sides in one table or content control, reformat-vs-reword,
+> ambiguous changes among repeated identical paragraphs, move-vs-edit, incoming footnote/endnote/header/footer changes, incoming
+> links/images main does not share, oversized rewrites. Incoming page setup and new styles are not
+> carried; comments and bookmarks (so internal cross-reference links) are dropped by every merge,
+> because `WmlComparer.Compare` strips them. Formatting outside the compared set (fonts, theme colours, small caps, spacing,
+> indents, table layout) is not merged either way: an incoming change that is only that is dropped,
+> and in a block the incoming side edited main's run fonts/theme colours/small caps and cell widths can
+> revert (main's paragraph properties are carried three-way — the incoming side's wins where both changed
+> the same property — and main's table properties and grid are kept, so the incoming side's own table
+> borders/widths in a table it edited are not carried). Body-level range markers are anchored
+> into paragraphs before aligning. With no fork point (legacy rows) the two-way compare remains the fallback.
+
 > **[D] Merge-model decision (M1).** The original "run `WmlComparer` on `base→left` and `base→right` and consolidate both authors' revisions over the common ancestor" was found **not implementable** with the OSS comparer (Clippit/OpenXmlPowerTools): `WmlComparer.Compare` flattens any pre-existing revisions and stamps exactly one `AuthorForRevisions` per call, so dual-author tracked changes over a shared ancestor cannot be produced by chaining, and chaining makes the first author's edits appear as the second author's *deletions* (misleading). We therefore adopt **merge-into-main**: the first author's edits are the accepted base, the incoming branch comes in as a clean single-author redline. Nothing is lost (both branch versions persist in history). The "both-authors-over-common-ancestor" redline (a manual XML fuse of two `Compare(base, side)` revision sets) is a possible **future enhancement**, not v1.
 
 ---
