@@ -5,6 +5,7 @@ using EasyDocs.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EasyDocs.Api.Tests;
@@ -378,6 +379,52 @@ public class PasswordResetTests : IClassFixture<ApiFactory>
     }
 
     private record SvcDto(Guid UserId, string Email);
+
+    // The operator script itself, run against this suite's database: the link it prints works, the
+    // issuance is audited, and the accounts it must refuse are refused. The C#-side recipe tests above
+    // cannot catch a drift in the script's openssl/cut/SQL — this does.
+    [Fact]
+    public async Task The_operator_script_issues_a_working_audited_link_and_refuses_what_it_must()
+    {
+        var owner = await _f.RegisterAsync();
+        var (code, stdout, stderr) = await RunScriptAsync(owner.Email);
+        Assert.True(code == 0, stderr);
+        var token = stdout.Split('\n').Select(l => l.Trim())
+            .First(l => l.StartsWith("http://x/password-reset/", StringComparison.Ordinal))["http://x/password-reset/".Length..];
+        Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(token, "set-by-the-real-script")).StatusCode);
+        using (var scope = _f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+            Assert.True(await db.AuditEvents.AnyAsync(a => a.OrgId == owner.OrgId && a.Action == "password_reset.issued"
+                && a.TargetId == owner.UserId.ToString() && a.ActorUserId == null));
+        }
+
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/org/service-accounts", new { name = "ingest" });
+        var svc = (await created.Content.ReadFromJsonAsync<SvcDto>())!;
+        Assert.NotEqual(0, (await RunScriptAsync(svc.Email)).Code);
+
+        var ssoOnly = await _f.RegisterAsync();
+        await _f.ClearPasswordHashAsync(ssoOnly.UserId);
+        Assert.NotEqual(0, (await RunScriptAsync(ssoOnly.Email)).Code);
+    }
+
+    private async Task<(int Code, string Stdout, string Stderr)> RunScriptAsync(string email)
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "easydocs.slnx"))) root = Path.GetDirectoryName(root)!;
+        var psi = new System.Diagnostics.ProcessStartInfo("bash")
+        {
+            ArgumentList = { Path.Combine(root, "deploy", "scripts", "issue-password-reset.sh"), email },
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            Environment = { ["DB_CONTAINER"] = _f.PostgresContainerId, ["POSTGRES_USER"] = "postgres",
+                            ["POSTGRES_DB"] = "postgres", ["BASE_URL"] = "http://x" },
+        };
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        return (p.ExitCode, await stdout, await stderr);
+    }
 
     // The helper the operator script's SQL is modelled on.
     private async Task SeedResetRowAsync(Guid userId, Guid orgId, string tokenHash)

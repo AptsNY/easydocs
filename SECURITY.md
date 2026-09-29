@@ -193,7 +193,8 @@ no email, so a reset is a link an Owner or Admin mints and relays out of band; t
 rather than offering a "Forgot password?" button that could not work. Three groups are out of reach:
 the **sole Owner** of an org, because nobody else can mint them a link; anyone **active on a second
 team** (a second org that has other members in it), because the cross-org gate refuses them; and any
-**SSO-only account**, which has no password to reset. For the first two, the answer is
+**SSO-only account**, which has no password to reset (recover it at the identity provider; the
+operator script refuses it too). For the first two, the answer is
 `deploy/scripts/issue-password-reset.sh`, which needs database access and issues a link through the
 very same endpoint — see
 [the self-hosting guide](docs-site/docs/self-hosting.md#locked-out-password-reset-for-an-operator).

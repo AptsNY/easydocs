@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Break-glass password reset for an operator with database access.
 #
-# easydocs' normal reset is admin-issued: an org owner mints a link from Settings → Members. Some
+# easydocs' normal reset is admin-issued: an org Owner (or an Admin, for a plain Member) mints a link
+# from Settings → Members. Some
 # accounts cannot be reached that way, by design —
 #
 #   * the SOLE OWNER of an organization, because there is nobody else who could issue the link;
@@ -22,7 +23,8 @@
 #   deploy/scripts/issue-password-reset.sh someone@example.com
 #
 #   # anywhere else — managed Postgres, a bastion, a one-off task inside the VPC:
-#   DATABASE_URL='postgresql://user:pw@host:5432/easydocs' \
+#   # (password in PGPASSWORD or ~/.pgpass, not in the URL: psql's argv is visible to `ps`)
+#   DATABASE_URL='postgresql://user@host:5432/easydocs' PGPASSWORD=… \
 #   BASE_URL=https://docs.example.com \
 #     deploy/scripts/issue-password-reset.sh someone@example.com
 #
@@ -126,8 +128,9 @@ case "$STATUS" in
     echo "Remove them from the other organization(s) first, or recover the account through SSO." >&2
     exit 1 ;;
   sso)
-    echo "note: '$EMAIL' has no password today (it signs in through SSO)." >&2
-    echo "      Completing this link gives it a local password as well." >&2 ;;
+    # Same refusal as the in-app mint: a local password would outlive disabling them at the IdP.
+    echo "'$EMAIL' signs in through SSO and has no password; recover it at the identity provider." >&2
+    exit 1 ;;
   ok) ;;
   *)
     echo "unexpected lookup result: '$LOOKUP'" >&2; exit 1 ;;
@@ -143,22 +146,26 @@ TOKEN=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')
 # MemberEndpoints.HashToken: uppercase hex SHA-256 of the token's UTF-8 bytes.
 HASH=$(printf '%s' "$TOKEN" | openssl dgst -sha256 -r | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
 
-# One transaction: supersede whatever was outstanding, then insert — exactly what Mint does, so an
-# operator-issued link and an admin-issued one are the same object.
+# One statement: supersede whatever was outstanding, insert, and audit — exactly what Mint does, so an
+# operator-issued link and an admin-issued one are the same object, and the org's audit trail records
+# the issuance (actor null: whoever holds the database is not an easydocs user). All three hang off the
+# same lookup, so a user who vanished in between changes nothing at all.
 INSERTED=$(psql <<'SQL'
-BEGIN;
-
-UPDATE "PasswordResets" SET "UsedAt" = now()
-WHERE "UsedAt" IS NULL
-  AND "UserId" = (SELECT "Id" FROM "Users" WHERE "Email" = :'em');
-
-INSERT INTO "PasswordResets" ("Id", "UserId", "OrgId", "TokenHash", "ExpiresAt", "UsedAt", "CreatedAt")
-SELECT gen_random_uuid(), u."Id", :'org'::uuid, :'hash', now() + interval '1 hour', NULL, now()
-FROM "Users" u
-WHERE u."Email" = :'em'
-RETURNING "Id";
-
-COMMIT;
+WITH target AS (SELECT "Id" FROM "Users" WHERE "Email" = :'em'),
+     superseded AS (
+       UPDATE "PasswordResets" SET "UsedAt" = now()
+       WHERE "UsedAt" IS NULL AND "UserId" IN (SELECT "Id" FROM target)),
+     issued AS (
+       INSERT INTO "PasswordResets" ("Id", "UserId", "OrgId", "TokenHash", "ExpiresAt", "UsedAt", "CreatedAt")
+       SELECT gen_random_uuid(), t."Id", :'org'::uuid, :'hash', now() + interval '1 hour', NULL, now()
+       FROM target t
+       RETURNING "Id", "UserId"),
+     audited AS (
+       INSERT INTO "AuditEvents" ("Id", "OrgId", "DocumentId", "ActorUserId", "Action", "TargetType", "TargetId", "Metadata", "CreatedAt")
+       SELECT gen_random_uuid(), :'org'::uuid, NULL, NULL, 'password_reset.issued', 'user', i."UserId"::text,
+              '{"via":"operator-script"}', now()
+       FROM issued i)
+SELECT "Id" FROM issued;
 SQL
 )
 

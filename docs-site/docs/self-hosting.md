@@ -321,7 +321,7 @@ When to change them:
 
 ## Locked out: password reset for an operator
 
-Ordinary password reset is admin-issued — an org owner mints a link from **Settings → Members** and
+Ordinary password reset is admin-issued — an org Owner (or an Admin, for a plain Member) mints a link from **Settings → Members** and
 sends it. easydocs has no mailer, so there is no self-service "forgot password" flow, and some
 accounts cannot be reached by an admin at all: the **sole owner** of an organization has nobody who
 could issue their link, and anyone **active on a second organization** is refused by the cross-org
@@ -344,10 +344,15 @@ how easydocs hashes passwords. Point it at a non-default deployment with `DB_CON
 host (RDS, Cloud SQL, a bastion), with a libpq `DATABASE_URL` and `psql` installed:
 
 ```bash
-DATABASE_URL='postgresql://easydocs:PASSWORD@db.internal:5432/easydocs?sslmode=require' \
+read -rs PGPASSWORD && export PGPASSWORD   # not in the URL: psql's arguments are visible to `ps`
+DATABASE_URL='postgresql://easydocs@db.internal:5432/easydocs?sslmode=require' \
 BASE_URL=https://docs.example.com \
   deploy/scripts/issue-password-reset.sh someone@example.com
 ```
+
+The issuance lands in the organization's audit trail as `password_reset.issued` with no actor and
+`"via": "operator-script"`, next to the `password_reset.consumed` event when the link is used. The
+script refuses SSO-only accounts, as the in-app flow does: recover those at the identity provider.
 
 !!! warning "Building `DATABASE_URL` from the app's connection string"
     `ConnectionStrings__Postgres` is an ADO.NET string, and ADO.NET lets a value be wrapped in
