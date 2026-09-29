@@ -29,6 +29,14 @@ public class DocxTextTests
     public void A_tab_stop_is_a_tab_not_a_line_break()
         => Assert.Equal("Section 1\tPage 4", DocxText.Extract(new MemoryStream(DocxFixtures.WithTab("Section 1", "Page 4"))).Text);
 
+    // A merge result carries the replaced wording as w:delText; it used to come out as
+    // "quarterlymonthly" in /text, get_version_text and the search index. Inserted text IS current
+    // content and stays; deleted text and field instructions (" PAGE ") do not.
+    [Fact]
+    public void Deleted_text_and_field_instructions_are_not_extracted()
+        => Assert.Equal("The tenant pays rent quarterly.",
+            DocxText.Extract(new MemoryStream(DocxFixtures.WithTrackedChange())).Text);
+
     [Fact]
     public void A_docx_with_no_text_extracts_to_empty_not_null()
         => Assert.Equal("", DocxText.Extract(new MemoryStream(DocxFixtures.Build())).Text);

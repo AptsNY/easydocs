@@ -15,7 +15,7 @@ public static class EditingEndpoints
         g.MapDelete("/sessions/{sid:guid}", CloseSession);
     }
 
-    // Mint an edit session: hands Collabora file_id = session_id + a short-TTL WOPI token (spec §6, §6.1).
+    // Mint an edit session: hands Collabora file_id = session_id + a session-length WOPI token (spec §6, §6.1).
     private static async Task<IResult> MintSession(Guid vid, HttpContext ctx, EasyDocsDbContext db,
         WopiAccessToken wopiToken, CollaboraDiscovery discovery, IConfiguration cfg)
     {
@@ -48,13 +48,16 @@ public static class EditingEndpoints
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         var actionUrl = await discovery.ActionUrlForDocxAsync(ctx.RequestAborted);
-        var token = wopiToken.Issue(session.Id, userId, "w");
+        var (token, expiresAt) = wopiToken.Issue(session.Id, userId, "w");
         var wopiHost = cfg["WOPI_HOST_URL"] ?? throw new InvalidOperationException("WOPI_HOST_URL not configured");
         // WOPISrc is URI-encoded, as the WOPI spec requires and as coolwsd insists on: unencoded it logs
         // "WOPISrc must be URI-encoded. This is highly problematic with proxies, load balancers, and when
         // tunneling" and re-parses the tail of the URL by hand (spec §6).
         var wopiSrc = Uri.EscapeDataString($"{wopiHost}/wopi/files/{session.Id}");
-        var editorUrl = $"{actionUrl}WOPISrc={wopiSrc}&access_token={token}";
+        // access_token_ttl is the token's expiry in ms since the epoch (WOPI spec), so Collabora can warn
+        // the user before it lapses instead of failing a save — it never refreshes a token itself.
+        var editorUrl = $"{actionUrl}WOPISrc={wopiSrc}&access_token={token}" +
+                        $"&access_token_ttl={expiresAt.ToUnixTimeMilliseconds()}";
 
         return Results.Created($"/api/v1/sessions/{session.Id}", new
         {

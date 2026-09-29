@@ -102,9 +102,12 @@ the versioning underneath it.
 
 **Decision.** easydocs never edits documents itself. In the browser, Collabora Online talks to an
 easydocs **WOPI** host; on the desktop, Microsoft Word talks to a minimal easydocs **WebDAV**
-class-2 surface via an `ms-word:` URL. Both editor sessions are capability-scoped: a short-TTL
-token that authorizes exactly one edit session and nothing else (a session token never authorizes
-the app; an app cookie never authorizes an edit endpoint). Saves land in ADR-2's single write path.
+class-2 surface via an `ms-word:` URL. Both editor sessions are capability-scoped: a token that
+authorizes exactly one edit session and nothing else (a session token never authorizes the app; an
+app cookie never authorizes an edit endpoint). Saves land in ADR-2's single write path.
+Neither editor refreshes its token, so the token lives as long as the session (12 hours at most)
+and every edit request re-checks the session row and the user's Editor+ role instead — revocation is
+immediate, not deferred to the token's expiry.
 
 **Consequences.** Fidelity is the real editor's, not ours. The protocols are server-to-server
 contracts, so the test suite drives Word's and Collabora's halves of the conversation directly —
