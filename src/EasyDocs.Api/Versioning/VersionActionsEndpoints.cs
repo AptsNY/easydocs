@@ -53,14 +53,19 @@ public static class VersionActionsEndpoints
         var result = await versioning.CommitSaveAsync(
             new CommitInput(target.DocumentId, target.BlobSha256, size, VersionSource.Revert, actorId), ctx.RequestAborted);
 
+        var body = new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision };
+
+        // The target's content already IS the head: the write path deduped and wrote nothing, so there is
+        // no revert to audit or announce. 200 with the existing head, same body shape as the 201.
+        if (result.Deduped) return Results.Ok(body);
+
         // CommitSaveAsync already audited version.created (Source=Revert); this records the intent.
         db.Add(Audit.Event(CurrentUser.OrgId(ctx.User), target.DocumentId, actorId, "version.reverted",
             "version", result.VersionId.ToString(), new { fromVersionId = vid }));
         await db.SaveChangesAsync(ctx.RequestAborted);
 
         bus.Publish(target.DocumentId, "version.reverted", new { fromVersionId = vid, newVersionId = result.VersionId });
-        return Results.Created($"/api/v1/documents/{target.DocumentId}/versions/{result.VersionId}",
-            new { versionId = result.VersionId, major = result.Major, minor = result.Minor, revision = result.Revision });
+        return Results.Created($"/api/v1/documents/{target.DocumentId}/versions/{result.VersionId}", body);
     }
 
     // Mirrors DocumentEndpoints.AuthorizeAsync: no org-role fallback; 404/403 mapping; Editor required.

@@ -135,7 +135,9 @@ public class AuditTests : IClassFixture<ApiFactory>
         var shareId = await ShareLinkIdAsync(docId);
         await a.Client.DeleteAsync($"/api/v1/share-links/{shareId}");
 
-        await a.Client.PostAsync($"/api/v1/versions/{v1}/revert", null);
+        // A second version first: reverting to what is already the head writes (and audits) nothing.
+        await a.Client.UploadAsync(docId, EasyDocs.Api.Tests.Fixtures.DocxFixtures.Edited());
+        (await a.Client.PostAsync($"/api/v1/versions/{v1}/revert", null)).EnsureSuccessStatusCode();
         await a.Client.DeleteAsync($"/api/v1/documents/{docId}");
         await a.Client.PostAsync($"/api/v1/documents/{docId}:restore", null);
 

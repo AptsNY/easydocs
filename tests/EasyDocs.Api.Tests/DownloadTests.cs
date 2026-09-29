@@ -174,6 +174,27 @@ public class DownloadTests : IClassFixture<ApiFactory>
         Assert.Equal((2, 5, 10), (v2.Major, v2.Minor, v2.Revision));
     }
 
+    // Winding the counter back below a number already in the history made the next save reuse it: two
+    // versions both called 0.0.1. Setting it to the highest existing number is fine — everything it can
+    // produce from there is above it.
+    [Fact]
+    public async Task Manual_counter_below_an_existing_version_is_409()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c, "Counter Doc");
+        await UploadAsync(c, docId, new byte[] { 1 }); // 0.0.1
+        await UploadAsync(c, docId, new byte[] { 2 }); // 0.0.2
+
+        foreach (var (major, minor, rev) in new[] { (0, 0, 0), (0, 0, 1) })
+            Assert.Equal(HttpStatusCode.Conflict, (await c.PutAsJsonAsync($"/api/v1/documents/{docId}/version-counter",
+                new { major, minor, rev })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await c.PutAsJsonAsync($"/api/v1/documents/{docId}/version-counter",
+            new { major = 0, minor = 0, rev = 2 })).StatusCode);
+        var next = await UploadAsync(c, docId, new byte[] { 3 });
+        Assert.Equal((0, 0, 3), (next.Major, next.Minor, next.Revision));
+    }
+
     [Fact]
     public async Task Manual_counter_negative_400()
     {

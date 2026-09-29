@@ -74,20 +74,24 @@ public class E05_Numbering
         Assert.Equal("1.0.1", Number(await api.UploadAsync(doc.Id, DocxFixtures.EditedPlusEcho())));
     }
 
-    // R5: the manual override is authoritative, including resetting to 0.0.0.
+    // R5: the manual override is authoritative, including 0.0.0 — but never below a number the history
+    // already holds, or the next save would reuse it (two versions both called 0.0.1).
     [Fact]
     public async Task Manual_counter_override_including_0_0_0_is_authoritative()
     {
         var api = await EdApi.NewAsync(_f);
         var doc = await api.CreateDocumentAsync("Manual");
-        await api.UploadAsync(doc.Id, DocxFixtures.Base());   // 0.0.1
-        await api.UploadAsync(doc.Id, DocxFixtures.Edited()); // 0.0.2
 
         await api.SetCounterAsync(doc.Id, 0, 0, 0);
-        Assert.Equal("0.0.1", Number(await api.UploadAsync(doc.Id, DocxFixtures.EditedPlusEcho())));
+        Assert.Equal("0.0.1", Number(await api.UploadAsync(doc.Id, DocxFixtures.Base())));
+        await api.UploadAsync(doc.Id, DocxFixtures.Edited()); // 0.0.2
+
+        var back = await api.Http.PutAsJsonAsync($"/api/v1/documents/{doc.Id}/version-counter",
+            new { major = 0, minor = 0, rev = 0 });
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, back.StatusCode);
 
         await api.SetCounterAsync(doc.Id, 3, 4, 5);
-        Assert.Equal("3.4.6", Number(await api.UploadAsync(doc.Id, DocxFixtures.Base())));
+        Assert.Equal("3.4.6", Number(await api.UploadAsync(doc.Id, DocxFixtures.EditedPlusEcho())));
     }
 
     [Fact]

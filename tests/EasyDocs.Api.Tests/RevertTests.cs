@@ -111,6 +111,32 @@ public class RevertTests : IClassFixture<ApiFactory>
         Assert.Equal(4, all.Count);
     }
 
+    // Reverting to what is already the head writes no version (the write path dedupes), so it must not
+    // claim one either: no version.reverted audit row, no SSE event, and 200 rather than 201.
+    [Fact]
+    public async Task Reverting_to_content_equal_to_the_head_changes_nothing_and_says_so()
+    {
+        var (c, _) = await AuthedClientAsync();
+        var docId = await CreateDocAsync(c);
+        var a = await UploadAsync(c, docId, new byte[] { 1 });
+        await UploadAsync(c, docId, new byte[] { 2 });
+        await c.PostAsync($"/api/v1/versions/{a.VersionId}/revert", null); // head is now A's content
+
+        HttpResponseMessage? res = null;
+        var events = await _f.CaptureEventsAsync(docId,
+            async () => res = await c.PostAsync($"/api/v1/versions/{a.VersionId}/revert", null));
+
+        Assert.Equal(HttpStatusCode.OK, res!.StatusCode);
+        var head = (await res.Content.ReadFromJsonAsync<UploadDto>())!;
+        Assert.Equal((0, 0, 3), (head.Major, head.Minor, head.Revision)); // the existing head, not a new one
+        Assert.DoesNotContain("version.reverted", events);
+
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocsDbContext>();
+        Assert.Equal(1, await db.AuditEvents.CountAsync(e => e.DocumentId == docId && e.Action == "version.reverted"));
+        Assert.Equal(3, await db.Versions.CountAsync(v => v.DocumentId == docId));
+    }
+
     [Fact]
     public async Task Name_and_revert_require_editor()
     {
