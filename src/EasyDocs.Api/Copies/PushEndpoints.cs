@@ -67,6 +67,17 @@ public static class PushEndpoints
         var (targetAccess, targetRole) = await DocumentAuthorization.ResolveAsync(db, orgId, userId, targetId, ct);
         var auto = targetAccess == AccessResult.Ok && DocumentAuthorization.CanEdit(targetRole!.Value);
 
+        // A double-click on "Send back" must not open two identical incoming branches. The no-op guard
+        // above only sees the target's MAIN head, which a pending push has not touched, so check for an
+        // open or accepted request for this same version. Under the copy's row lock: of two racing
+        // pushes the second waits, then sees the first. (A rejected one is settled; re-sending is fine.)
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.LockDocumentAsync(id, ct);
+        if (await db.PushRequests.AnyAsync(p => p.TargetDocumentId == targetId && p.SourceVersionId == source.Id
+                && (p.Status == "pending" || p.Status == "accepted" || p.Status == "auto_accepted"), ct))
+            return Problem.Of(409, "Already pushed",
+                "This version has already been sent to that document and is pending review or accepted.");
+
         var now = DateTimeOffset.UtcNow;
         var pr = new PushRequest
         {
@@ -83,6 +94,8 @@ public static class PushEndpoints
         AuditBoth(db, orgId, pr, userId, "push.requested",
             new { status = pr.Status, sourceVersionId = source.Id });
         await db.SaveChangesAsync(ct);
+        // Committed before materializing: the write path opens its own transaction.
+        await tx.CommitAsync(ct);
 
         if (auto && await pushes.MaterializeAsync(pr, ct) is null)
             return Problem.Of(409, "Nothing to push",
