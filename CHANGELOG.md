@@ -116,16 +116,23 @@ descriptions are **document** versions, produced by the versioning engine. They 
   compare main against B's version directly, so A's edit came back as a tracked *reversion* attributed
   to B — and Accept All quietly undid it, while the review screen said only B's changes were landing.
   The merge now folds only B's own changes since the fork point onto main, paragraph by paragraph:
-  main's edits stay as clean, untracked text. Where both sides changed the same paragraph differently,
+  main's edits stay as clean, untracked text. Paragraphs are compared by what they say and how they
+  look (text, visible formatting, style, list format, link and image targets), not by their XML —
+  every save from the browser editor rewrites the XML of paragraphs nobody touched, and must not read
+  as an edit. Where both sides changed the same paragraph differently,
   B's paragraph is proposed over main's as a tracked change. The review screen now runs the merge dry,
   so its list of "paragraphs both sides changed" is exactly what the merge settles (it used to be a
   separate, per-paragraph hint that missed tables). Whatever the merge cannot get right it now
   **refuses** with `409` "Merge unavailable" — and the review disables Merge beforehand — rather than
-  guess: both sides editing the same table or content control, conflicting edits among repeated
-  identical paragraphs, a paragraph one side moved and the other edited, an incoming change to
-  footnotes, endnotes, headers or footers, an incoming link or image main does not share, and very
-  large rewrites. Not carried over from the incoming version: page/section setup, new style or list
-  definitions, and comments (comments were already dropped by every merge). A branch with no recorded
+  guess: both sides editing the same table or content control, one side reformatting a paragraph the
+  other reworded, changes among repeated identical paragraphs (blank lines, repeated signature lines)
+  whose placement is ambiguous, a paragraph one side moved and the other edited, an incoming change to
+  footnotes, endnotes or a displayed header or footer, an incoming link or image main does not share,
+  and very large rewrites (about 2000 changed paragraphs). Not carried over from the incoming version:
+  formatting other than bold/italic/underline/strike/caps/size/colour/highlight/super- and subscript,
+  paragraph style, alignment and list format (a change that is only to fonts, spacing or indents is
+  not merged), page/section setup, new style or list definitions, and comments (comments were already
+  dropped by every merge). A branch with no recorded
   fork point (legacy rows) still gets the old two-way compare, and the review screen says what that
   means.
 - **The HTML redline shows each deletion where it happened.** It used to collect every deletion at

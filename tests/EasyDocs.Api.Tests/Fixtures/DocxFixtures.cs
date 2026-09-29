@@ -86,7 +86,10 @@ public static class DocxFixtures
 
     public static byte[] Rich(params Block[] blocks) => Rich(null, blocks);
 
-    public static byte[] Rich(string? header, params Block[] blocks)
+    public static byte[] Rich(string? header, params Block[] blocks) => Rich(header, null, blocks);
+
+    // `headerImage`: a logo in the header (a drawing whose blip the header part embeds).
+    public static byte[] Rich(string? header, byte[]? headerImage, params Block[] blocks)
     {
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
@@ -99,6 +102,13 @@ public static class DocxFixtures
             {
                 var hp = main.AddNewPart<HeaderPart>();
                 hp.Header = new W.Header(new W.Paragraph(new W.Run(new W.Text(header))));
+                if (headerImage is not null)
+                {
+                    var img = hp.AddImagePart(ImagePartType.Png);
+                    using (var s = new MemoryStream(headerImage)) img.FeedData(s);
+                    hp.Header.Append(new W.Paragraph(new W.Run(new W.Drawing(
+                        new DocumentFormat.OpenXml.Drawing.Blip { Embed = hp.GetIdOfPart(img) }))));
+                }
                 hp.Header.Save();
                 body.Append(new W.SectionProperties(new W.HeaderReference { Type = W.HeaderFooterValues.Default, Id = main.GetIdOfPart(hp) }));
             }

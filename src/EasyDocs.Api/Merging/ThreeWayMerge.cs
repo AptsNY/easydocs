@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Xml.Linq;
 using DocumentFormat.OpenXml.Packaging;
 
@@ -16,30 +15,39 @@ namespace EasyDocs.Api.Merging;
 /// its 409 "Merge unavailable" and the preview into available=false). It never silently loses,
 /// duplicates or reverts content.
 ///
-/// A diff3 over top-level body blocks (paragraphs, tables, content controls), aligned by visible text:
-/// a block only one side changed takes that side's version; the same change on both sides is taken
-/// once; both sides inserting at one point keeps both. Both sides changing the same PARAGRAPH
-/// differently is a conflict: incoming's paragraph is proposed over main's as a tracked change
-/// (rejecting it keeps main) and the block is reported in <see cref="Result.Overlaps"/>, which is what
-/// the review screen lists. Everything the fold cannot guarantee is refused:
+/// A diff3 over top-level body blocks (paragraphs, tables, content controls), aligned by visible text
+/// and compared by MEANING (<see cref="DocxMeaning"/>: text, visible run formatting, style, list format,
+/// link/image targets) — never by markup, because every Collabora (LibreOffice) save rewrites the
+/// markup of paragraphs nobody touched. A block only one side changed takes that side's version; the
+/// same change on both sides is taken once; both sides inserting at one point keeps both. Both sides
+/// changing the WORDS of the same paragraph differently is a conflict: incoming's paragraph is proposed
+/// over main's as a tracked change (rejecting it keeps main) and the block is reported in
+/// <see cref="Result.Overlaps"/>, which is what the review screen lists. Everything the fold cannot
+/// guarantee is refused:
 ///  - both sides changed the same table or content control (they are single blocks here);
-///  - a conflict whose alignment is ambiguous (its wording repeats elsewhere in the ancestor);
+///  - one side reformatted a paragraph whose words the other side changed;
+///  - changes among repeated paragraphs (blank lines, repeated signature lines) whose placement is
+///    ambiguous — both sides changing a repeated paragraph, or changes from the two sides that could
+///    "slide" into each other across a run of identical paragraphs;
 ///  - a block one side moved and the other side changed (a block fold would keep both copies);
-///  - an incoming block whose links, images or notes do not resolve identically in main's package;
-///  - an incoming change to footnotes, endnotes, headers or footers (main's package is kept);
-///  - a changed region too large to align (the LCS is quadratic).
+///  - an incoming block whose links, images, notes or list format do not resolve identically in main's
+///    package (a list item whose numId LibreOffice renumbered is re-pointed at the neighbouring list of
+///    the same format first);
+///  - an incoming change to footnotes, endnotes, or a displayed header or footer (main's package is kept);
+///  - a changed region too large to align (the LCS is quadratic: ~2000 x 2000 changed blocks).
 ///
-/// ponytail: block-level, not word-level — two edits to different words of one paragraph are a
-/// conflict (incoming's paragraph proposed over main's, and named). Not carried from the incoming side:
-/// section/page setup (main's final sectPr is kept), new style or list definitions (its text lands,
-/// possibly unstyled), and comments (WmlComparer drops comments on every path). Upgrade path:
-/// recurse into w:tbl/w:tc and w:sdtContent when all three shapes agree, word-level three-way inside
-/// conflicting paragraphs, remap renumbered relationship ids, Myers diff to lift the size cap.
+/// ponytail: block-level, not word-level — two edits to different words of one paragraph, or one side
+/// splitting a paragraph the other edited, are a conflict (incoming's version proposed over main's, and
+/// named). Formatting outside DocxMeaning's subset (fonts, spacing, indents, borders, table layout) is
+/// invisible, so an incoming change that is only that is not carried. Not carried from the incoming
+/// side either: section/page setup (main's final sectPr is kept), new style or list definitions, and
+/// comments (WmlComparer drops comments on every path). Refusals are conservative on repeated wording.
+/// Upgrade path: recurse into w:tbl/w:tc and w:sdtContent when all three shapes agree, word-level
+/// three-way inside conflicting paragraphs, remap renumbered relationship ids, Myers diff for the cap.
 /// </remarks>
 public static class ThreeWayMerge
 {
     private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-    private static readonly XNamespace W14 = "http://schemas.microsoft.com/office/word/2010/wordml";
     private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
     // Ordinal is the ancestor's top-level body block index; Text labels it with the ancestor's wording.
@@ -55,7 +63,7 @@ public static class ThreeWayMerge
         using var incDoc = WordprocessingDocument.Open(new MemoryStream(incoming), false);
         if (NotesText(ancDoc) != NotesText(incDoc))
             throw new NotSupportedException("The incoming side changed footnotes or endnotes.");
-        if (HeadersText(ancDoc) != HeadersText(incDoc))
+        if (Headers(ancDoc) != Headers(incDoc))
             throw new NotSupportedException("The incoming side changed a header or footer.");
 
         using var ms = new MemoryStream();
@@ -69,7 +77,7 @@ public static class ThreeWayMerge
             var m = Blocks(xdoc);
 
             var fold = new Fold(Blocks(Load(ancDoc.MainDocumentPart!)), m, Blocks(Load(incDoc.MainDocumentPart!)),
-                ancDoc.MainDocumentPart!, part, incDoc.MainDocumentPart!);
+                new DocxMeaning(ancDoc.MainDocumentPart!), new DocxMeaning(part), new DocxMeaning(incDoc.MainDocumentPart!));
             var merged = fold.Run();
             overlaps = fold.Overlaps;
 
@@ -87,7 +95,7 @@ public static class ThreeWayMerge
 
     private sealed class Fold(
         List<XElement> a, List<XElement> m, List<XElement> i,
-        MainDocumentPart ap, MainDocumentPart mp, MainDocumentPart ip)
+        DocxMeaning ap, DocxMeaning mp, DocxMeaning ip)
     {
         private readonly string[] ka = [.. a.Select(Key)], km = [.. m.Select(Key)], ki = [.. i.Select(Key)];
         private readonly string?[] na = new string?[a.Count], nm = new string?[m.Count], ni = new string?[i.Count];
@@ -95,9 +103,10 @@ public static class ThreeWayMerge
         private readonly List<XElement> result = [];
         public readonly List<Overlap> Overlaps = [];
 
-        private string NA(int k) => na[k] ??= Norm(a[k], ap);
-        private string NM(int k) => nm[k] ??= Norm(m[k], mp);
-        private string NI(int k) => ni[k] ??= Norm(i[k], ip);
+        // A block's meaning (DocxMeaning), not its markup: an editor save rewrites markup wholesale.
+        private string NA(int k) => na[k] ??= ap.Of(a[k]);
+        private string NM(int k) => nm[k] ??= mp.Of(m[k]);
+        private string NI(int k) => ni[k] ??= ip.Of(i[k]);
 
         public List<XElement> Run()
         {
@@ -105,6 +114,9 @@ public static class ThreeWayMerge
             var (hi, mi) = Diff(ka, ki);
             RefuseMoves(hm, km, hi, mi, NI);
             RefuseMoves(hi, ki, hm, mm, NM);
+            // Formatting-only changes (same words, different meaning) are not hunks, but they slide
+            // among identical paragraphs just the same.
+            RefuseSlidingNeighbours([.. hm, .. Restyled(mm, NM)], km, [.. hi, .. Restyled(mi, NI)], ki);
 
             // Pure insertions sort before a change starting at the same point: inserted first.
             var all = hm.Select(h => (h, main: true)).Concat(hi.Select(h => (h, main: false)))
@@ -140,11 +152,16 @@ public static class ThreeWayMerge
             bool mChanged = NM(mk) != NA(k), iChanged = NI(ik) != NA(k);
             if (!iChanged) { result.Add(m[mk]); return; }
             if (!mChanged) { AddIncoming(i[ik]); return; }
-            if (ancestorCount[ka[k]] > 1) throw Ambiguous();
             Overlaps.Add(new Overlap(k, Label(a[k])));
-            if (NM(mk) == NI(ik)) { result.Add(m[mk]); return; }
+            if (NM(mk) == NI(ik)) { result.Add(m[mk]); return; } // the same change on both sides, once
+            if (ancestorCount[ka[k]] > 1) throw Ambiguous();
             if (a[k].Name != W + "p" || m[mk].Name != W + "p" || i[ik].Name != W + "p")
                 throw new NotSupportedException("Both sides changed the same table or content control.");
+            // Proposing incoming's paragraph is only honest when both sides changed its WORDS. If one
+            // side only reformatted it, taking incoming would revert main's wording (or its formatting)
+            // for a change the reviewer may not even see — refuse instead.
+            if (km[mk] == ka[k] || ki[ik] == ka[k])
+                throw new NotSupportedException("One side reformatted a paragraph the other side edited.");
             AddIncoming(i[ik]); // conflict: incoming's paragraph, tracked over main's, reported above
         }
 
@@ -184,8 +201,11 @@ public static class ThreeWayMerge
                 for (; j < ie; j++) AddIncoming(i[j]);
                 return;
             }
-            // Both sides changed this range. Which copy of a repeated paragraph each side meant is not
-            // knowable, and guessing wrong resurrects a deletion or drops one side's change.
+            // Both sides inserted or deleted blocks here. Among repeated paragraphs which copy each side
+            // meant is not knowable — two people each deleting "an Initials line" may have meant the
+            // same line or two different ones — and guessing wrong resurrects a deletion or drops one
+            // side's change. (Block() settles a same-shape identical change before asking this; a
+            // change of SHAPE on repeated wording is where the ambiguity is real.)
             if (ka[gs..ge].Any(k => ancestorCount[k] > 1)) throw Ambiguous();
             if (Enumerable.Range(ms, ml).Select(NM).SequenceEqual(Enumerable.Range(@is, il).Select(NI)))
             {
@@ -216,15 +236,76 @@ public static class ThreeWayMerge
         private static NotSupportedException Ambiguous() =>
             new("Both sides changed paragraphs whose wording repeats; which copy each meant is ambiguous.");
 
-        private void AddIncoming(XElement block)
+        private void AddIncoming(XElement block) =>
+            result.Add(Portable(block) ? block : Relisted(block)
+                ?? throw new NotSupportedException("An incoming change uses a link, image, note or list main does not share."));
+
+        // LibreOffice renumbers list ids on every save, so an incoming list item's numId can mean
+        // another list — or nothing — in main's package. Re-point it at the list of the nearest
+        // preceding paragraph already placed with the same list format (an item added to an existing
+        // list, the common case); anything else still refuses.
+        private XElement? Relisted(XElement block)
         {
-            if (!Portable(block, ip, mp))
-                throw new NotSupportedException("An incoming change uses a link, image or note main does not share.");
-            result.Add(block);
+            if (block.Name != W + "p" || block.Element(W + "pPr")?.Element(W + "numPr") is not { } numPr) return null;
+            var want = ip.ListOf(numPr);
+            var host = Enumerable.Reverse(result).Where(b => b.Name == W + "p")
+                .Select(b => b.Element(W + "pPr")?.Element(W + "numPr"))
+                .FirstOrDefault(n => n is not null && mp.ListOf(n) == want);
+            if (host?.Element(W + "numId")?.Attribute(W + "val")?.Value is not { } numId) return null;
+            var copy = new XElement(block);
+            copy.Element(W + "pPr")!.Element(W + "numPr")!.Element(W + "numId")?.SetAttributeValue(W + "val", numId);
+            return Portable(copy) ? copy : null;
         }
 
         // Side X removed ancestor block k and re-inserted the same text elsewhere (a move), while the
         // other side changed k: a block fold would keep the moved copy AND the edited one.
+        // A block moved from the incoming package into main's must mean the same thing there: the same
+        // styles, list formats, link and image targets and note text — and every relationship id it
+        // carries must exist in main pointing at the same target.
+        private bool Portable(XElement block) =>
+            ip.Of(block) == mp.Of(block)
+            && block.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R)
+                .All(x => ip.Target(x.Value) is { } t && t == mp.Target(x.Value));
+
+        // Two changes from different sides that do not overlap can still be ORDERED wrongly: next to a
+        // run of identical paragraphs (blank lines, repeated signature lines) a change can "slide" —
+        // the alignment could equally have put it one block up or down — and the fold would place
+        // one side's new paragraph on the wrong side of the other's. Each change is widened over the
+        // neighbouring blocks it could slide across; widened changes from the two sides that meet
+        // are refused. A change among distinct paragraphs cannot slide, so this costs nothing there.
+        private IEnumerable<Hunk> Restyled(int[] match, Func<int, string> norm) =>
+            Enumerable.Range(0, a.Count).Where(k => match[k] >= 0 && norm(match[k]) != NA(k))
+                .Select(k => new Hunk(k, k + 1, match[k], match[k] + 1));
+
+        private void RefuseSlidingNeighbours(List<Hunk> hm, string[] km, List<Hunk> hi, string[] ki)
+        {
+            (int Lo, int Hi, bool Slides) Widen(Hunk h, string[] kx)
+            {
+                var keys = ka[h.AStart..h.AEnd].Concat(kx[h.XStart..h.XEnd]).ToHashSet();
+                int lo = h.AStart, hi = h.AEnd;
+                while (lo > 0 && keys.Contains(ka[lo - 1])) lo--;
+                while (hi < a.Count && keys.Contains(ka[hi])) hi++;
+                return (lo, hi, lo != h.AStart || hi != h.AEnd);
+            }
+            static bool Grouped(Hunk x, Hunk y) =>
+                (x.AStart < y.AEnd && y.AStart < x.AEnd) || (x.AStart == x.AEnd && y.AStart == y.AEnd && x.AStart == y.AStart);
+
+            foreach (var h1 in hm)
+            {
+                var w1 = Widen(h1, km);
+                foreach (var h2 in hi)
+                {
+                    if (Grouped(h1, h2)) continue; // settled (or refused) together in Settle
+                    var w2 = Widen(h2, ki);
+                    var overlap = Math.Max(w1.Lo, w2.Lo) < Math.Min(w1.Hi, w2.Hi)
+                                  || (w1.Lo == w1.Hi && w2.Lo < w1.Lo && w1.Lo < w2.Hi)
+                                  || (w2.Lo == w2.Hi && w1.Lo < w2.Lo && w2.Lo < w1.Hi);
+                    var touch = w1.Hi == w2.Lo || w2.Hi == w1.Lo;
+                    if (overlap || (touch && (w1.Slides || w2.Slides))) throw Ambiguous();
+                }
+            }
+        }
+
         private void RefuseMoves(List<Hunk> hx, string[] kx, List<Hunk> hOther, int[] matchOther, Func<int, string> normOther)
         {
             var inserted = hx.SelectMany(h => kx[h.XStart..h.XEnd]).ToHashSet();
@@ -276,11 +357,7 @@ public static class ThreeWayMerge
         return (hunks, match);
     }
 
-    private static XDocument Load(OpenXmlPart part)
-    {
-        using var s = part.GetStream(FileMode.Open, FileAccess.Read);
-        return XDocument.Load(s);
-    }
+    private static XDocument Load(OpenXmlPart part) => DocxMeaning.Load(part);
 
     private static List<XElement> Blocks(XDocument doc) =>
         doc.Root!.Element(W + "body")!.Elements().Where(e => e.Name != W + "sectPr").ToList();
@@ -295,62 +372,48 @@ public static class ThreeWayMerge
             : d.Name == W + "drawing" || d.Name == W + "pict" || d.Name == W + "object" ? "￼"
             : ""));
 
-    // Everything that makes the block what it is, minus what Word rewrites without anyone editing
-    // (rsids, w14 ids, proofing marks), with relationship ids replaced by what they point at — so an
-    // image swap or a new link URL is a change, and a pure rId renumber is not.
-    private static string Norm(XElement block, MainDocumentPart part)
-    {
-        var c = new XElement(block);
-        c.Descendants().Where(e => e.Name == W + "proofErr" || e.Name == W + "lastRenderedPageBreak").Remove();
-        foreach (var e in c.DescendantsAndSelf())
-        {
-            e.Attributes().Where(x => x.Name.LocalName.StartsWith("rsid") || x.Name.Namespace == W14).Remove();
-            foreach (var x in e.Attributes().Where(x => x.Name.Namespace == R))
-                x.Value = Target(part, x.Value) ?? "missing:" + x.Value;
-        }
-        return c.ToString(SaveOptions.DisableFormatting);
-    }
-
     private static string NotesText(WordprocessingDocument doc) =>
         (doc.MainDocumentPart!.FootnotesPart is { } f ? Load(f).Root!.Value : "") + "\u0000" +
         (doc.MainDocumentPart!.EndnotesPart is { } e ? Load(e).Root!.Value : "");
 
-    private static string HeadersText(WordprocessingDocument doc) =>
-        string.Join("\u0000", doc.MainDocumentPart!.HeaderParts.Cast<OpenXmlPart>()
-            .Concat(doc.MainDocumentPart!.FooterParts).Select(p => Load(p).Root!.Value).Order(StringComparer.Ordinal));
-
-    // A block moved from the incoming package into main's must mean the same thing there: every
-    // relationship id it uses resolves to the same target, every note it references reads the same.
-    private static bool Portable(XElement block, MainDocumentPart from, MainDocumentPart to)
+    // Every section's headers and footers AS DISPLAYED, compared as meaning (text, formatting, image
+    // targets). A first-page part only shows with titlePg, an even-page part only with
+    // evenAndOddHeaders; otherwise the default shows. That is what makes LibreOffice's extra parts (an
+    // empty "even", a "first" copied from the default) equal to a document that never had them.
+    private static string Headers(WordprocessingDocument doc)
     {
-        foreach (var id in block.DescendantsAndSelf().Attributes().Where(x => x.Name.Namespace == R).Select(x => x.Value))
-            if (Target(from, id) is not { } t || t != Target(to, id))
-                return false;
-
-        foreach (var (name, pick) in new (XName, Func<MainDocumentPart, OpenXmlPart?>)[]
-                 { (W + "footnoteReference", p => p.FootnotesPart), (W + "endnoteReference", p => p.EndnotesPart) })
-            foreach (var id in block.Descendants(name).Select(r => (string?)r.Attribute(W + "id")))
-                if (Note(pick(from), id) is not { } n || n != Note(pick(to), id))
-                    return false;
-        return true;
+        var main = doc.MainDocumentPart!;
+        var settings = main.DocumentSettingsPart is { } sp ? Load(sp).Root : null;
+        var evenOdd = On(settings?.Element(W + "evenAndOddHeaders"));
+        var sb = new System.Text.StringBuilder();
+        foreach (var sect in Load(main).Descendants(W + "sectPr"))
+        {
+            var titlePg = On(sect.Element(W + "titlePg"));
+            foreach (var kind in new[] { "header", "footer" })
+            {
+                var byType = sect.Elements(W + kind + "Reference")
+                    .GroupBy(r => (string?)r.Attribute(W + "type") ?? "default")
+                    .ToDictionary(g => g.Key, g => Content(main, (string?)g.First().Attribute(R + "id")));
+                var def = byType.GetValueOrDefault("default", "");
+                var first = titlePg ? byType.GetValueOrDefault("first", def) : def;
+                var even = evenOdd ? byType.GetValueOrDefault("even", def) : def;
+                foreach (var (type, content) in new[] { ("default", def), ("first", first), ("even", even) })
+                    if (content.Length > 0) sb.Append(kind).Append(':').Append(type).Append('=').Append(content).Append('\u0000');
+            }
+        }
+        return sb.ToString();
     }
 
-    private static string? Target(OpenXmlPart part, string id)
-    {
-        var ext = part.ExternalRelationships.FirstOrDefault(r => r.Id == id)?.Uri
-                  ?? part.HyperlinkRelationships.FirstOrDefault(r => r.Id == id)?.Uri;
-        if (ext is not null) return "ext:" + ext;
-        var child = part.Parts.Where(p => p.RelationshipId == id).Select(p => p.OpenXmlPart).FirstOrDefault();
-        if (child is null) return null;
-        // Header/footer parts by text: their bytes are rewritten by every save. Anything else by bytes.
-        if (child is HeaderPart or FooterPart) return "text:" + Load(child).Root!.Value;
-        using var s = child.GetStream(FileMode.Open, FileAccess.Read);
-        return "part:" + Convert.ToHexString(SHA256.HashData(s));
-    }
+    private static bool On(XElement? toggle) =>
+        toggle is not null && (string?)toggle.Attribute(W + "val") is null or "1" or "true" or "on";
 
-    private static string? Note(OpenXmlPart? notes, string? id) =>
-        notes is null ? null
-            : Load(notes).Root!.Elements().FirstOrDefault(n => (string?)n.Attribute(W + "id") == id)?.Value;
+    private static string Content(MainDocumentPart main, string? id)
+    {
+        var part = main.Parts.Where(p => p.RelationshipId == id).Select(p => p.OpenXmlPart).FirstOrDefault();
+        if (part is null) return "";
+        var meaning = new DocxMeaning(main, part);
+        return string.Concat(Load(part).Root!.Elements().Select(meaning.Of));
+    }
 
     private const int LabelLength = 60;
 

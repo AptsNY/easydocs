@@ -103,6 +103,22 @@ public class ThreeWayMergeTests
     public void An_incoming_header_edit_is_refused() =>
         Refused(Rich("Header", P("x")), Rich("Header", P("X-main")), Rich("Header, amended", P("x")));
 
+    // Same header text, different logo: text-only header comparison used to miss this and drop it.
+    [Fact]
+    public void An_incoming_header_image_change_is_refused()
+    {
+        byte[] png1 = [1, 2, 3], png2 = [4, 5, 6];
+        Refused(Rich("Header", png1, P("x")), Rich("Header", png1, P("X-main")), Rich("Header", png2, P("x")));
+    }
+
+    [Fact]
+    public void An_unchanged_header_image_is_not_a_change()
+    {
+        byte[] png = [1, 2, 3];
+        Assert.Equal(["X-main", "I-inc"],
+            Paragraphs(Apply(Rich("Header", png, P("x"), P("y")), Rich("Header", png, P("X-main"), P("y")), Rich("Header", png, P("x"), P("I-inc"))).Docx));
+    }
+
     [Fact]
     public void Edits_to_different_cells_of_one_table_are_refused() =>
         Refused(Rich(Table(["a", "b"], ["c", "d"])), Rich(Table(["A-main", "b"], ["c", "d"])), Rich(Table(["a", "b"], ["c", "D-inc"])));
@@ -139,44 +155,50 @@ public class ThreeWayMergeTests
             [.. Enumerable.Range(0, n).Select(k => $"i{k}")]));
     }
 
-    // Random non-overlapping edits over a vocabulary full of duplicates and blanks: whatever the fold
-    // does not refuse must lose, duplicate and resurrect nothing. Among identical paragraphs WHICH copy
-    // a side deleted is genuinely ambiguous, so the oracle checks content, not one arbitrary order:
-    // every new paragraph exactly once, each side's new paragraphs in that side's order, and every
-    // ancestor wording exactly as many times as both edit sets applied together leave it.
+    // Random non-overlapping edits over a vocabulary full of duplicates and blanks: replace, delete,
+    // insert-after, and bold (a formatting-only change). Whatever the fold does not refuse must be
+    // EXACTLY both edit sets applied to the ancestor — same paragraphs, same order, same bold. Where
+    // repeated paragraphs make the answer genuinely ambiguous the fold has to refuse, not pick one.
+    // (Bold on an empty paragraph is invisible, so the oracle ignores it — as the fold does.)
     [Fact]
-    public void Fuzz_non_overlapping_edits_lose_duplicate_and_resurrect_nothing()
+    public void Fuzz_non_overlapping_edits_merge_exactly_or_refuse()
     {
-        string[] vocab = ["", "", "Sig: ___", "x", "y"];
+        string[] vocab = ["", "", "Sig: ___", "x", "y", "z"];
         var rng = new Random(20260929);
         var refused = 0;
-        for (var run = 0; run < 1000; run++)
+        for (var run = 0; run < 3000; run++)
         {
-            var anc = Enumerable.Range(0, rng.Next(2, 9)).Select(_ => vocab[rng.Next(vocab.Length)]).ToList();
-            List<string> main = [], inc = [], expected = [];
+            var anc = Enumerable.Range(0, rng.Next(2, 10)).Select(_ => (T: vocab[rng.Next(vocab.Length)], B: false)).ToList();
+            List<(string T, bool B)> main = [], inc = [], expected = [];
             for (var k = 0; k < anc.Count; k++)
             {
                 var owner = rng.Next(3); // 0 nobody, 1 main, 2 incoming
-                var op = rng.Next(3);    // 0 delete, 1 replace, 2 insert after
-                string Tok(string side) => $"{side}{run}.{k}";
-                void Keep(List<string> side) => side.Add(anc[k]);
-                if (owner == 0) { Keep(main); Keep(inc); expected.Add(anc[k]); continue; }
-                var (mine, other, tag) = owner == 1 ? (main, inc, "M") : (inc, main, "I");
-                Keep(other);
-                if (op == 1) { mine.Add(Tok(tag)); expected.Add(Tok(tag)); }
-                if (op == 2) { mine.Add(anc[k]); mine.Add(Tok(tag)); expected.Add(anc[k]); expected.Add(Tok(tag)); }
+                var op = rng.Next(4);    // 0 delete, 1 replace, 2 insert after, 3 bold
+                var tok = (T: $"{(owner == 1 ? "M" : "I")}{run}.{k}", B: false);
+                if (owner == 0) { main.Add(anc[k]); inc.Add(anc[k]); expected.Add(anc[k]); continue; }
+                var (mine, other) = owner == 1 ? (main, inc) : (inc, main);
+                other.Add(anc[k]);
+                if (op == 1) { mine.Add(tok); expected.Add(tok); }
+                if (op == 2) { mine.Add(anc[k]); mine.Add(tok); expected.Add(anc[k]); expected.Add(tok); }
+                if (op == 3) { mine.Add((anc[k].T, true)); expected.Add((anc[k].T, anc[k].T != "")); }
             }
-            string[] got;
-            try { got = Fold([.. anc], [.. main], [.. inc]); }
+            ThreeWayMerge.Result r;
+            try { r = Apply(Styled(anc), Styled(main), Styled(inc)); }
             catch (NotSupportedException) { refused++; continue; }
 
-            var why = $"ancestor [{string.Join("|", anc)}] main [{string.Join("|", main)}] "
-                + $"incoming [{string.Join("|", inc)}] -> [{string.Join("|", got)}], expected [{string.Join("|", expected)}]";
-            static bool New(string p) => p.StartsWith('M') || p.StartsWith('I');
-            Assert.True(expected.Where(p => p.StartsWith('M')).SequenceEqual(got.Where(p => p.StartsWith('M'))), why);
-            Assert.True(expected.Where(p => p.StartsWith('I')).SequenceEqual(got.Where(p => p.StartsWith('I'))), why);
-            Assert.True(expected.Where(p => !New(p)).Order().SequenceEqual(got.Where(p => !New(p)).Order()), why);
+            var got = Body(r.Docx).Elements(W + "p").Select(p =>
+                (T: string.Concat(p.Descendants(W + "t").Select(t => t.Value)), B: p.Descendants(W + "b").Any())).Select(p => (p.T, B: p.B && p.T != "")).ToList();
+            Assert.True(expected.SequenceEqual(got),
+                $"ancestor [{string.Join("|", anc)}] main [{string.Join("|", main)}] incoming [{string.Join("|", inc)}] "
+                + $"-> [{string.Join("|", got)}], expected [{string.Join("|", expected)}]");
+            Assert.Empty(r.Overlaps); // non-overlapping edits: nothing both sides changed
         }
-        Assert.True(refused < 500, $"refused {refused}/1000 — the fold should settle most of these");
+        Assert.True(refused < 900, $"refused {refused}/3000 — the fold should settle most of these");
     }
+
+    private static byte[] Styled(IEnumerable<(string T, bool B)> paragraphs) =>
+        Rich([.. paragraphs.Select(p => (Block)(_ => new DocumentFormat.OpenXml.Wordprocessing.Paragraph(
+            new DocumentFormat.OpenXml.Wordprocessing.Run(
+                p.B ? new DocumentFormat.OpenXml.Wordprocessing.RunProperties(new DocumentFormat.OpenXml.Wordprocessing.Bold()) : null!,
+                new DocumentFormat.OpenXml.Wordprocessing.Text(p.T) { Space = DocumentFormat.OpenXml.SpaceProcessingModeValues.Preserve }))))]);
 }

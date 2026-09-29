@@ -151,10 +151,12 @@ The source spec's head-based `next_draft_number` pseudocode is **superseded** by
 > The merge now first folds only `ancestor → incoming` onto main, block by block
 > (`Merging/ThreeWayMerge.cs`), then runs `Compare(mainHead, folded)`. Same endpoint, same single
 > author, same committed shape; main's content is the clean base as this section always intended.
-> Where both sides changed one paragraph differently the incoming paragraph is proposed over main's,
+> Blocks are compared by meaning (text, visible run formatting, style, list format, link/image targets —
+> `Merging/DocxMeaning.cs`), not markup: every Collabora save rewrites untouched paragraphs' XML.
+> Where both sides changed one paragraph's words differently the incoming paragraph is proposed over main's,
 > and the preview (which runs the same merge dry) lists it. Anything the fold cannot guarantee is a
-> `409` "merge unavailable": both sides in one table or content control, conflicts among repeated
-> identical paragraphs, move-vs-edit, incoming footnote/endnote/header/footer changes, incoming
+> `409` "merge unavailable": both sides in one table or content control, reformat-vs-reword,
+> ambiguous changes among repeated identical paragraphs, move-vs-edit, incoming footnote/endnote/header/footer changes, incoming
 > links/images main does not share, oversized rewrites. Incoming page setup, new styles and comments
 > are not carried. With no fork point (legacy rows) the two-way compare remains the fallback.
 

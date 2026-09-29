@@ -171,7 +171,7 @@ export default function MergeReview() {
             <p data-testid="merge-unavailable" role="alert" className="error">
               These versions cannot be merged automatically — download both and merge them manually.
               {preview.base &&
-                ' This happens when both sides changed the same table, when changes land among repeated identical paragraphs, when one side moved a paragraph the other edited, or when the incoming version changed footnotes, headers, links or images this version does not share.'}
+                ' This happens when both sides changed the same table, when one side reformatted a paragraph the other reworded, when changes land among repeated identical paragraphs, when one side moved a paragraph the other edited, or when the incoming version changed footnotes, headers, links or images this version does not share.'}
             </p>
           )}
 

@@ -74,7 +74,7 @@ public sealed class WmlComparerMergeService(IBlobStore blobs, EasyDocsDbContext 
 
     // The merge proper, shared with the preview so `available` and the overlaps describe exactly what
     // the button does. Throws when the merge must refuse. With no ancestor it is the two-way compare.
-    internal static ThreeWayMerge.Result Merge(byte[]? ancestor, byte[] main, byte[] incoming, string author)
+    public static ThreeWayMerge.Result Merge(byte[]? ancestor, byte[] main, byte[] incoming, string author)
     {
         var fold = ancestor is null ? new ThreeWayMerge.Result(incoming, []) : ThreeWayMerge.Apply(ancestor, main, incoming);
         var merged = WmlComparer.Compare(new WmlDocument("main.docx", main), new WmlDocument("incoming.docx", fold.Docx),
