@@ -62,9 +62,9 @@ test('1. Open in Collabora frames exactly the minted editorUrl', async ({ signed
   const vid = versionIds[0]
 
   // Every mint is collected rather than just the first: React StrictMode double-invokes effects in
-  // development, so the dev server legitimately mints twice (the editor closes the session it does not
-  // render). Asserting the src is ONE OF the minted URLs proves the frame shows a real minted session
-  // without pinning the test to a dev-only render count.
+  // development, so the dev server legitimately mints twice (the extra session is simply never used; the
+  // editor page closes no sessions, see Editor.tsx). Asserting the src is ONE OF the minted URLs proves
+  // the frame shows a real minted session without pinning the test to a dev-only render count.
   const minted: string[] = []
   page.on('response', (r) => {
     if (r.request().method() !== 'POST' || !r.url().includes(`/versions/${vid}/sessions`)) return

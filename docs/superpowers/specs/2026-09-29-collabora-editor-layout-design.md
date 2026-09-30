@@ -10,7 +10,7 @@ the document are visible:
 - Double chrome: app header, a "Back" row, Collabora's title bar and ribbon take ~280px before the page starts.
 - Collabora's formatting sidebar is open by default and takes ~30% of the width.
 - The frame is a fixed `75svh`, leaving dead space below it.
-- Collabora's "What's new" popup appears on every open.
+- Collabora's "What's new" slideshow covers the document on first use of each Collabora version.
 - No easydocs context: which version is being edited, whether it is saved, how to finish.
 - The page closes the edit session on the way out, which can race Collabora's last upload and lose edits.
 
@@ -40,8 +40,9 @@ No new endpoints and no change to the public API spec; the rail uses existing re
 
 ### Collabora configuration
 
-- Disable the welcome popup: add `--o:welcome.enable=false` to `extra_params` in `deploy/compose/docker-compose.yml`.
-- Production Collabora is owned by AptsNY/infra-platform (`gcp/easydocs/`); the same flag goes there as a separate change.
+None. The "What's new" slideshow stays: CODE ignores `welcome.enable` unless `home_mode.enable=true`, which caps the
+server at 20 connections and 10 open documents. It shows once per browser profile per Collabora update, not on every
+open (a fresh browser profile, as in screenshots and tests, always sees it).
 
 ### Web
 

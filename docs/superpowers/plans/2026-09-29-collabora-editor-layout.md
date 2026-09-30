@@ -212,7 +212,9 @@ git commit -s -m "feat(wopi): send PostMessageOrigin so the editor page gets sav
 
 ---
 
-### Task 3: No "What's new" popup
+### Task 3: No "What's new" popup (DROPPED during execution)
+
+> Dropped: CODE ignores `welcome.enable` unless `home_mode.enable=true` (20 connections / 10 documents cap). The real-Collabora e2e test caught it. See the spec's "Collabora configuration".
 
 **Files:**
 - Modify: `deploy/compose/docker-compose.yml:64`
@@ -346,7 +348,7 @@ test('Done saves (DontSaveIfUnmodified) and lands on the document; no session is
   const f = await stub()
   await f.evaluate(() => (window as any).send('Doc_ModifiedStatus', { Modified: true }))
 
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
 
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`))
   const save = await f
@@ -363,7 +365,7 @@ test('Done with nothing to save ("unmodified") still leaves', async ({ signedIn:
   await expect(status(page)).toHaveText('Saved')
   await (await stub()).evaluate(() => ((window as any).saveReply = { success: false, result: 'unmodified' }))
 
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`))
 })
 
@@ -373,7 +375,7 @@ test('a failed save keeps the user on the page and says so', async ({ signedIn: 
   const f = await stub()
   await f.evaluate(() => ((window as any).saveReply = { success: false, result: 'error' }))
 
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
 
   await expect(status(page)).toContainText("Couldn't save")
   await expect(page).toHaveURL(/\/edit$/)
@@ -388,7 +390,7 @@ test('no reply to Action_Save within 15s: Done leaves anyway', async ({ signedIn
   await expect(status(page)).toHaveText('Saved')
   await (await stub()).evaluate(() => ((window as any).saveReply = null))
 
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(status(page)).toHaveText('Saving…')
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`), { timeout: 25_000 })
 })
@@ -397,7 +399,7 @@ test('Done before the document has loaded leaves at once', async ({ signedIn: pa
   const { documentId } = await openEditor(page, 'Not Loaded', { silent: true })
   await expect(status(page)).toHaveText('Opening…')
 
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`), { timeout: 3_000 })
 })
 
@@ -870,6 +872,7 @@ After the existing `.editor-frame { … }` block (which stays unchanged: `MergeR
 /* The editing screen fills the window under the masthead: no page scroll, no dead space. The shell is
    pinned to the viewport only while it holds this page, so every other screen scrolls as before. */
 .shell:has(.editor-page) {
+  flex: none;
   height: 100svh;
 }
 
