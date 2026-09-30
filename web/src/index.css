@@ -1521,6 +1521,99 @@ button.danger:focus-visible {
   border-radius: 4px;
 }
 
+/* The editing screen fills the window under the masthead: no page scroll, no dead space. The shell is
+   pinned to the viewport only while it holds this page, so every other screen scrolls as before. */
+.shell:has(.editor-page) {
+  flex: none;
+  height: 100svh;
+}
+
+.shell > main:has(> .editor-page) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+
+.editor-page {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.editor-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s2) var(--s4);
+  border-block-end: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+}
+
+.editor-bar > button:last-child {
+  margin-inline-start: auto;
+}
+
+.editor-bar-from,
+.editor-status {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.editor-status--unsaved,
+.editor-status--failed {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.editor-frame--fill {
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.editor-opening {
+  padding: var(--s5);
+}
+
+.editor-rail {
+  width: 280px;
+  overflow-y: auto;
+  padding: var(--s3) var(--s4);
+  border-inline-start: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  font-size: 14px;
+}
+
+.editor-rail--closed {
+  width: auto;
+  padding-inline: var(--s2);
+}
+
+.editor-rail h3 {
+  margin-block: var(--s4) var(--s2);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-rail ul {
+  margin: 0 0 var(--s2);
+  padding: 0;
+  list-style: none;
+  line-height: 1.7;
+}
+
+@media (max-width: 700px) {
+  .editor-bar-from {
+    display: none;
+  }
+}
+
 .compare > button {
   margin-block-start: var(--s4);
 }
