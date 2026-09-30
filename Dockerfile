@@ -21,10 +21,7 @@ RUN dotnet publish src/EasyDocs.Api -c Release -o /app/publish \
 COPY --from=web /web/dist /app/publish/wwwroot
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-# libreoffice bundled now for later PDF work (M-later); large install, slow build.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice \
-    && rm -rf /var/lib/apt/lists/*
+# No LibreOffice here: PDFs are rendered by a Gotenberg service (GOTENBERG_URL).
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV ASPNETCORE_HTTP_PORTS=8080

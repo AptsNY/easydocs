@@ -4,6 +4,7 @@ using EasyDocs.Api.Common;
 using EasyDocs.Api.Data;
 using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Domain;
+using EasyDocs.Api.Publishing;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Versioning;
 using Microsoft.EntityFrameworkCore;
@@ -42,7 +43,7 @@ public static class DocumentEndpoints
         g.MapGet("/{id:guid}/versions", ListVersions);
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
-        g.MapGet("/{id:guid}/compare", Compare);
+        g.MapGet("/{id:guid}/compare", Compare).RequireRateLimiting(RateLimits.Render);
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
         g.MapDelete("/{id:guid}", Trash);
         g.MapPost("/{id:guid}:restore", Restore);
@@ -688,10 +689,11 @@ public static class DocumentEndpoints
     // Compare two versions (spec §7). Viewer+ suffices. summary = numeric counts (eager cache, else
     // computed inline; 422 if the pair cannot be compared); html = on-demand cached redline (200 text/html,
     // graceful message if unavailable — it is rendered, not parsed); docx = the compared redline docx blob,
-    // 422 if unavailable. Every WmlComparer call is guarded inside the diff service.
+    // 422 if unavailable; pdf = that redline as pages via Gotenberg (from == to: the version alone), 422 if
+    // unavailable. Every WmlComparer call is guarded inside the diff service.
     private static async Task<IResult> Compare(
         Guid id, Guid from, Guid to, string? format,
-        HttpContext ctx, EasyDocsDbContext db, WmlComparerDiffService diff, IBlobStore blobs)
+        HttpContext ctx, EasyDocsDbContext db, WmlComparerDiffService diff, IBlobStore blobs, GotenbergPdfRenderer pdf)
     {
         var (_, failure) = await AuthorizeAsync(db, ctx, id, requireEdit: false);
         if (failure is not null) return failure;
@@ -717,6 +719,43 @@ public static class DocumentEndpoints
                 if (redline is null)
                     return Problem.Of(422, "Comparison unavailable", "A redline document could not be produced.");
                 return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), BlobMime.Docx);
+            }
+            case "pdf":
+            {
+                // The version page (spec 2026-09-30): the redline drawn as real pages. from == to is one
+                // version on its own (no parent), rendered straight from its blob — never compared with itself.
+                string? source = fromSha == toSha ? toSha : null;
+                if (source is null)
+                {
+                    await diff.RedlineHtmlAsync(fromSha, toSha, ctx.RequestAborted); // ensures the redline blob exists
+                    source = await db.VersionDiffs
+                        .Where(x => x.FromSha256 == fromSha && x.ToSha256 == toSha)
+                        .Select(x => x.RedlineBlobSha256).FirstOrDefaultAsync();
+                }
+                byte[]? bytes = null;
+                if (source is not null)
+                {
+                    var mime = fromSha == toSha ? (await BlobMime.SniffAsync(blobs, source, ctx.RequestAborted)).Mime : BlobMime.Docx;
+                    if (mime == BlobMime.Pdf)
+                    {
+                        await using var own = await blobs.OpenReadAsync(source, ctx.RequestAborted);
+                        using var buf = new MemoryStream();
+                        await own.CopyToAsync(buf, ctx.RequestAborted);
+                        bytes = buf.ToArray();
+                    }
+                    else if (mime == BlobMime.Docx) // an image or a spreadsheet is not worth a Gotenberg round trip
+                    {
+                        await using var docx = await blobs.OpenReadAsync(source, ctx.RequestAborted);
+                        bytes = await pdf.RenderAsync(docx, ctx.RequestAborted);
+                    }
+                }
+                if (bytes is null)
+                    return Problem.Of(422, "Comparison unavailable", "These versions could not be shown as pages.");
+                // ponytail: rendered on every request (~1.4s for a lease), no cache. The pair of blob shas never
+                // changes meaning, so the browser may keep it forever. Upgrade path: a PDF column on version_diffs.
+                ctx.Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+                ctx.Response.Headers.ContentDisposition = "inline";
+                return Results.File(bytes, BlobMime.Pdf);
             }
             default:
             {

@@ -23,7 +23,7 @@ The single most common first-PR failure is a missing DCO sign-off. Check that fi
 - [ ] **`dotnet build easydocs.slnx` produces zero warnings.** `TreatWarningsAsErrors` is on, so a
       warning is a build failure, not a nag.
 - [ ] **`dotnet test` passes** (needs Docker running — the integration tests use Testcontainers for a
-      throwaway Postgres). Only the two `soffice`-guarded PDF tests may skip locally; CI installs
+      throwaway Postgres). Only the `soffice`-guarded merge tests may skip locally; CI installs
       LibreOffice and skips zero. **No conformance criterion (E1–E12) may skip, ever** — a silently
       skipped criterion reads as coverage that does not exist.
 - [ ] **New behaviour has a test**, and a bug fix has a regression test that fails without the fix.

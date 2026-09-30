@@ -19,6 +19,11 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 ### Added
 
+- **A version's changes as real pages** — the History tab shows the selected version's redline against
+  its parent, paginated (struck deletions, underlined insertions, margin change bars), in the browser's PDF
+  viewer. Backed by `GET /api/v1/documents/{id}/compare?…&format=pdf`; `from == to` shows one version on its
+  own.
+
 - **Read a version's text over the API and MCP** — `GET /api/v1/versions/{vid}/text` returns one
   version's plain text, exposed as the `get_version_text` MCP tool, so an agent can answer "what does
   this document say?" and not only "what happened to it?". A version that is not a `.docx` answers
@@ -222,6 +227,14 @@ descriptions are **document** versions, produced by the versioning engine. They 
 - **Docs:** server-sent events take the session cookie or an `Authorization` header — there is no
   `?token=` parameter, as the automation recipes claimed; and the org switcher, which ships, is no
   longer described as missing.
+
+### Changed
+
+- **PDFs are rendered by Gotenberg**, a separate service (`GOTENBERG_URL`), instead of LibreOffice inside
+  the app image. The image is much smaller; a deployment now runs Gotenberg next to the app (compose: the
+  `gotenberg` service). **Deploy prerequisite:** production needs Gotenberg reachable at `GOTENBERG_URL`
+  (on Cloud Run, a sidecar at `http://localhost:3000`) *before* this image runs, or publications in the gap
+  exhaust their retries and have no PDF. The ECS rollback path needs the same.
 
 ## [1.1.0] - 2026-08-01
 

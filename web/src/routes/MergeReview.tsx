@@ -7,6 +7,7 @@ import {
   type ChangeSummary,
   type MergePreview,
   type MergeSideRow,
+  changeCounts,
 } from '../api'
 
 // The three-way review a Merge click routes through (spec: 2026-08-24-three-way-merge-review-design.md).
@@ -254,7 +255,7 @@ function summaryLine(summary: ChangeSummary | null) {
   }
   return (
     <p data-testid="merge-side-summary">
-      {summary.insertions} insertions, {summary.deletions} deletions since the fork point
+      {changeCounts(summary)} since the fork point
     </p>
   )
 }

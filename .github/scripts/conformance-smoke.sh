@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Drives the SHIPPED compose artifact (not the in-process test host) through the reference automation
 # flow with nothing but an `ed_` PAT and curl — the same gate as ReferenceAutomationFlow, but against
-# the real container: real Postgres, real bundled LibreOffice, real Collabora discovery.
+# the real container: real Postgres, real Gotenberg, real Collabora discovery.
 #
 # This is the half of spec §12.3 the xUnit suite cannot cover: it proves the image we publish boots and
-# serves, and that `soffice` inside it actually renders a PDF.
+# serves, and that its Gotenberg actually renders a PDF.
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:8080}"
@@ -105,15 +105,15 @@ curl -fsS -X POST "$BASE/api/v1/versions/$VID/publish" "${AUTH[@]}" \
   -H 'Content-Type: application/json' -d '{"kind":"minor"}' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); assert (d["major"],d["minor"],d["revision"])==(0,1,0), d'
 
-# The reason this script exists: the render shells out to the LibreOffice bundled in the image.
-say "bundled LibreOffice renders a PDF"
+# The reason this script exists: the render goes over HTTP to the stack's Gotenberg service.
+say "Gotenberg renders a PDF"
 for i in $(seq 1 60); do
   HAS_PDF="$(curl -fsS "$BASE/api/v1/versions/$VID" "${AUTH[@]}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["hasPdf"])')"
   [ "$HAS_PDF" = "True" ] && break
   sleep 2
 done
-[ "${HAS_PDF:-False}" = "True" ] || fail "no PDF after 120s — bundled LibreOffice did not render"
+[ "${HAS_PDF:-False}" = "True" ] || fail "no PDF after 120s — Gotenberg did not render"
 
 curl -fsS "$BASE/api/v1/versions/$VID/download?format=pdf" "${AUTH[@]}" -o "$WORK/out.pdf"
 head -c 4 "$WORK/out.pdf" | grep -q '%PDF' || fail "downloaded PDF has no %PDF header"

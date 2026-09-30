@@ -7,10 +7,11 @@ using EasyDocs.Api.Storage;
 using EasyDocs.Api.Tests;
 using EasyDocs.Api.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
-[Collection(SofficeCollection.Name)]
 public class PdfRenderTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _f;
@@ -21,9 +22,6 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
     private record RegisterDto(Guid Id);
     private record DocDto(Guid Id);
     private record UploadDto(Guid VersionId);
-
-    // Mirror LibreOfficePdfRenderer.ResolveSoffice: SOFFICE_PATH, then PATH, then the macOS bundle path.
-    private static bool SofficeAvailable() => LibreOfficePdfRenderer.ResolveSoffice() is not null;
 
     private async Task<HttpClient> AuthedClientAsync()
     {
@@ -51,9 +49,7 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
     // lease that means reflowed or rasterised text. The corpus that exposed the mislabelling bug has
     // nine PDFs in it, so this is a path real documents take.
     //
-    // No Skip.IfNot here on purpose: the passthrough short-circuits BEFORE the renderer, so unlike the
-    // other tests in this file it must hold on a host with no soffice at all — and a test that runs
-    // everywhere is the one that will actually catch a regression.
+    // The passthrough short-circuits BEFORE the renderer, so this must hold with no renderer at all.
     [Fact]
     public async Task Publishing_a_pdf_version_serves_the_original_bytes_not_a_re_render()
     {
@@ -91,11 +87,9 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         Assert.Equal(pdfBytes, served);
     }
 
-    [SkippableFact]
-    public async Task Publish_renders_pdf_when_soffice_available()
+    [Fact]
+    public async Task Publish_renders_pdf_through_gotenberg()
     {
-        Skip.IfNot(SofficeAvailable(), "soffice not installed on this host");
-
         var c = await AuthedClientAsync();
         var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Doc" }))
             .Content.ReadFromJsonAsync<DocDto>())!.Id;
@@ -150,18 +144,30 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Malformed_docx_does_not_crash_renderer()
     {
-        var root = Directory.CreateTempSubdirectory().FullName;
-        var store = new FileSystemBlobStore(root);
-        var renderer = new LibreOfficePdfRenderer(store, NullLogger<LibreOfficePdfRenderer>.Instance);
+        using var scope = _f.Services.CreateScope();
+        var renderer = scope.ServiceProvider.GetRequiredService<GotenbergPdfRenderer>();
 
-        // No exception, no hang. Either outcome is acceptable; crashing is not.
+        // No exception, no hang. LibreOffice may even open junk as plain text; either a null or a real PDF
+        // is fine, crashing is not.
         var result = await renderer.RenderToBlobAsync(new MemoryStream([1, 2, 3]), CancellationToken.None);
+        if (result is null) return;
 
-        if (result is null) return; // refused outright — also fine
-
-        await using var pdf = await store.OpenReadAsync(result.Value.Sha256);
+        await using var pdf = await scope.ServiceProvider.GetRequiredService<IBlobStore>().OpenReadAsync(result.Value.Sha256);
         var header = new byte[4];
         await pdf.ReadExactlyAsync(header);
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(header));
+    }
+
+    // An unset GOTENBERG_URL (a dev box, a misconfigured deploy) is "no renderer", never an exception: the
+    // publish job then retries through the durable queue exactly as it does for a failed render.
+    [Fact]
+    public async Task Unset_gotenberg_url_is_no_pdf_not_a_crash()
+    {
+        using var host = _f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>
+            c.AddInMemoryCollection(new Dictionary<string, string?> { ["GOTENBERG_URL"] = "" })));
+        using var scope = host.Services.CreateScope();
+        var renderer = scope.ServiceProvider.GetRequiredService<GotenbergPdfRenderer>();
+
+        Assert.Null(await renderer.RenderAsync(new MemoryStream([1, 2, 3]), CancellationToken.None));
     }
 }

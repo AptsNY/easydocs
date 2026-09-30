@@ -49,7 +49,7 @@ jobs:
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
-      # Boot runs the EF migrations against Cloud SQL and the image bundles LibreOffice, so a
+      # Boot runs the EF migrations against Cloud SQL, so a
       # revision takes ~2 minutes to pass its startup probe; the old revision serves until then.
       - run: gcloud run services update easydocs-web --region "$REGION" --image "${{ steps.build.outputs.image }}"
 

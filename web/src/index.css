@@ -1802,3 +1802,41 @@ button.danger:focus-visible {
   font-weight: 600;
   text-decoration: underline;
 }
+
+/* ------------------------------------------------------------ the version page */
+
+/* History as Simul's version page: the list is the timeline, the selected version's pages sit beside it. */
+.history-split {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+
+.version-row--selected {
+  background: var(--paper-tint);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+button.version-number {
+  text-decoration: none;
+}
+
+.version-preview h4 {
+  margin-block: 0 var(--s2);
+}
+
+/* Paper, like the editor and the redline: white, a hairline, never tinted by the theme. */
+.version-pdf {
+  width: 100%;
+  height: 80svh;
+  background: #fff;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+}
+
+@media (max-width: 1099px) {
+  .history-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

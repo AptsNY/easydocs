@@ -42,6 +42,7 @@ public static class RateLimits
     public const string AnonDownload = "anon-download";
     public const string Auth = "auth";
     public const string TokenMint = "token-mint";
+    public const string Render = "render";
 
     public static IServiceCollection AddEasyDocsRateLimiter(this IServiceCollection services, IConfiguration cfg) =>
         services.AddRateLimiter(o =>
@@ -102,6 +103,18 @@ public static class RateLimits
                     PermitLimit = cfg.GetValue("RateLimit:TokenMint:PermitLimit", 20),
                     Window = TimeSpan.FromSeconds(cfg.GetValue("RateLimit:TokenMint:WindowSeconds", 60)),
                 }));
+
+            // compare?format=pdf runs a Gotenberg conversion per request, and one Gotenberg serves the
+            // publish renders too, so a user looping on it would starve publishing. Per user; every
+            // other format of the same route is untouched (no limiter).
+            o.AddPolicy(Render, ctx => ctx.Request.Query["format"] != "pdf"
+                ? RateLimitPartition.GetNoLimiter("")
+                : RateLimitPartition.GetFixedWindowLimiter(
+                    ctx.User.FindFirstValue("sub") ?? ClientKey(ctx), _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = cfg.GetValue("RateLimit:Render:PermitLimit", 30),
+                        Window = TimeSpan.FromSeconds(cfg.GetValue("RateLimit:Render:WindowSeconds", 60)),
+                    }));
         });
 
     // TestServer leaves RemoteIpAddress null, and so would a unix-socket peer; "" is a correct shared

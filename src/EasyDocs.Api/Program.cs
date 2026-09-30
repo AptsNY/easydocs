@@ -72,7 +72,7 @@ builder.Services.AddHostedService<DiffSummaryWorker>();
 builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>());
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Writer);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Channel<Guid>>().Reader);
-builder.Services.AddScoped<LibreOfficePdfRenderer>();
+builder.Services.AddHttpClient<GotenbergPdfRenderer>();
 builder.Services.AddHostedService<PdfRenderBackgroundService>();
 // Daily sweep of blobs no Versions/VersionDiffs column references (issue #15); grace window
 // protects commits in flight. BlobGc__Enabled=false turns it off.

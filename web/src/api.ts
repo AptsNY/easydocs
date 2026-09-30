@@ -142,6 +142,10 @@ export type VersionRow = {
 // not the document's; the document name comes from GET /api/v1/documents/{id}.
 export type VersionDetail = { id: string; documentId: string; major: number; minor: number; revision: number }
 
+// "1 insertion", "2 insertions": every screen that prints a change count says it the same way.
+export const changeCounts = (s: { insertions: number; deletions: number }) =>
+  `${s.insertions} insertion${s.insertions === 1 ? '' : 's'}, ${s.deletions} deletion${s.deletions === 1 ? '' : 's'}`
+
 export type Paged<T> = { items: T[]; nextCursor: string | null }
 
 // POST /api/v1/documents:import -- the response names both the document AND the version its bytes

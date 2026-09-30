@@ -7,7 +7,9 @@ using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Tests;
 using EasyDocs.Api.Tests.Fixtures;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 public class DiffTests : IClassFixture<ApiFactory>
@@ -282,5 +284,66 @@ public class DiffTests : IClassFixture<ApiFactory>
         var summaries = await Task.WhenAll(responses.Select(r => r.Content.ReadFromJsonAsync<SummaryDto>()));
         Assert.All(summaries, s => Assert.Equal(summaries[0]!.Insertions, s!.Insertions));
         Assert.All(summaries, s => Assert.Equal(summaries[0]!.Deletions, s!.Deletions));
+    }
+
+    // The version page (spec 2026-09-30) draws a version's changes as real pages: the redline docx through
+    // Gotenberg. from == to is a version shown on its own (0.0.1 has no parent): its own pages, unmarked,
+    // without running the comparer on a document against itself.
+    [Fact]
+    public async Task Pdf_format_renders_the_redline_and_a_single_version_as_pages()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, v1, v2) = await BaseAndEditedAsync(c);
+
+        foreach (var (from, to) in new[] { (v1, v2), (v1, v1) })
+        {
+            var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={from}&to={to}&format=pdf");
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            Assert.Equal("application/pdf", res.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("inline", res.Content.Headers.ContentDisposition?.DispositionType);
+            var bytes = await res.Content.ReadAsByteArrayAsync();
+            Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(bytes, 0, 5));
+        }
+
+        // Showing a version on its own must not leave a compare-with-itself row behind.
+        var (sha, _) = await ShasAsync(v1, v1);
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocs.Api.Data.EasyDocsDbContext>();
+        Assert.False(await db.VersionDiffs.AnyAsync(x => x.FromSha256 == sha && x.ToSha256 == sha));
+    }
+
+    [Fact]
+    public async Task Pdf_format_of_an_uncomparable_pair_is_422()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Uncomparable pdf" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var v1 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 1"));
+        var v2 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 2"));
+
+        var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=pdf");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+    }
+
+    // One Gotenberg serves publish renders too, so format=pdf is metered per user (RateLimits.Render); the
+    // route's other formats are not.
+    [Fact]
+    public async Task Pdf_format_is_rate_limited_per_user_and_other_formats_are_not()
+    {
+        using var host = _f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, cfg) =>
+            cfg.AddInMemoryCollection(new Dictionary<string, string?> { ["RateLimit:Render:PermitLimit"] = "1" })));
+        var c = host.CreateClient();
+        var email = $"rl-{Guid.NewGuid():N}@example.com";
+        var reg = await c.PostAsJsonAsync("/api/v1/auth/register",
+            new { email, displayName = "R", password = "pw-at-least-12", orgName = $"Org-{Guid.NewGuid():N}" });
+        reg.EnsureSuccessStatusCode();
+        var jwt = reg.Headers.GetValues("Set-Cookie").First(x => x.StartsWith("ed_session="))["ed_session=".Length..].Split(';')[0];
+        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        var (docId, v1, v2) = await BaseAndEditedAsync(c);
+        var pair = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}";
+
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync($"{pair}&format=pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await c.GetAsync($"{pair}&format=pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync($"{pair}&format=summary")).StatusCode);
     }
 }

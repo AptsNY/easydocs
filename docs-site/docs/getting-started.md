@@ -1,8 +1,7 @@
 # Getting started
 
 This takes one `.docx` from nothing to two numbered versions, editing in the browser. Budget about ten
-minutes, most of it the first Docker build (LibreOffice is bundled into the image, which is a large
-install).
+minutes, most of it the first Docker build and image pulls.
 
 ## What you need
 
@@ -55,8 +54,7 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 docker compose up --build
 ```
 
-Three containers start: `easydocs` (the app, with LibreOffice bundled for PDF rendering), `postgres`,
-and `collabora`. Database migrations are applied automatically at startup — there is no separate
+Four containers start: `easydocs` (the app), `postgres`, `collabora`, and `gotenberg` (PDF rendering). Database migrations are applied automatically at startup — there is no separate
 migrate step to run, ever.
 
 Wait for the app to answer:

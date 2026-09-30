@@ -15,8 +15,6 @@ public class E06_Publish
     private readonly ApiFactory _f;
     public E06_Publish(ApiFactory f) => _f = f;
 
-    // Mirrors LibreOfficePdfRenderer.ResolveSoffice — the PDF leg needs a real LibreOffice.
-    private static bool SofficeAvailable() => LibreOfficePdfRenderer.ResolveSoffice() is not null;
 
     [Fact]
     public async Task Publishing_renumbers_the_selected_version_and_lists_it_under_major_versions()
@@ -83,11 +81,9 @@ public class E06_Publish
         Assert.Equal(a.VersionId, items[1].VersionId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Publishing_renders_a_pdf()
     {
-        Skip.IfNot(SofficeAvailable(), "soffice not installed on this host — the compose stack bundles LibreOffice (spec §12.3)");
-
         var api = await EdApi.NewAsync(_f);
         var (_, vid) = await api.NewDocumentWithBaseAsync("Rendered");
         await api.PublishAsync(vid, "minor");

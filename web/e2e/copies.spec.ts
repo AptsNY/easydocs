@@ -1,6 +1,8 @@
 import type { APIRequestContext, Browser, Page } from '@playwright/test'
 import { test, expect, disclose, register, signIn, createDocument, uploadVersion } from './fixtures'
 
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
 // Major Versions, copies management and the audit trail (spec §9), plus conformance E9 driven entirely
 // through the UI: fork → push back → accept/reject on the target → an accepted push shows up as an
 // IncomingPush branch group in the target's history.
@@ -80,12 +82,17 @@ test('1. Major Versions lists each publication with kind, number, publisher name
 
 test('2. a published version with no PDF offers no PDF link', async ({ signedIn: page }) => {
   const documentId = await createDocument(page, 'No PDF Here')
-  const v1 = await uploadVersion(page, documentId, 'base.docx')
+  // A .docx that is not a real archive: Gotenberg answers 500, so the render fails and no PDF ever exists.
+  // (It used to rely on LibreOffice being absent, which only held while the render lost a race.)
+  const up = await page.request.post(`/api/v1/documents/${documentId}/versions`, {
+    multipart: { file: { name: 'broken.docx', mimeType: DOCX, buffer: Buffer.from('PK\x03\x04not really a zip') } },
+  })
+  expect(up.ok(), `upload failed: ${up.status()}`).toBeTruthy()
+  const v1 = ((await up.json()) as { versionId: string }).versionId
   await publish(page, v1, 'major', 'Executed')
 
-  // Rendering needs LibreOffice, which is not installed in this environment, so hasPdf is false even
-  // after publishing (and ?format=pdf answers 409). Asserted against the API first so this test states
-  // the precondition it is testing rather than assuming it.
+  // Give the render its chance to fail, then state the precondition from the API rather than assume it.
+  await page.waitForTimeout(5_000)
   const res = await page.request.get(`/api/v1/documents/${documentId}/versions`)
   const items = ((await res.json()) as { items: { hasPdf: boolean }[] }).items
   expect(items.some((v) => v.hasPdf)).toBeFalsy()

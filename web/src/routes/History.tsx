@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useOutletContext, useParams } from 'react-router'
+import { Link, useOutletContext, useParams, useSearchParams } from 'react-router'
 import { api, problemText, type DocRole, type Paged, type VersionRow as Version } from '../api'
 import Row from '../components/VersionRow'
 import RevisionGraph from '../components/RevisionGraph'
@@ -48,7 +48,23 @@ export default function History() {
     load(null).catch((e: unknown) => setError(problemText(e)))
   }, [load])
 
-  const rowProps: RowProps = { documentId: id!, role: myRole, onDone: refresh }
+  // The version page (spec 2026-09-30): ?v= picks the version whose changes show beside the list; an id that
+  // is not on the loaded page (or none) falls back to the newest.
+  const [params, setParams] = useSearchParams()
+  const selected = rows.find((v) => v.id === params.get('v')) ?? rows[0]
+  const onSelect = useCallback(
+    (v: Version) =>
+      setParams(
+        (p) => {
+          p.set('v', v.id)
+          return p
+        },
+        { replace: true },
+      ),
+    [setParams],
+  )
+
+  const rowProps: RowProps = { documentId: id!, role: myRole, onDone: refresh, selectedId: selected?.id, onSelect }
 
   const { spine, attached, detached } = layout(rows)
   // Merging needs main's head as the left side. Rows arrive newest-first, so that is the first of them.
@@ -88,9 +104,10 @@ export default function History() {
         </p>
       )}
 
-      {view === 'graph' && <RevisionGraph rows={rows} rowProps={rowProps} />}
+      {view === 'graph' && <RevisionGraph rows={rows} rowProps={{ documentId: id!, role: myRole, onDone: refresh }} />}
 
       {view === 'list' && (
+      <div className="history-split">
       <ol className="spine" data-testid="branch-spine">
         {spine.map((v) => (
           <li key={v.id}>
@@ -109,6 +126,8 @@ export default function History() {
           </li>
         ))}
       </ol>
+      {selected && <VersionPreview documentId={id!} version={selected} />}
+      </div>
       )}
 
       {rows.length === 0 && !error && <p>No versions yet.</p>}
@@ -129,7 +148,74 @@ export default function History() {
 
 // The three props every row needs beyond the version itself, bundled so BranchGroup forwards them rather
 // than re-declaring them.
-type RowProps = { documentId: string; role: DocRole | null; onDone: () => void }
+type RowProps = {
+  documentId: string
+  role: DocRole | null
+  onDone: () => void
+  selectedId?: string
+  onSelect?: (v: Version) => void
+}
+
+// The selected version's changes against its parent, as real pages (redline docx -> Gotenberg -> PDF), in the
+// browser's own PDF viewer: thumbnails, zoom, find and print come free. A version with no parent shows itself.
+function VersionPreview({ documentId, version }: { documentId: string; version: Version }) {
+  const from = version.parentVersionId ?? version.id
+  const src = `/api/v1/documents/${documentId}/compare?from=${from}&to=${version.id}&format=pdf`
+  const heading = version.parentVersionId ? `Changes in ${version.number}` : version.number
+  // One probe before framing it: a failure (422, Gotenberg down, a pair that cannot be compared) would
+  // otherwise show raw problem+json inside the viewer. A 200 is cached (immutable), so the frame's own load
+  // costs nothing more.
+  const [ok, setOk] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    setOk(null)
+    fetch(src, { credentials: 'same-origin' }).then(
+      (r) => live && setOk(r.ok),
+      () => live && setOk(false),
+    )
+    return () => {
+      live = false
+    }
+  }, [src])
+  return (
+    <section className="version-preview" data-testid="version-preview" aria-label={heading}>
+      <h4>{heading}</h4>
+      {version.publishedKind && (
+        <p>
+          <Link to={`/documents/${documentId}/approvals`}>Request approvals</Link>
+        </p>
+      )}
+      {ok === false && (
+        <p data-testid="version-pdf-unavailable">
+          These versions could not be shown as pages.{' '}
+          {version.parentVersionId && (
+            <a href={src.replace('format=pdf', 'format=docx')}>Download the redline (.docx)</a>
+          )}
+        </p>
+      )}
+      {ok === null && <p className="muted">Rendering the pages…</p>}
+      {ok && (
+        <>
+          {/* key: a new version is a new document, not a navigation inside the old viewer.
+              #navpanes=0&view=FitH: the viewer's thumbnail strip starts closed and the page fits the frame's width,
+              or the one thing this frame is for comes up at a third of its size. */}
+          <iframe
+            key={src}
+            className="version-pdf"
+            data-testid="version-pdf"
+            title={heading}
+            src={`${src}#navpanes=0&view=FitH`}
+          />
+          <p className="muted">
+            <a href={src} target="_blank" rel="noreferrer">
+              Open the pages in a new tab
+            </a>
+          </p>
+        </>
+      )}
+    </section>
+  )
+}
 
 function BranchGroup({
   group,
