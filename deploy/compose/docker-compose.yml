@@ -61,7 +61,9 @@ services:
       # http port"), so the editor never finished loading on the default stack. It now follows
       # PUBLIC_BASE_URL's scheme: false for the plain-http default, true for a real https deployment
       # behind the edge proxy (spec §11) — set both together in .env.
-      extra_params: "--o:ssl.enable=false --o:ssl.termination=${COLLABORA_SSL_TERMINATION:-false}"
+      # welcome.enable=false: CODE otherwise opens a "What's new" slideshow over the document on every
+      # first visit per browser profile, which for a contract editor is every visit that matters.
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=${COLLABORA_SSL_TERMINATION:-false} --o:welcome.enable=false"
     ports: [ "127.0.0.1:9980:9980" ] # loopback only, same reasoning as the app port
     cap_add: [ MKNOD ]
 
