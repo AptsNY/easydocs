@@ -97,7 +97,7 @@ test('history lists versions newest first with author, time and change summary',
   const newest = row(page, '0.0.2')
   await expect(newest.getByTestId('version-author')).toHaveText('E2E User')
   await expect(newest.locator('time')).toContainText(String(new Date().getFullYear()))
-  await expect(newest.getByTestId('version-summary')).toHaveText(/\d+ insertions/)
+  await expect(newest.getByTestId('version-summary')).toHaveText(/\d+ insertions?/)
 })
 
 test('a version with no parent shows a dash, never 0 insertions', async ({ signedIn: page }) => {

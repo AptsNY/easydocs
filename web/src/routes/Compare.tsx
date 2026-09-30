@@ -8,6 +8,7 @@ import {
   type ChangeSummary,
   type Paged,
   type VersionRow as Version,
+  changeCounts,
 } from '../api'
 
 // The comparison / redline view (spec §7, §9) — a redline between any two versions of a document, even
@@ -168,7 +169,7 @@ export default function Compare() {
           limitation as live data. */}
       {available && counts && (
         <p data-testid="compare-summary">
-          {counts.insertions} insertions, {counts.deletions} deletions
+          {changeCounts(counts)}
         </p>
       )}
 

@@ -1,4 +1,4 @@
-import type { ChangeSummary, DocRole, VersionRow as Version } from '../api'
+import { changeCounts, type ChangeSummary, type DocRole, type VersionRow as Version } from '../api'
 import ActionsMenu from './ActionsMenu'
 
 // One history row (spec §9), with the per-version Actions menu (E8) at the end of it.
@@ -10,15 +10,21 @@ export default function VersionRow({
   documentId,
   role,
   onDone,
+  selectedId,
+  onSelect,
 }: {
   version: Version
   documentId: string
   role: DocRole | null
   onDone: () => void
+  // The History tab's version page: picking a row shows its changes beside the list.
+  selectedId?: string
+  onSelect?: (v: Version) => void
 }) {
+  const selected = selectedId === version.id
   return (
     <article
-      className="version-row"
+      className={selected ? 'version-row version-row--selected' : 'version-row'}
       data-testid="version-row"
       data-number={version.number}
       data-branch-kind={version.branchKind}
@@ -29,9 +35,22 @@ export default function VersionRow({
           with a name and a publish badge wrapped and orphaned its Actions button onto a second line
           while its neighbours stayed on one. What wraps now is the body's own second line, which is
           where the quiet metadata already lives. */}
-      <span className="version-number" data-testid="version-number">
-        {version.number}
-      </span>
+      {onSelect ? (
+        <button
+          type="button"
+          className="version-number link"
+          data-testid="version-number"
+          aria-pressed={!!selected}
+          aria-label={`Show changes in ${version.number}`}
+          onClick={() => onSelect(version)}
+        >
+          {version.number}
+        </button>
+      ) : (
+        <span className="version-number" data-testid="version-number">
+          {version.number}
+        </span>
+      )}
 
       <div className="version-body">
         <span className="version-title">
@@ -65,5 +84,5 @@ export default function VersionRow({
 // live data that is really a documented limitation.
 function summaryText(summary: ChangeSummary | null) {
   if (!summary) return '—'
-  return `${summary.insertions} insertions, ${summary.deletions} deletions`
+  return changeCounts(summary)
 }

@@ -102,7 +102,7 @@ test('3. the numeric summary matches ?format=summary, and moves/formatChanges ar
   expect(counts.insertions).toBeGreaterThan(0)
 
   await compare(page, documentId, ids[0], ids[1])
-  await expect(summary(page)).toContainText(`${counts.insertions} insertions`)
+  await expect(summary(page)).toContainText(`${counts.insertions} insertion${counts.insertions === 1 ? '' : 's'}`)
   await expect(summary(page)).toContainText(`${counts.deletions} deletions`)
 
   // WmlComparer.GetRevisions only classifies Inserted/Deleted, so a "0 moves" counter would be a
