@@ -283,4 +283,43 @@ public class DiffTests : IClassFixture<ApiFactory>
         Assert.All(summaries, s => Assert.Equal(summaries[0]!.Insertions, s!.Insertions));
         Assert.All(summaries, s => Assert.Equal(summaries[0]!.Deletions, s!.Deletions));
     }
+
+    // The version page (spec 2026-09-30) draws a version's changes as real pages: the redline docx through
+    // Gotenberg. from == to is a version shown on its own (0.0.1 has no parent): its own pages, unmarked,
+    // without running the comparer on a document against itself.
+    [Fact]
+    public async Task Pdf_format_renders_the_redline_and_a_single_version_as_pages()
+    {
+        var c = await AuthedClientAsync();
+        var (docId, v1, v2) = await BaseAndEditedAsync(c);
+
+        foreach (var (from, to) in new[] { (v1, v2), (v1, v1) })
+        {
+            var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={from}&to={to}&format=pdf");
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            Assert.Equal("application/pdf", res.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("inline", res.Content.Headers.ContentDisposition?.DispositionType);
+            var bytes = await res.Content.ReadAsByteArrayAsync();
+            Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(bytes, 0, 5));
+        }
+
+        // Showing a version on its own must not leave a compare-with-itself row behind.
+        var (sha, _) = await ShasAsync(v1, v1);
+        using var scope = _f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EasyDocs.Api.Data.EasyDocsDbContext>();
+        Assert.False(await db.VersionDiffs.AnyAsync(x => x.FromSha256 == sha && x.ToSha256 == sha));
+    }
+
+    [Fact]
+    public async Task Pdf_format_of_an_uncomparable_pair_is_422()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Uncomparable pdf" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var v1 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 1"));
+        var v2 = await UploadAsync(c, docId, System.Text.Encoding.ASCII.GetBytes("not a docx 2"));
+
+        var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=pdf");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+    }
 }
