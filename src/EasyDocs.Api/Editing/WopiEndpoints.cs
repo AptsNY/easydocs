@@ -27,7 +27,7 @@ public static class WopiEndpoints
     }
 
     private static async Task<IResult> CheckFileInfo(Guid fileId, HttpContext ctx, EasyDocsDbContext db,
-        WopiAccessToken tokens, IBlobStore blobs, ILoggerFactory logs)
+        WopiAccessToken tokens, IBlobStore blobs, ILoggerFactory logs, IConfiguration cfg)
     {
         var auth = await Authorize(fileId, ctx, db, tokens);
         if (auth.Error is not null) return auth.Error;
@@ -58,7 +58,13 @@ public static class WopiEndpoints
             // Collabora attributes comments, tracked changes and presence to this name.
             await FriendlyNameAsync(db, auth.Uid, ctx.RequestAborted),
             auth.Perms == "w",
-            baseVersion.Id.ToString()));
+            baseVersion.Id.ToString(),
+            // The origin serving the SPA; Collabora only posts status messages to a page on it. Unset
+            // PUBLIC_BASE_URL leaves the field out rather than failing: documents still open, just
+            // without save status on the page.
+            Uri.TryCreate(cfg["PUBLIC_BASE_URL"], UriKind.Absolute, out var app)
+                ? app.GetLeftPart(UriPartial.Authority)
+                : null));
     }
 
     // Display name, else email, else AuthorNames' placeholder (a session outliving its user).
@@ -88,7 +94,9 @@ public static class WopiEndpoints
         [property: JsonPropertyName("UserId")] string UserId,
         [property: JsonPropertyName("UserFriendlyName")] string UserFriendlyName,
         [property: JsonPropertyName("UserCanWrite")] bool UserCanWrite,
-        [property: JsonPropertyName("Version")] string Version)
+        [property: JsonPropertyName("Version")] string Version,
+        [property: JsonPropertyName("PostMessageOrigin"),
+                   JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PostMessageOrigin)
     {
         // Constant capability flags — what this host implements (LockOp below), not per-file state.
         [JsonPropertyName("SupportsLocks")] public bool SupportsLocks => true;

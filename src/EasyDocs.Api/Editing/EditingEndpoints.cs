@@ -56,8 +56,11 @@ public static class EditingEndpoints
         var wopiSrc = Uri.EscapeDataString($"{wopiHost}/wopi/files/{session.Id}");
         // access_token_ttl is the token's expiry in ms since the epoch (WOPI spec), so Collabora can warn
         // the user before it lapses instead of failing a save — it never refreshes a token itself.
+        // ui_defaults: the tabbed ribbon, with Collabora's formatting sidebar and ruler off. The page's
+        // own side rail takes that space. Defaults only: a user's own toggles in Collabora still win.
         var editorUrl = $"{actionUrl}WOPISrc={wopiSrc}&access_token={token}" +
-                        $"&access_token_ttl={expiresAt.ToUnixTimeMilliseconds()}";
+                        $"&access_token_ttl={expiresAt.ToUnixTimeMilliseconds()}" +
+                        $"&ui_defaults={Uri.EscapeDataString("UIMode=tabbed;TextSidebar=false;TextRuler=false")}";
 
         return Results.Created($"/api/v1/sessions/{session.Id}", new
         {
