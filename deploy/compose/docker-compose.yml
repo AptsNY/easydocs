@@ -25,6 +25,8 @@ services:
         condition: service_healthy
       collabora:
         condition: service_started
+      gotenberg:
+        condition: service_started
     env_file: .env
     environment:
       ConnectionStrings__Postgres: ${ConnectionStrings__Postgres}
@@ -37,6 +39,8 @@ services:
       # The browser-facing one. COLLABORA_URL is the compose-internal name the APP uses;
       # this is the origin a person's browser must load the editor from.
       COLLABORA_PUBLIC_URL: ${COLLABORA_PUBLIC_URL}
+      # PDFs (published versions, redline pages) are rendered by the gotenberg service below.
+      GOTENBERG_URL: http://gotenberg:3000
       ASPNETCORE_HTTP_PORTS: "8080"
     ports:
       # Loopback only: the quickstart's secrets are placeholders and the Secure cookie already
@@ -45,6 +49,12 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - blobs:/data/blobs
+
+  # docx -> PDF over HTTP (LibreOffice inside). Internal only: nothing but the app talks to it.
+  # 8.37.0, pinned by digest like every image the stack depends on.
+  gotenberg:
+    image: gotenberg/gotenberg@sha256:f29984bd1e226bf1b93ba90af06000afa8b315853e99d27b9aaa41b93f15c769
+    restart: unless-stopped
 
   collabora:
     image: collabora/code

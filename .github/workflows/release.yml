@@ -43,9 +43,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # E6 asserts a rendered PDF. Without soffice the criterion skips itself, which reads as coverage
-      # that does not exist — the same reason conformance.yml installs it.
-      - name: Install LibreOffice (so the PDF tests run instead of skipping)
+      # The merge tests round-trip a .docx through host LibreOffice (a stand-in for a Collabora save), and
+      # skip without it, which reads as coverage that does not exist. PDF tests use their own Gotenberg.
+      - name: Install LibreOffice (so the merge tests run instead of skipping)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libreoffice-writer
@@ -96,7 +96,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       # The existing multi-stage Dockerfile: node builds the SPA into wwwroot, the dotnet runtime stage
-      # bundles LibreOffice for PDF rendering. One Dockerfile, used by dev, CI and release alike.
+      # runs the API (PDFs are rendered by a separate Gotenberg service). One Dockerfile, used by dev, CI and release alike.
       # All three base images (node, dotnet/sdk, dotnet/aspnet) are multi-arch, so the same Dockerfile
       # builds both platforms.
       #

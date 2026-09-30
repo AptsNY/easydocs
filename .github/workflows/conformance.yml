@@ -2,7 +2,7 @@ name: Conformance
 
 # The v1 conformance profile (spec §12.1 E1-E12) as a gate, run against the real deployment artifact
 # (spec §12.3). Separate from ci.yml on purpose: ci.yml stays the fast unit+Testcontainers signal,
-# this job builds an image and boots LibreOffice and Collabora, so it is minutes not seconds.
+# this job builds an image and boots Gotenberg and Collabora, so it is minutes not seconds.
 #
 # How each criterion is exercised:
 #
@@ -29,7 +29,7 @@ name: Conformance
 #     web/e2e/collabora.spec.ts and runs in ci.yml's web-e2e job, which already boots Collabora.
 #
 #   Compose stack (conformance-smoke.sh, against the published image over HTTP)
-#     E6's PDF leg          bundled LibreOffice actually renders (%PDF verified)
+#     E6's PDF leg          Gotenberg actually renders (%PDF verified)
 #     E2/E6/E10 end-to-end  PAT-only create -> upload -> publish -> share -> anonymous read
 #     §10.1 surface         /openapi/v1.json is 3.1 and publishes the complete endpoint set (the
 #                           copies/push routes landed in M4); /docs is self-contained
@@ -55,18 +55,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # E6 asserts a rendered PDF. Without soffice on the runner that criterion skips itself, which
-      # would make a green run overstate coverage — so install it and let the assertion run for real.
-      # timeout-minutes keeps a future mirror stall a fast red instead of a 30-minute hang; the
-      # mirror swap itself is the actual fix (see .github/actions/apt-mirror).
-      - uses: ./.github/actions/apt-mirror
-      - name: Install LibreOffice (so E6's PDF criterion runs instead of skipping)
-        timeout-minutes: 8
-        run: |
-          sudo apt-get -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libreoffice-writer
-          soffice --version
-
+      # E6 asserts a rendered PDF. The suite starts its own Gotenberg container (Testcontainers), so the
+      # runner needs no LibreOffice and the criterion cannot skip for want of one.
       - name: Run the E1-E12 conformance suite
         run: |
           dotnet test -c Release --filter 'FullyQualifiedName~Conformance' \
@@ -75,8 +65,8 @@ jobs:
 
       # A silently-skipped criterion is worse than a red one: it reads as coverage that does not exist.
       # M4 was the last milestone with a pending criterion, so the allowlist is now empty — every one of
-      # E1-E12 must actually run. The only reason anything here skips is a missing host dependency
-      # (LibreOffice for E6's PDF leg), which this job installs above precisely so it does not.
+      # E1-E12 must actually run. Nothing here depends on host software any more: E6's PDF leg renders
+      # through the Gotenberg container the suite starts itself.
       - name: Assert no conformance criterion skipped
         run: |
           trx=$(find . -name conformance.trx | head -1)
@@ -95,7 +85,7 @@ jobs:
           print('no conformance criterion skipped — E1-E12 all ran.')
           PY
 
-      - name: Boot the compose stack (Postgres + Collabora + bundled LibreOffice)
+      - name: Boot the compose stack (Postgres + Collabora + Gotenberg)
         working-directory: deploy/compose
         run: |
           cp .env.example .env
