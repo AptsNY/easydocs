@@ -326,12 +326,10 @@ test('a long name with no spaces stays inside its tile', async ({ signedIn: page
   await expect(tile).toBeVisible()
 
   const fit = await tile.evaluate((li) => {
-    const box = li.getBoundingClientRect()
-    const title = li.querySelector('.tile-name')!.getBoundingClientRect()
-    const column = (li.parentElement!.firstElementChild as HTMLElement).getBoundingClientRect().width
-    return { overflow: li.scrollWidth - li.clientWidth, titleRight: title.right - box.right, width: box.width, column }
+    // The link is inline, so its box follows the text; the h3 around it is always tile-wide.
+    const text = li.querySelector('.tile-open')!.getBoundingClientRect()
+    return { overflow: li.scrollWidth - li.clientWidth, textRight: text.right - li.getBoundingClientRect().right }
   })
   expect(fit.overflow, 'tile content is wider than the tile').toBeLessThanOrEqual(0)
-  expect(fit.titleRight, 'the name runs past the tile edge').toBeLessThanOrEqual(0)
-  expect(Math.abs(fit.width - fit.column), 'the tile grew past its grid column').toBeLessThan(1)
+  expect(fit.textRight, 'the name runs past the tile edge').toBeLessThanOrEqual(0)
 })

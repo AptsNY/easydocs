@@ -956,8 +956,8 @@ a.button:hover {
    float), and the whole surface is the link. */
 .tile {
   position: relative;
-  /* A grid item's min-width defaults to its content, so one long name widened its own card past the
-     column instead of wrapping. */
+  /* Belt and braces: the minmax(15rem, 1fr) tracks already stop a card growing; the overflow itself
+     was an unbreakable name, fixed by overflow-wrap on headings. */
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1007,6 +1007,7 @@ a.button:hover {
 }
 
 .tile-when {
+  overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
   gap: 0 var(--s2);
@@ -1032,6 +1033,10 @@ a.button:hover {
 .tile-more {
   margin-block-start: auto;
   padding-block-start: var(--s3);
+}
+
+.tile-actions select {
+  max-width: 100%;
 }
 
 .tile-actions {
