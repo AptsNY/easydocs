@@ -93,8 +93,9 @@ The document console's History tab (`web/src/routes/History.tsx`) becomes the ve
 - C#: `GotenbergPdfRenderer` against a stub HTTP handler (success, 500, timeout → null). `format=pdf`: 200
   `application/pdf` with a `%PDF-` prefix when the renderer succeeds, 422 when it fails, 404/403 as the other formats.
 - `PdfRenderTests` and `E06_Publish` run against a real Gotenberg started by Testcontainers (already a
-  dependency): one container shared by the whole run, its URL passed as `GOTENBERG_URL` in `ApiFactory`'s in-memory
-  config. No skips (CI fails on skips). `Malformed_docx_does_not_crash_renderer` builds the new renderer.
+  dependency, generic `ContainerBuilder`): one container for the whole run, started from a `static` lazy task in
+  `ApiFactory` (53 test classes each build their own factory, so a per-factory container would mean 53), its URL
+  passed as `GOTENBERG_URL` in `ApiFactory`'s in-memory config. No skips (CI fails on skips). `Malformed_docx_does_not_crash_renderer` builds the new renderer.
 - `web/e2e/copies.spec.ts` test 2 ("a published version with no PDF offers no PDF link") relies on the render losing
   a race; rewrite it around a render that fails (e.g. an unconvertible blob).
 - Playwright: select a version, the card shows its counts, the frame's `src` targets `format=pdf` for that version
