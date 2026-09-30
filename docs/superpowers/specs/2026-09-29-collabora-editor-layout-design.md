@@ -29,7 +29,7 @@ the document are visible:
 
 - `src/EasyDocs.Api/Editing/EditingEndpoints.cs`: append
   `&ui_defaults=` + URL-encoded `UIMode=tabbed;TextSidebar=false;TextRuler=false` to the `editorUrl` it already builds.
-- `src/EasyDocs.Api/Editing/WopiEndpoints.cs`: add `PostMessageOrigin` to `CheckFileInfoResponse`, set to
+- `src/EasyDocs.Api/Editing/WopiEndpoints.cs`: add `PostMessageOrigin` (`[JsonIgnore(Condition = WhenWritingNull)]`) to `CheckFileInfoResponse`, set to
   the origin (scheme://host[:port], no path) of `PUBLIC_BASE_URL`, which is the origin serving the SPA. When
   `PUBLIC_BASE_URL` is unset the field is omitted (never a 500: that would stop every document opening) and the page
   simply gets no status messages. Add the key to the list in `WopiHostTests.CheckFileInfo_wire_json_is_WOPI_PascalCase…`.
@@ -80,52 +80,59 @@ All messages both ways are JSON strings of the shape `{MessageId, SendTime, Valu
 Editing:
 
 - `Doc_ModifiedStatus {Values: {Modified: true}}` → `unsaved`.
-- Collabora autosaves via WOPI PutFile → `CommitSaveAsync` (unchanged) → `version.created` on SSE → rail refetches.
-- `Doc_ModifiedStatus {Values: {Modified: false}}` → `saved`. The bar shows "Saved as {label}" using the newest version
-  in the refetched list created by the current user through the editor (`EditWopi` source), so a co-editor's save or
-  another branch is not claimed as yours; with none yet it shows just "Saved".
+- `Doc_ModifiedStatus {Values: {Modified: false}}` → `saved`. This only means the core saved to its local file; the WOPI
+  PutFile upload runs after it, asynchronously. So `saved` is a display state, never permission to close the session.
+- Collabora's PutFile → `CommitSaveAsync` (unchanged) → `version.created` on SSE → rail refetches.
+- The bar shows "Saved as {label}" for the newest version in the refetched list with `source == "EditWopi"`,
+  `createdBy == me.id` and `createdAt >=` the session's mint time; with none, just "Saved".
 
-Done:
+Session closing rule: **the session is closed only after a confirmed upload**: the last relevant message was
+`Action_Save_Resp {Values: {success: true}}` with no `Modified: true` after it. Closing sets `ClosedAt`, and
+`WopiEndpoints.LiveSessionAsync` then rejects any PutFile still in flight or the one coolwsd sends when the last view
+disconnects with changes, so closing early loses edits. Leaving without closing is always safe: the session stays open,
+Collabora's disconnect save lands, and the cost is a stale row. So every uncertain case (no messages, `loading`,
+`saving`, timeout, dev server, unconfigured `PostMessageOrigin`) navigates without closing. In dev and unconfigured
+environments sessions are therefore never closed from the page.
 
-- Status `saved`: close the session, navigate to `/documents/{docId}` (replaces `navigate(-1)`, so a direct load works).
-- Status `unsaved`: post `Action_Save {Values: {Notify: true}}`, show "Saving…", wait for
-  `Action_Save_Resp {Values: {success: true}}`, then close and leave.
-- The ← link runs the same logic as Done.
+Done (and the ← link, same logic):
 
-Session closing rule: **the session is closed only when status is `saved`.** Closing sets `ClosedAt`, and
-`WopiEndpoints.LiveSessionAsync` then rejects Collabora's final PutFile, which coolwsd sends when the last view
-disconnects with unsaved changes. Closing early loses those edits. A session left open costs only a stale row.
+1. Post `Action_Save {Values: {Notify: true}}` whatever the status, and show "Saving…".
+2. `Action_Save_Resp {success: true}` → close the session and navigate to `/documents/{docId}` (replaces
+   `navigate(-1)`, so a direct load works).
+3. `Action_Save_Resp {success: false}` → stay; the bar says the save failed and the changes are still in the editor.
+4. No response within 15s (including when no messages ever arrive) → navigate without closing.
 
 Leaving otherwise:
 
-- In-app navigation (effect cleanup): close only if status is `saved`; otherwise leave it open so Collabora's final save
-  lands. This also fixes the same race in today's cleanup.
-- Tab close or reload: a `pagehide` handler, only if status is `saved`, sends
-  `fetch(DELETE /api/v1/sessions/{id}, {keepalive: true, credentials: 'same-origin'})` (what `api.del` sends; no
-  antiforgery token is needed).
-- While status is `unsaved`, `beforeunload` triggers the browser's "Leave site?" prompt. If the user leaves anyway, the
-  session stays open and Collabora's disconnect save still goes through.
+- In-app navigation (effect cleanup) and tab close or reload (`pagehide`): close only if the closing rule holds, using
+  `fetch(DELETE /api/v1/sessions/{id}, {keepalive: true, credentials: 'same-origin'})` for `pagehide` (what `api.del`
+  sends; no antiforgery token is needed). Otherwise leave the session open.
+- Both handlers read state from a ref, not captured render state, or they would see the first render's status.
+- While status is `unsaved` or `saving`, `beforeunload` triggers the browser's "Leave site?" prompt. Leaving anyway
+  keeps the session open, so the disconnect save still goes through.
 
 ## Error handling
 
-- Collabora never loads: on the iframe `error` event the bar says the editor did not load, with reload and download
-  options; the rail still works. A silent timeout is not used as an error signal, because "no messages" also happens
-  when `PostMessageOrigin` is unconfigured (or under the Vite dev server) while the editor works. Instead, after 30s
-  with no Collabora message the status indicator is simply hidden.
-- Save does not answer: if `Action_Save_Resp` is missing after 15s or has `success: false`, Done stays on the page and
-  says the changes are still in the editor. The session is never closed with unsaved edits.
+- Collabora never loads: there is no reliable signal (an iframe fires `load`, not `error`, on a failed or error page,
+  and "no messages" also happens when `PostMessageOrigin` is unconfigured). So there is no error banner: after 30s with
+  no Collabora message the status indicator is hidden, and Collabora's own error page shows in the frame. The rail still
+  works.
+- Save fails: `Action_Save_Resp {success: false}` keeps the user on the page with the message above; nothing is closed.
 - Messages whose `origin` is not the Collabora origin (parsed from `editorUrl`) are ignored; messages the host sends
   target that origin, never `*`.
 - A Viewer opening the URL directly: the existing 403 message, no bar or rail.
 - A rail section fails or is forbidden: that section shows "Couldn't load"; editing is never blocked.
-- Co-editing: handled by Collabora; the rail refreshes on every save through SSE.
+- Two people editing the same version: each session has its own WOPI file id (`/wopi/files/{session.Id}`), so they are
+  separate Collabora documents with no live co-editing; each save commits on its own and the rail refreshes through SSE.
 
 ## Testing
 
 - Vitest: `useCollabora` driven by fake `message` events in the `{MessageId, SendTime, Values}` shape: handshake on
-  `Frame_Ready`, status changes, origin filter, save success, save timeout and failure, and "no close while unsaved". `EditorRail` open-state memory and the narrow-screen default.
+  `Frame_Ready`, status changes, origin filter, save success, save timeout and failure, "no close while unsaved", and "no close between `Modified: false` and a
+  successful `Action_Save_Resp`". `EditorRail` open-state memory and the narrow-screen default.
 - Server tests: the minted `editorUrl` contains `ui_defaults`; CheckFileInfo returns `PostMessageOrigin` as an origin
-  when `PUBLIC_BASE_URL` is set and omits it when unset.
+  when `PUBLIC_BASE_URL` is set (the test factory sets `http://localhost`) and omits it when unset (needs a factory
+  override).
 - Playwright (web-e2e): bar and rail render on a direct load; Done lands on `/documents/{id}`. CI has no Collabora,
   so Collabora-driven states are covered by posting fake messages into the page.
 - Manual on the local compose stack before merge, in a clean browser profile (Collabora keeps the user's own UI
