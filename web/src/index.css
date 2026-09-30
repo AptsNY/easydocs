@@ -150,6 +150,9 @@ h4 {
   font-weight: 500;
   color: var(--ink);
   text-wrap: balance;
+  /* Document names are often file names with no spaces ("aces__Laundry_Room_Lease_Template.docx"),
+     which cannot wrap at a space and would run out of their box. Break them only where they must. */
+  overflow-wrap: anywhere;
 }
 
 h1 {
@@ -953,6 +956,9 @@ a.button:hover {
    float), and the whole surface is the link. */
 .tile {
   position: relative;
+  /* Belt and braces: the minmax(15rem, 1fr) tracks already stop a card growing; the overflow itself
+     was an unbreakable name, fixed by overflow-wrap on headings. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--s1);
@@ -1001,6 +1007,7 @@ a.button:hover {
 }
 
 .tile-when {
+  overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
   gap: 0 var(--s2);
@@ -1026,6 +1033,10 @@ a.button:hover {
 .tile-more {
   margin-block-start: auto;
   padding-block-start: var(--s3);
+}
+
+.tile-actions select {
+  max-width: 100%;
 }
 
 .tile-actions {
@@ -1551,6 +1562,12 @@ button.danger:focus-visible {
   padding: var(--s2) var(--s4);
   border-block-end: 1px solid var(--rule-strong);
   background: var(--paper-raised);
+}
+
+.editor-bar > button.link {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: start;
 }
 
 .editor-bar > button:last-child {
