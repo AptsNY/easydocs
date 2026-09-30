@@ -17,7 +17,7 @@ public abstract class DurableJobWorker<TPayload>(
     // ponytail: fixed lease/backoff, no per-job tuning — revisit if a job class ever needs more
     // than 5 minutes or five tries. Poll is configurable only as a test seam (Jobs:PollSeconds).
     // The lease must outlast the slowest job, or a second instance claims it mid-run: a PDF render is
-    // up to 2 × 60s of soffice (LibreOfficePdfRenderer) plus blob reads and writes. It is also the retry
+    // up to 2 × 30s of Gotenberg (GotenbergPdfRenderer) plus blob reads and writes. It is also the retry
     // backoff for every job type: a failing job retries every 5 minutes and is dropped after ~25.
     private static readonly TimeSpan Lease = TimeSpan.FromMinutes(5);
     private const int MaxAttempts = 5;

@@ -26,9 +26,9 @@ public sealed class PdfRenderBackgroundService(
         if (version is null) return; // consumed: the version is gone, there is nothing to render
 
         var blobs = services.GetRequiredService<IBlobStore>();
-        var renderer = services.GetRequiredService<LibreOfficePdfRenderer>();
+        var renderer = services.GetRequiredService<GotenbergPdfRenderer>();
 
-        // A version whose bytes are ALREADY a PDF must not be converted. soffice does not pass a
+        // A version whose bytes are ALREADY a PDF must not be converted. LibreOffice (behind Gotenberg) does not pass a
         // PDF through — it imports it into Draw and re-lays it out, so publishing a scanned lease
         // handed the user back a different document: different size, different producer, text
         // reflowed or rasterised. The published PDF has to BE the file they uploaded.
@@ -48,7 +48,7 @@ public sealed class PdfRenderBackgroundService(
 
         await using var docx = await blobs.OpenReadAsync(version.BlobSha256, ct);
         var pdf = await renderer.RenderToBlobAsync(docx, ct);
-        // Throw, don't return: returning consumes the job, so one soffice hiccup left the publication
+        // Throw, don't return: returning consumes the job, so one render hiccup left the publication
         // without a PDF forever. Throwing leaves the row for the queue to retry (and drop loudly at the cap).
         ct.ThrowIfCancellationRequested(); // shutdown mid-render is a cancellation, not a render failure
         if (pdf is null) throw new InvalidOperationException($"PDF render failed for version {versionId}.");

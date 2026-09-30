@@ -5,6 +5,7 @@ using Clippit;
 using Clippit.Word;
 using EasyDocs.Api.Merging;
 using EasyDocs.Api.Publishing;
+using EasyDocs.Api.Tests;
 using EasyDocs.Api.Tests.Fixtures;
 using static EasyDocs.Api.Tests.Fixtures.DocxFixtures;
 
@@ -18,10 +19,10 @@ public class ThreeWayMergeLibreOfficeTests
 {
     private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
-    private static bool SofficeAvailable() => LibreOfficePdfRenderer.ResolveSoffice() is not null;
+    private static bool SofficeAvailable() => Soffice.Resolve() is not null;
 
     // Save `docx` the way Collabora does. One retry when soffice produced nothing (a first start on a
-    // fresh profile can exit early — LibreOfficePdfRenderer retries once for the same reason), and a
+    // fresh profile can exit early — the old in-app renderer retried once for the same reason), and a
     // failure that says what soffice said rather than "file not found".
     private static byte[] Lo(byte[] docx)
     {
@@ -43,7 +44,7 @@ public class ThreeWayMergeLibreOfficeTests
             var src = Path.Combine(work, "in.docx");
             File.WriteAllBytes(src, docx);
             var outDir = Path.Combine(work, "out");
-            var psi = new ProcessStartInfo(LibreOfficePdfRenderer.ResolveSoffice()!)
+            var psi = new ProcessStartInfo(Soffice.Resolve()!)
             {
                 // Its own profile per call, so no two soffice processes ever share one.
                 ArgumentList =
