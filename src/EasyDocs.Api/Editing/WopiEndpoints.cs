@@ -63,6 +63,7 @@ public static class WopiEndpoints
             // PUBLIC_BASE_URL leaves the field out rather than failing: documents still open, just
             // without save status on the page.
             Uri.TryCreate(cfg["PUBLIC_BASE_URL"], UriKind.Absolute, out var app)
+                && (app.Scheme == Uri.UriSchemeHttp || app.Scheme == Uri.UriSchemeHttps)
                 ? app.GetLeftPart(UriPartial.Authority)
                 : null));
     }

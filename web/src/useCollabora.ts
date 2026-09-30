@@ -24,6 +24,12 @@ export function useCollabora(frame: RefObject<HTMLIFrameElement | null>, origin:
   const [quiet, setQuiet] = useState(false)
   const loaded = useRef(false)
   const pendingSave = useRef<((ok: boolean) => void) | null>(null)
+  const inFlight = useRef<Promise<SaveResult> | null>(null)
+  const saveTimer = useRef<number | undefined>(undefined)
+
+  // Leaving mid-save drops the timer, so the promise simply never settles and whoever awaited it (Done)
+  // never acts from a page the user has already left.
+  useEffect(() => () => window.clearTimeout(saveTimer.current), [])
 
   const post = useCallback(
     (MessageId: string, Values: Record<string, unknown> = {}) => {
@@ -59,7 +65,6 @@ export function useCollabora(frame: RefObject<HTMLIFrameElement | null>, origin:
         case 'Action_Save_Resp':
           // "unmodified" is Collabora declining a save there was no need for (DontSaveIfUnmodified).
           pendingSave.current?.(v.success === true || v.result === 'unmodified')
-          pendingSave.current = null
           break
       }
     }
@@ -76,26 +81,34 @@ export function useCollabora(frame: RefObject<HTMLIFrameElement | null>, origin:
   // Collabora's own save on disconnect still reaches the WOPI host.
   const save = useCallback((): Promise<SaveResult> => {
     if (!loaded.current) return Promise.resolve('unknown')
+    // A second click while saving joins the first save rather than starting a race with it.
+    if (inFlight.current) return inFlight.current
     setStatus('saving')
-    return new Promise((resolve) => {
-      const t = window.setTimeout(() => {
-        pendingSave.current = null
-        resolve('unknown')
-      }, SAVE_TIMEOUT_MS)
+    const settle = (result: SaveResult) => {
+      window.clearTimeout(saveTimer.current)
+      pendingSave.current = null
+      inFlight.current = null
+      return result
+    }
+    inFlight.current = new Promise((resolve) => {
+      saveTimer.current = window.setTimeout(() => resolve(settle('unknown')), SAVE_TIMEOUT_MS)
       pendingSave.current = (ok) => {
-        window.clearTimeout(t)
         if (!ok) setStatus('failed')
-        resolve(ok ? 'done' : 'failed')
+        resolve(settle(ok ? 'done' : 'failed'))
       }
       // DontSaveIfUnmodified: an unchanged document re-saved would become a new version on every Done.
       post('Action_Save', { Notify: true, DontSaveIfUnmodified: true })
     })
+    return inFlight.current
   }, [post])
 
   // The browser's own "Leave site?" prompt. Leaving anyway is safe: see save() above.
   useEffect(() => {
-    if (status !== 'unsaved' && status !== 'saving') return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    if (status !== 'unsaved' && status !== 'saving' && status !== 'failed') return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = '' // older Safari only prompts when this is set
+    }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [status])

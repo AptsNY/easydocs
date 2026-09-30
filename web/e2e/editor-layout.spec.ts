@@ -161,3 +161,18 @@ test('the rail remembers being collapsed, and starts collapsed on a narrow scree
   await page.reload()
   await expect(page.getByRole('button', { name: /details/i })).toHaveAttribute('aria-expanded', 'false')
 })
+
+test('leaving during a save: the pending save never navigates from the next page', async ({ signedIn: page }) => {
+  test.setTimeout(60_000)
+  const { stub } = await openEditor(page, 'Leave Mid Save')
+  await expect(status(page)).toHaveText('Saved')
+  await (await stub()).evaluate(() => ((window as any).saveReply = null))
+
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(status(page)).toHaveText('Saving…')
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(/\/settings$/)
+  // Past the 15s save timeout: a timer left armed would now push /documents/… on top of Settings.
+  await page.waitForTimeout(17_000)
+  await expect(page).toHaveURL(/\/settings$/)
+})

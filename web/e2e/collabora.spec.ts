@@ -160,5 +160,9 @@ test.describe('Collabora editor page (layout spec)', () => {
     await page.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`), { timeout: 30_000 })
     await expect.poll(editWopiCount, { timeout: EDITOR_TIMEOUT, message: 'Done did not save the edit' }).toBe(1)
+    // And exactly one: a stray re-save of the unchanged document (the first Done) would land late, as a
+    // second version, since uploads are asynchronous.
+    await page.waitForTimeout(5_000)
+    expect(await editWopiCount()).toBe(1)
   })
 })

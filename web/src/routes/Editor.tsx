@@ -87,7 +87,7 @@ export default function Editor() {
     <section data-testid="editor" className="editor editor-page">
       <div className="editor-bar" data-testid="editor-bar">
         {/* Same path as Done: save first, then leave. */}
-        <button type="button" className="link" onClick={() => void done()}>
+        <button type="button" className="link" onClick={() => void done()} disabled={status === 'saving'}>
           ← {doc.data?.name ?? 'Document'}
         </button>
         {label && <span className="editor-bar-from">editing from {label}</span>}
