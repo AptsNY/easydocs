@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect, disclose, register, signIn } from './fixtures'
+import { test, expect, createDocument, disclose, register, signIn } from './fixtures'
 
 // The dashboard against the real API: folder tree (E1 nesting/move), tiles (E2 first version is
 // 0.0.1), server-side search, and the trash round trip that only became reachable in M4.5 — before
@@ -313,4 +313,25 @@ test('a sort pair the select cannot show falls back to the default rather than l
 
   // What the control says it is doing, not the ?sort=name the URL asked for.
   await expect.poll(names).toEqual(['mike-lie', 'alpha-lie', 'zulu-lie'])
+})
+
+// Real names are file names with no spaces ("aces__Laundry_Room_Lease_Template.docx"). One ran out of
+// its card and over the next one in production, because a grid item sizes to its content and an
+// unbroken word cannot wrap. The name must stay inside its own tile.
+test('a long name with no spaces stays inside its tile', async ({ signedIn: page }) => {
+  const name = `aces__Laundry_Room_Lease_Template_${'X'.repeat(40)}_${Date.now()}.docx`
+  await createDocument(page, name)
+  await page.goto('/')
+  const tile = page.locator(`[data-testid="document-tile"][data-name="${name}"]`)
+  await expect(tile).toBeVisible()
+
+  const fit = await tile.evaluate((li) => {
+    const box = li.getBoundingClientRect()
+    const title = li.querySelector('.tile-name')!.getBoundingClientRect()
+    const column = (li.parentElement!.firstElementChild as HTMLElement).getBoundingClientRect().width
+    return { overflow: li.scrollWidth - li.clientWidth, titleRight: title.right - box.right, width: box.width, column }
+  })
+  expect(fit.overflow, 'tile content is wider than the tile').toBeLessThanOrEqual(0)
+  expect(fit.titleRight, 'the name runs past the tile edge').toBeLessThanOrEqual(0)
+  expect(Math.abs(fit.width - fit.column), 'the tile grew past its grid column').toBeLessThan(1)
 })
