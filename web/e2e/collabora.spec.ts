@@ -108,3 +108,61 @@ test.describe('Collabora editing (spec §6, §12.3 E3)', () => {
       .toContain('EditWopi')
   })
 })
+
+// The editor page against the REAL Collabora (layout spec 2026-09-29). editor-layout.spec.ts drives the
+// page with a stub; this is the one place that proves the real product speaks the same protocol: the
+// handshake completes (PostMessageOrigin matches the page), typing flips
+// the status, and Done saves the edit before it leaves.
+test.describe('Collabora editor page (layout spec)', () => {
+  test.setTimeout(4 * 60_000)
+
+  test('real Collabora: status, Done saves the edit and an unchanged Done makes no version', async ({
+    signedIn: page,
+  }) => {
+    const documentId = await createDocument(page, 'Real Editor Page')
+    const versionId = await uploadVersion(page, documentId, 'base.docx')
+    const editWopiCount = async () => {
+      const res = await page.request.get(`/api/v1/documents/${documentId}/versions`)
+      const { items } = (await res.json()) as { items: { source: string }[] }
+      return items.filter((v) => v.source === 'EditWopi').length
+    }
+
+    await page.goto(`/versions/${versionId}/edit`)
+    const status = page.getByTestId('editor-status')
+    // "Saved" only appears after Collabora's Document_Loaded reached this page: the whole handshake.
+    await expect(status, 'no PostMessage from Collabora: check PostMessageOrigin vs the page origin').toHaveText(
+      'Saved',
+      { timeout: EDITOR_TIMEOUT },
+    )
+    const editor = page.frameLocator('[data-testid="editor-frame"]')
+    // CODE's welcome slideshow shows once per browser profile per Collabora update, and every Playwright
+    // run is a fresh profile. Same bounded dismissal as the test above.
+    const welcomeFrame = editor.locator('iframe.iframe-welcome-modal')
+    await welcomeFrame.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {})
+    if (await welcomeFrame.isVisible().catch(() => false)) {
+      const welcome = editor.frameLocator('iframe.iframe-welcome-modal')
+      await welcome.locator('#slide-3-indicator').click()
+      await welcome.locator('#slide-3-button').click()
+      await welcomeFrame.waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {})
+    }
+
+    // Unchanged Done: DontSaveIfUnmodified, so no new version.
+    await page.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`), { timeout: 30_000 })
+    expect(await editWopiCount()).toBe(0)
+
+    // Edit, then Done straight away: the save must land as a version.
+    await page.goto(`/versions/${versionId}/edit`)
+    await expect(status).toHaveText('Saved', { timeout: EDITOR_TIMEOUT })
+    await editor.locator('#document-container canvas').first().click()
+    await page.keyboard.type(`done-e2e-${Date.now()}`, { delay: 20 })
+    await expect(status).toHaveText('Unsaved changes', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`), { timeout: 30_000 })
+    await expect.poll(editWopiCount, { timeout: EDITOR_TIMEOUT, message: 'Done did not save the edit' }).toBe(1)
+    // And exactly one: a stray re-save of the unchanged document (the first Done) would land late, as a
+    // second version, since uploads are asynchronous.
+    await page.waitForTimeout(5_000)
+    expect(await editWopiCount()).toBe(1)
+  })
+})

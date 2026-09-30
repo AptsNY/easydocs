@@ -138,6 +138,10 @@ export type VersionRow = {
   summary: ChangeSummary | null
 }
 
+// GET /api/v1/versions/{vid}: the fields the editor page reads. `name` is the VERSION's optional name,
+// not the document's; the document name comes from GET /api/v1/documents/{id}.
+export type VersionDetail = { id: string; documentId: string; major: number; minor: number; revision: number }
+
 export type Paged<T> = { items: T[]; nextCursor: string | null }
 
 // POST /api/v1/documents:import -- the response names both the document AND the version its bytes

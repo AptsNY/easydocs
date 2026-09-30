@@ -8,6 +8,7 @@ using EasyDocs.Api.Data;
 using EasyDocs.Api.Domain;
 using EasyDocs.Api.Editing;
 using EasyDocs.Api.Tests;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -102,13 +103,42 @@ public class WopiHostTests : IClassFixture<ApiFactory>
         string[] wopiNames =
         [
             "BaseFileName", "Size", "OwnerId", "UserId", "UserFriendlyName", "UserCanWrite",
-            "Version", "SupportsLocks", "SupportsUpdate", "SupportsGetLock",
+            "Version", "SupportsLocks", "SupportsUpdate", "SupportsGetLock", "PostMessageOrigin",
         ];
         foreach (var name in wopiNames)
         {
             Assert.Contains($"\"{name}\"", raw);
             Assert.DoesNotContain($"\"{char.ToLowerInvariant(name[0])}{name[1..]}\"", raw);
         }
+    }
+
+    // PostMessageOrigin is what lets Collabora talk to the editor page (save status, save requests). It
+    // must be an ORIGIN, not PUBLIC_BASE_URL verbatim: Collabora compares it with the page's origin.
+    [Fact]
+    public async Task CheckFileInfo_names_the_app_origin_for_postmessage()
+    {
+        var c = await AuthedClientAsync();
+        var (sid, token) = await MintSessionAsync(c);
+
+        var raw = await _f.CreateClient().GetStringAsync($"/wopi/files/{sid}?access_token={token}");
+
+        Assert.Contains("\"PostMessageOrigin\":\"http://localhost\"", raw); // ApiFactory: PUBLIC_BASE_URL=http://localhost
+    }
+
+    // Unset PUBLIC_BASE_URL must never stop documents opening: the field is simply left out, and the
+    // editor page then gets no status messages.
+    [Fact]
+    public async Task CheckFileInfo_omits_PostMessageOrigin_when_PUBLIC_BASE_URL_is_unset()
+    {
+        var c = await AuthedClientAsync();
+        var (sid, token) = await MintSessionAsync(c);
+        using var host = _f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, cfg) =>
+            cfg.AddInMemoryCollection(new Dictionary<string, string?> { ["PUBLIC_BASE_URL"] = "" })));
+
+        var res = await host.CreateClient().GetAsync($"/wopi/files/{sid}?access_token={token}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.DoesNotContain("PostMessageOrigin", await res.Content.ReadAsStringAsync());
     }
 
     // Documents are named after the file they were ingested from ("… laundry lease.docx"), so appending
@@ -300,6 +330,27 @@ public class WopiHostTests : IClassFixture<ApiFactory>
         var query = System.Web.HttpUtility.ParseQueryString(new Uri(mint.EditorUrl).Query);
         var exp = new JwtSecurityTokenHandler().ReadJwtToken(mint.AccessToken).Payload.Expiration!.Value;
         Assert.Equal(exp * 1000L, long.Parse(query["access_token_ttl"]!));
+    }
+
+    // Collabora's own defaults open every document with the formatting sidebar and ruler taking a third
+    // of the width. The easydocs rail replaces the sidebar, so the editor URL asks for the tabbed ribbon
+    // with both off. ui_defaults only sets defaults: a user's own toggles in Collabora still win.
+    [Fact]
+    public async Task Editor_url_asks_collabora_for_the_tabbed_ribbon_without_sidebar()
+    {
+        var c = await AuthedClientAsync();
+        var docId = (await (await c.PostAsJsonAsync("/api/v1/documents", new { name = "Ui" }))
+            .Content.ReadFromJsonAsync<DocDto>())!.Id;
+        var part = new ByteArrayContent(BaseBytes);
+        part.Headers.ContentType = new MediaTypeHeaderValue(DocxMime);
+        var up = await c.PostAsync($"/api/v1/documents/{docId}/versions",
+            new MultipartFormDataContent { { part, "file", "l.docx" } });
+        var vid = (await up.Content.ReadFromJsonAsync<UploadDto>())!.VersionId;
+        var mint = (await (await c.PostAsync($"/api/v1/versions/{vid}/sessions", null))
+            .Content.ReadFromJsonAsync<EditorMintDto>())!;
+
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(mint.EditorUrl).Query);
+        Assert.Equal("UIMode=tabbed;TextSidebar=false;TextRuler=false", query["ui_defaults"]);
     }
 
     private record EditorMintDto(Guid SessionId, string EditorUrl, string AccessToken);
