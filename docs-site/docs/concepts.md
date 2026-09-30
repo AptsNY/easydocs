@@ -122,7 +122,7 @@ actually is — removed there, added here.
 
 Publishing marks a chosen version as a release, as **minor** or **major**, optionally with a publish
 name. Three things happen: the version is renumbered from the document counter, a **PDF is rendered**
-by a background worker (LibreOffice, out of process, with a timeout and retry), and the version appears
+by a background worker (Gotenberg, a separate service, with a timeout and retry), and the version appears
 on the **Major Versions** tab.
 
 A release number is final. A minor release can later be promoted to major (renumbering it once more);

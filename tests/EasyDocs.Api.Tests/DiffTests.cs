@@ -7,7 +7,9 @@ using EasyDocs.Api.Diffing;
 using EasyDocs.Api.Storage;
 using EasyDocs.Api.Tests;
 using EasyDocs.Api.Tests.Fixtures;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 public class DiffTests : IClassFixture<ApiFactory>
@@ -321,5 +323,27 @@ public class DiffTests : IClassFixture<ApiFactory>
 
         var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=pdf");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+    }
+
+    // One Gotenberg serves publish renders too, so format=pdf is metered per user (RateLimits.Render); the
+    // route's other formats are not.
+    [Fact]
+    public async Task Pdf_format_is_rate_limited_per_user_and_other_formats_are_not()
+    {
+        using var host = _f.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, cfg) =>
+            cfg.AddInMemoryCollection(new Dictionary<string, string?> { ["RateLimit:Render:PermitLimit"] = "1" })));
+        var c = host.CreateClient();
+        var email = $"rl-{Guid.NewGuid():N}@example.com";
+        var reg = await c.PostAsJsonAsync("/api/v1/auth/register",
+            new { email, displayName = "R", password = "pw-at-least-12", orgName = $"Org-{Guid.NewGuid():N}" });
+        reg.EnsureSuccessStatusCode();
+        var jwt = reg.Headers.GetValues("Set-Cookie").First(x => x.StartsWith("ed_session="))["ed_session=".Length..].Split(';')[0];
+        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        var (docId, v1, v2) = await BaseAndEditedAsync(c);
+        var pair = $"/api/v1/documents/{docId}/compare?from={v1}&to={v2}";
+
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync($"{pair}&format=pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await c.GetAsync($"{pair}&format=pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync($"{pair}&format=summary")).StatusCode);
     }
 }

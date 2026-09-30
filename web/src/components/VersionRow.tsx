@@ -40,8 +40,8 @@ export default function VersionRow({
           type="button"
           className="version-number link"
           data-testid="version-number"
-          aria-pressed={!!selected}
-          aria-label={`Show changes in ${version.number}`}
+          aria-current={selected ? 'true' : undefined}
+          aria-label={`Show ${version.number}`}
           onClick={() => onSelect(version)}
         >
           {version.number}

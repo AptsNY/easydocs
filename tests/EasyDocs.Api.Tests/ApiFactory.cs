@@ -19,7 +19,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // resource reaper when the run ends.
     private static readonly Lazy<Task<string>> Gotenberg = new(async () =>
     {
-        IContainer c = new ContainerBuilder("gotenberg/gotenberg:8")
+        // Same digest as deploy/compose (8.37.0), so the tests and the shipped stack cannot drift.
+        IContainer c = new ContainerBuilder(
+                "gotenberg/gotenberg@sha256:f29984bd1e226bf1b93ba90af06000afa8b315853e99d27b9aaa41b93f15c769")
             .WithPortBinding(3000, assignRandomHostPort: true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(r => r.ForPort(3000).ForPath("/health")))
             .Build();

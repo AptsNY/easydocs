@@ -34,3 +34,24 @@ test('selecting a version shows its changes as pages; a parentless version shows
     expect((await res.body()).subarray(0, 5).toString()).toBe('%PDF-')
   }
 })
+
+test('a version that cannot be shown as pages says so, with the redline as a download', async ({ signedIn: page }) => {
+  const documentId = await createDocument(page, 'Unrenderable')
+  await uploadVersion(page, documentId, 'base.docx')
+  // Not a real archive: the comparison cannot be made, so format=pdf is a 422 — which must never reach the
+  // viewer as raw problem+json.
+  const up = await page.request.post(`/api/v1/documents/${documentId}/versions`, {
+    multipart: {
+      file: {
+        name: 'broken.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: Buffer.from('PK\x03\x04not really a zip'),
+      },
+    },
+  })
+  expect(up.ok()).toBeTruthy()
+
+  await page.goto(`/documents/${documentId}`)
+  await expect(page.getByTestId('version-pdf-unavailable')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByTestId('version-pdf')).toHaveCount(0)
+})

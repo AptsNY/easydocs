@@ -43,7 +43,7 @@ public static class DocumentEndpoints
         g.MapGet("/{id:guid}/versions", ListVersions);
         g.MapPost("/{id:guid}/versions", Upload).DisableAntiforgery();
         g.MapPost("/{id:guid}/versions:import", Import).DisableAntiforgery();
-        g.MapGet("/{id:guid}/compare", Compare);
+        g.MapGet("/{id:guid}/compare", Compare).RequireRateLimiting(RateLimits.Render);
         g.MapPut("/{id:guid}/version-counter", SetVersionCounter);
         g.MapDelete("/{id:guid}", Trash);
         g.MapPost("/{id:guid}:restore", Restore);
@@ -735,14 +735,15 @@ public static class DocumentEndpoints
                 byte[]? bytes = null;
                 if (source is not null)
                 {
-                    if (fromSha == toSha && (await BlobMime.SniffAsync(blobs, source, ctx.RequestAborted)).Mime == BlobMime.Pdf)
+                    var mime = fromSha == toSha ? (await BlobMime.SniffAsync(blobs, source, ctx.RequestAborted)).Mime : BlobMime.Docx;
+                    if (mime == BlobMime.Pdf)
                     {
                         await using var own = await blobs.OpenReadAsync(source, ctx.RequestAborted);
                         using var buf = new MemoryStream();
                         await own.CopyToAsync(buf, ctx.RequestAborted);
                         bytes = buf.ToArray();
                     }
-                    else
+                    else if (mime == BlobMime.Docx) // an image or a spreadsheet is not worth a Gotenberg round trip
                     {
                         await using var docx = await blobs.OpenReadAsync(source, ctx.RequestAborted);
                         bytes = await pdf.RenderAsync(docx, ctx.RequestAborted);

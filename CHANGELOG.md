@@ -232,7 +232,9 @@ descriptions are **document** versions, produced by the versioning engine. They 
 
 - **PDFs are rendered by Gotenberg**, a separate service (`GOTENBERG_URL`), instead of LibreOffice inside
   the app image. The image is much smaller; a deployment now runs Gotenberg next to the app (compose: the
-  `gotenberg` service).
+  `gotenberg` service). **Deploy prerequisite:** production needs Gotenberg reachable at `GOTENBERG_URL`
+  (on Cloud Run, a sidecar at `http://localhost:3000`) *before* this image runs, or publications in the gap
+  exhaust their retries and have no PDF. The ECS rollback path needs the same.
 
 ## [1.1.0] - 2026-08-01
 

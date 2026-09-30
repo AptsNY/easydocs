@@ -56,8 +56,8 @@ Two things to set in `.env`:
   that took the quickstart literally signed its sessions with a secret published in this repository.)
 - **`POSTGRES_PASSWORD`** — anything non-placeholder.
 
-The stack is three containers: the app (with LibreOffice bundled for PDF rendering), PostgreSQL 16, and
-Collabora Online for in-browser editing.
+The stack is four containers: the app, PostgreSQL 16, Collabora Online for in-browser editing, and
+Gotenberg for PDF rendering.
 
 > **⚠️ Plain HTTP beyond localhost silently breaks login.** The session cookie is `Secure`, so a
 > browser only sends it over HTTPS — or to `localhost`, which is why the quickstart works. Serve
@@ -164,7 +164,7 @@ Worked end-to-end examples: [automation recipes](https://aptsny.github.io/easydo
 ## Tech
 
 ASP.NET Core (.NET 10) minimal APIs · PostgreSQL 16 · EF Core · React 19 + Vite 8 + react-router ·
-Collabora Online (WOPI) · LibreOffice for PDF · content-addressed filesystem blobs. One container for
+Collabora Online (WOPI) · Gotenberg for PDF · content-addressed filesystem blobs. One container for
 the app; the SPA is built into it and served from `wwwroot`.
 
 ## Docs
