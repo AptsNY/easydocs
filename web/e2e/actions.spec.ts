@@ -182,7 +182,9 @@ test('4. Download streams the file under the R8 name', async ({ signedIn: page }
   await seed(page, 'Down Load')
 
   const menu = await openMenu(page, '0.0.1')
-  const download = page.waitForEvent('download')
+  // Not just any download: headless Chromium has no PDF viewer, so the History page's redline frame
+  // (compare.pdf) arrives as a download too and can win the race.
+  const download = page.waitForEvent('download', (d) => d.suggestedFilename().endsWith('.docx'))
   await menu.getByRole('button', { name: 'Download' }).click()
 
   // R8: {orgSlug}__{Sanitized_Name}-v{M}.{m}.{r}.docx — the space in "Down Load" becomes an underscore.
