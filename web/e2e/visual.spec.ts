@@ -28,8 +28,10 @@ const masks = (page: Page) => [
   page.getByTestId('editor-frame'),
 ]
 
+// Soft: every screen in a test is still compared (and its actual image saved) after one differs, so a single
+// run shows every layout change, and a reference refresh gets every image at once.
 async function shot(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(name, {
+  await expect.soft(page).toHaveScreenshot(name, {
     fullPage: true,
     animations: 'disabled',
     caret: 'hide',
@@ -101,7 +103,7 @@ test('editor page', async ({ signedIn: page }) => {
   await expect(page.getByTestId('editor-bar')).toBeVisible()
   await expect(page.getByTestId('editor-rail')).toContainText('0.0.1')
   // The save status depends on whether Collabora answered in time; it is not layout.
-  await expect(page).toHaveScreenshot('editor-1280.png', {
+  await expect.soft(page).toHaveScreenshot('editor-1280.png', {
     animations: 'disabled',
     caret: 'hide',
     mask: [...masks(page), page.getByTestId('editor-status')],
