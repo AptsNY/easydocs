@@ -20,15 +20,15 @@ export default function RedlinePages({
   // costs nothing more.
   const [ok, setOk] = useState<boolean | null>(null)
   useEffect(() => {
-    let live = true
+    // Aborted when the pair changes: a superseded render stops in Gotenberg too (the server honours the
+    // request abort) and does not count against the per-user render limit for nothing.
+    const abort = new AbortController()
     setOk(null)
-    fetch(src, { credentials: 'same-origin' }).then(
-      (r) => live && setOk(r.ok),
-      () => live && setOk(false),
+    fetch(src, { credentials: 'same-origin', signal: abort.signal }).then(
+      (r) => setOk(r.ok),
+      () => !abort.signal.aborted && setOk(false),
     )
-    return () => {
-      live = false
-    }
+    return () => abort.abort()
   }, [src])
 
   if (ok === null) return <p className="muted">Rendering the pages…</p>

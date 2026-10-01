@@ -48,7 +48,9 @@ export default function Compare() {
       },
       (e: unknown) => setError(problemText(e, 'Could not load this document’s versions.')),
     )
-    // Read once on arrival: after that the pickers own the pair.
+    // Read once on arrival: after that the pickers own the pair. Adding `params` here would re-apply the
+    // URL over the reader's own picker choices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   // 422 = this pair cannot be compared (the same answer ?format=docx and pdf give), shown as such rather
@@ -70,7 +72,10 @@ export default function Compare() {
         (e: unknown) => {
           if (!live) return
           setCounts(null)
-          if (e instanceof ApiError && e.status === 422) setComparable(false)
+          if (e instanceof ApiError && e.status === 422) {
+            setError('')
+            setComparable(false)
+          }
           else setError(problemText(e, 'Could not compare these versions.'))
         },
       )
