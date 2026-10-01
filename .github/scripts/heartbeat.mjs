@@ -14,9 +14,10 @@ const FIXTURES = new URL('../../web/e2e/fixtures/', import.meta.url)
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const DOC_NAME = 'Heartbeat'
 
+// Not configured yet is not an outage: warn and pass, so an unset secret never opens hourly issues.
 if (!email || !password) {
-  console.error('HEARTBEAT_EMAIL and HEARTBEAT_PASSWORD must be set')
-  process.exit(2)
+  console.log('::warning::heartbeat not configured: set the HEARTBEAT_EMAIL and HEARTBEAT_PASSWORD secrets')
+  process.exit(0)
 }
 
 let auth = {}
@@ -63,14 +64,22 @@ await step('sign in', async () => {
 })
 
 let docId
+// Seeds whatever is missing — the document, or versions someone removed — so a half-finished seed or a
+// trashed version heals on the next run instead of failing every hour.
 await step('find (or seed) the heartbeat document', async () => {
   const page = await call('GET', `/api/v1/documents?q=${encodeURIComponent(DOC_NAME)}&limit=10`)
   docId = page.items.find((d) => d.name === DOC_NAME)?.id
-  if (docId) return 'found'
-  docId = (await call('POST', '/api/v1/documents', { body: { name: DOC_NAME }, expect: 201 })).id
-  await upload(docId, 'base.docx')
-  await upload(docId, 'edited.docx')
-  return 'seeded'
+  let seeded = 0
+  if (!docId) {
+    docId = (await call('POST', '/api/v1/documents', { body: { name: DOC_NAME }, expect: 201 })).id
+    seeded++
+  }
+  const { items } = await call('GET', `/api/v1/documents/${docId}/versions?limit=2`)
+  for (const file of ['base.docx', 'edited.docx'].slice(items.length)) {
+    await upload(docId, file)
+    seeded++
+  }
+  return seeded ? `seeded ${seeded} item(s)` : 'found'
 })
 
 let from, to

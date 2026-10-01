@@ -53,7 +53,7 @@ export default function EditorRail({ documentId, versionId, versions, tick }: Pr
               {versions.data?.slice(0, 8).map((v) => (
                 <li key={v.id}>
                   <span className="version-number">{v.number}</span> {v.createdByName} ·{' '}
-                  {new Date(v.createdAt).toLocaleString()}
+                  <time dateTime={v.createdAt}>{new Date(v.createdAt).toLocaleString()}</time>
                 </li>
               ))}
             </ul>

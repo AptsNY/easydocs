@@ -1,5 +1,16 @@
 import type { Page } from '@playwright/test'
-import { test, expect, createDocument, uploadVersion } from './fixtures'
+import { test as base, expect, createDocument, uploadVersion, type Account } from './fixtures'
+
+// The org name and email sit in the header and the roster. Masked, but a mask does not stop a longer
+// string moving its neighbours, so here they have a FIXED length: a fixed org name and a 13-digit stamp.
+const test = base.extend<{ account: Account }>({
+  account: async ({ request }, use) => {
+    const account = { email: `v${Date.now()}@example.com`, password: 'pw-at-least-12', orgName: 'Visual Tests' }
+    const res = await request.post('/api/v1/auth/register', { data: { ...account, displayName: 'E2E User' } })
+    expect(res.ok(), `register failed: ${res.status()}`).toBeTruthy()
+    await use(account)
+  },
+})
 
 // Visual regression: the key screens, compared pixel-for-pixel with approved reference images. Every layout
 // bug of the 2026-09-30 week (names out of their tiles, a publish badge over Actions, the Members panel
@@ -37,7 +48,7 @@ async function shot(page: Page, name: string) {
     caret: 'hide',
     mask: masks(page),
     // Antialiasing differs by a few pixels between otherwise identical runs; a layout change moves far more.
-    maxDiffPixelRatio: 0.01,
+    maxDiffPixelRatio: 0.005,
   })
 }
 
@@ -107,6 +118,6 @@ test('editor page', async ({ signedIn: page }) => {
     animations: 'disabled',
     caret: 'hide',
     mask: [...masks(page), page.getByTestId('editor-status')],
-    maxDiffPixelRatio: 0.01,
+    maxDiffPixelRatio: 0.005,
   })
 })

@@ -33,18 +33,20 @@ jobs:
         with:
           node-version: 20
 
+      # A step timeout marks the step failed (a job timeout would end it "cancelled" and skip the issue).
       - name: Heartbeat against production
         id: beat
+        timeout-minutes: 6
         env:
           HEARTBEAT_BASE_URL: https://easydocs.aptsny.net
           HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL }}
           HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD }}
         run: |
           set -o pipefail
-          node .github/scripts/heartbeat.mjs | tee heartbeat.txt
+          node .github/scripts/heartbeat.mjs 2>&1 | tee heartbeat.txt
 
       - name: Open or update the heartbeat issue
-        if: failure()
+        if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
