@@ -118,7 +118,7 @@ test('a service account keeps showing Owner on a document it created', async ({
   })
   expect(added.ok(), `add failed: ${added.status()} ${await added.text()}`).toBeTruthy()
 
-  await owner.goto(`/documents/${docId}`)
+  await owner.goto(`/documents/${docId}/members`)
   const row = owner.locator(`[data-testid="member-row"][data-email="${svc.email}"]`)
   await expect(row.getByTestId('member-role')).toHaveValue('Owner')
 })

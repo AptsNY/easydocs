@@ -85,3 +85,22 @@ test('a long publish name stays inside its row and clear of Actions', async ({ s
   expect(fit.badgeRight, 'the badge runs past the row').toBeLessThanOrEqual(0)
   expect(fit.overlap, 'the badge overlaps Actions').toBe(false)
 })
+
+// Picking a version was only possible on its small number; a click anywhere else on the row did nothing.
+test('clicking anywhere on a row selects that version; Members has its own tab', async ({ signedIn: page }) => {
+  const documentId = await createDocument(page, 'Row Click')
+  const v1 = await uploadVersion(page, documentId, 'base.docx')
+  await uploadVersion(page, documentId, 'edited.docx')
+
+  await page.goto(`/documents/${documentId}`)
+  // The roster no longer shares the page with the version page.
+  await expect(page.getByTestId('members-panel')).toHaveCount(0)
+
+  await page.locator('[data-testid="version-row"][data-number="0.0.1"]').getByTestId('version-author').click()
+  await expect(page).toHaveURL(new RegExp(`\\?v=${v1}$`))
+  await expect(page.getByTestId('version-preview').getByRole('heading')).toHaveText('0.0.1')
+
+  await page.getByRole('link', { name: 'Members' }).click()
+  await expect(page).toHaveURL(new RegExp(`/documents/${documentId}/members$`))
+  await expect(page.getByTestId('members-panel').getByTestId('member-row')).toHaveCount(1)
+})

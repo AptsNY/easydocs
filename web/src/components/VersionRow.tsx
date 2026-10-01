@@ -25,6 +25,15 @@ export default function VersionRow({
   return (
     <article
       className={selected ? 'version-row version-row--selected' : 'version-row'}
+      // The whole row selects the version on the version page (the number button is the keyboard path);
+      // a click on anything interactive inside it (Actions, its menu, a link) keeps its own meaning.
+      onClick={
+        onSelect &&
+        ((e) => {
+          if ((e.target as HTMLElement).closest('a, button, select, input, summary, details, [role="menu"]')) return
+          onSelect(version)
+        })
+      }
       data-testid="version-row"
       data-number={version.number}
       data-branch-kind={version.branchKind}

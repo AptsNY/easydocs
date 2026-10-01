@@ -10,7 +10,6 @@ import {
   type VersionRow,
 } from '../api'
 import { useSession } from '../auth'
-import MembersPanel from '../components/MembersPanel'
 import { useSse } from '../useSse'
 
 // Spec §9's document console: the document's name, the tab strip, whichever tab is open, and the
@@ -44,7 +43,7 @@ export default function DocumentConsole() {
   // The caller's own role, resolved once for the whole console: the roster is the only place it is stated
   // (org role grants nothing on a document), and the Actions menu needs it per row.
   //
-  // ponytail: this is a second GET of /members, since MembersPanel reads the same roster for its own list.
+  // ponytail: this is a second GET of /members, since the Members tab reads the same roster for its own list.
   // Two cheap indexed reads beat threading a callback up out of the panel, which Task 12 owns. Upgrade path
   // when a third consumer appears: hoist the roster into this component and pass it down as a prop.
   useEffect(() => {
@@ -120,13 +119,12 @@ export default function DocumentConsole() {
           <NavLink to={`/documents/${id}/major-versions`}>Major Versions</NavLink>
           <NavLink to={`/documents/${id}/copies`}>Copies</NavLink>
           <NavLink to={`/documents/${id}/approvals`}>Approvals</NavLink>
+          <NavLink to={`/documents/${id}/members`}>Members</NavLink>
           <NavLink to={`/documents/${id}/audit`}>Audit</NavLink>
         </nav>
 
         <Outlet context={{ tick, myRole }} />
       </div>
-
-      <MembersPanel documentId={id} tick={tick} />
     </section>
   )
 }
