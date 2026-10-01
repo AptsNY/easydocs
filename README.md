@@ -42,7 +42,7 @@ docker compose up -d
 
 Then open **<http://localhost:8080>** and register. The first account you create also creates your
 organization, and you are its owner. Invite colleagues from **Settings → Organization** (or from a
-document's Members panel) and send them the invitation link; someone who belongs to more than one
+document's Members tab) and send them the invitation link; someone who belongs to more than one
 organization gets a switcher in the header.
 
 From there, the **[User guide](https://aptsny.github.io/easydocs/user-guide/)** walks every

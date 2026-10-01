@@ -26,11 +26,12 @@ export default function VersionRow({
     <article
       className={selected ? 'version-row version-row--selected' : 'version-row'}
       // The whole row selects the version on the version page (the number button is the keyboard path);
-      // a click on anything interactive inside it (Actions, its menu, a link) keeps its own meaning.
+      // a click on anything interactive inside it keeps its own meaning. `.actions` covers the trigger, its menu
+      // and the dialogs it opens: those are native <dialog>s rendered inside the row, so their clicks bubble here.
       onClick={
         onSelect &&
         ((e) => {
-          if ((e.target as HTMLElement).closest('a, button, select, input, summary, details, [role="menu"]')) return
+          if ((e.target as HTMLElement).closest('a, button, select, input, summary, details, .actions')) return
           onSelect(version)
         })
       }

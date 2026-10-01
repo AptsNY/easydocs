@@ -140,7 +140,7 @@ membership changes — who, what, when.
   shown once, at creation. A token acts as you, in the current organization, and can never exceed
   your role.
 - **Organization** — rename it, and manage **organization members** and their org roles. Inviting
-  someone here (or from a document's Members panel) produces the invitation link you send them.
+  someone here (or from a document's Members tab) produces the invitation link you send them.
 - **Resetting someone's password** — each member row has **Reset password**, for owners (and for
   admins, against plain members). It produces a link that works **once** and expires in **an hour**,
   shown exactly once at creation. **easydocs does not email it — you send it**, the same as an

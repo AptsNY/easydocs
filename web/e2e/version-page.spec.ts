@@ -104,3 +104,22 @@ test('clicking anywhere on a row selects that version; Members has its own tab',
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}/members$`))
   await expect(page.getByTestId('members-panel').getByTestId('member-row')).toHaveCount(1)
 })
+
+// The Actions menu and its dialogs are rendered inside the row, so their clicks bubble to it; working in
+// another row's dialog must not change which version the page shows.
+test('clicks inside a row’s Actions dialog do not select that row', async ({ signedIn: page }) => {
+  const documentId = await createDocument(page, 'Dialog Click')
+  await uploadVersion(page, documentId, 'base.docx')
+  const v2 = await uploadVersion(page, documentId, 'edited.docx')
+
+  await page.goto(`/documents/${documentId}?v=${v2}`)
+  const older = page.locator('[data-testid="version-row"][data-number="0.0.1"]')
+  await older.getByRole('button', { name: 'Actions' }).click()
+  await older.getByRole('button', { name: 'Name' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByText('Version name').click() // the label, not the input
+  await dialog.getByRole('heading').click()
+
+  await expect(page).toHaveURL(new RegExp(`\\?v=${v2}$`))
+  await expect(page.getByTestId('version-preview').getByRole('heading')).toHaveText('Changes in 0.0.2')
+})
