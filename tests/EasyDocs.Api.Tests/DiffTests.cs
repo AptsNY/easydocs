@@ -295,6 +295,11 @@ public class DiffTests : IClassFixture<ApiFactory>
         var c = await AuthedClientAsync();
         var (docId, v1, v2) = await BaseAndEditedAsync(c);
 
+        // The .docx redline is a named attachment, so a plain link saves "redline.docx", not "compare".
+        var docx = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={v1}&to={v2}&format=docx");
+        Assert.Equal(HttpStatusCode.OK, docx.StatusCode);
+        Assert.Equal("redline.docx", docx.Content.Headers.ContentDisposition?.FileNameStar ?? docx.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
+
         foreach (var (from, to) in new[] { (v1, v2), (v1, v1) })
         {
             var res = await c.GetAsync($"/api/v1/documents/{docId}/compare?from={from}&to={to}&format=pdf");

@@ -3,6 +3,7 @@ import { Link, useOutletContext, useParams, useSearchParams } from 'react-router
 import { api, problemText, type DocRole, type Paged, type VersionRow as Version } from '../api'
 import Row from '../components/VersionRow'
 import RevisionGraph from '../components/RevisionGraph'
+import RedlinePages from '../components/RedlinePages'
 
 // Two renderings of the same page of versions: the indented list (spec §9, the default the
 // conformance suite asserts) and the graphical DAG (issue #13), behind a toggle. Merging stays a
@@ -156,27 +157,9 @@ type RowProps = {
   onSelect?: (v: Version) => void
 }
 
-// The selected version's changes against its parent, as real pages (redline docx -> Gotenberg -> PDF), in the
-// browser's own PDF viewer: thumbnails, zoom, find and print come free. A version with no parent shows itself.
+// The selected version's changes against its parent, as real pages. A version with no parent shows itself.
 function VersionPreview({ documentId, version }: { documentId: string; version: Version }) {
-  const from = version.parentVersionId ?? version.id
-  const src = `/api/v1/documents/${documentId}/compare?from=${from}&to=${version.id}&format=pdf`
   const heading = version.parentVersionId ? `Changes in ${version.number}` : version.number
-  // One probe before framing it: a failure (422, Gotenberg down, a pair that cannot be compared) would
-  // otherwise show raw problem+json inside the viewer. A 200 is cached (immutable), so the frame's own load
-  // costs nothing more.
-  const [ok, setOk] = useState<boolean | null>(null)
-  useEffect(() => {
-    let live = true
-    setOk(null)
-    fetch(src, { credentials: 'same-origin' }).then(
-      (r) => live && setOk(r.ok),
-      () => live && setOk(false),
-    )
-    return () => {
-      live = false
-    }
-  }, [src])
   return (
     <section className="version-preview" data-testid="version-preview" aria-label={heading}>
       <h4>{heading}</h4>
@@ -185,34 +168,7 @@ function VersionPreview({ documentId, version }: { documentId: string; version: 
           <Link to={`/documents/${documentId}/approvals`}>Request approvals</Link>
         </p>
       )}
-      {ok === false && (
-        <p data-testid="version-pdf-unavailable">
-          These versions could not be shown as pages.{' '}
-          {version.parentVersionId && (
-            <a href={src.replace('format=pdf', 'format=docx')}>Download the redline (.docx)</a>
-          )}
-        </p>
-      )}
-      {ok === null && <p className="muted">Rendering the pages…</p>}
-      {ok && (
-        <>
-          {/* key: a new version is a new document, not a navigation inside the old viewer.
-              #navpanes=0&view=FitH: the viewer's thumbnail strip starts closed and the page fits the frame's width,
-              or the one thing this frame is for comes up at a third of its size. */}
-          <iframe
-            key={src}
-            className="version-pdf"
-            data-testid="version-pdf"
-            title={heading}
-            src={`${src}#navpanes=0&view=FitH`}
-          />
-          <p className="muted">
-            <a href={src} target="_blank" rel="noreferrer">
-              Open the pages in a new tab
-            </a>
-          </p>
-        </>
-      )}
+      <RedlinePages documentId={documentId} from={version.parentVersionId ?? version.id} to={version.id} title={heading} />
     </section>
   )
 }

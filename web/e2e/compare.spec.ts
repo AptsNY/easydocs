@@ -5,16 +5,16 @@ import { test, expect, createDocument, uploadVersion } from './fixtures'
 // two versions even though nobody turned Track Changes on.
 //
 // Two things are load-bearing here and both are asserted rather than assumed:
-//   1. The redline HTML is produced by WmlComparer from a user-supplied .docx, so it must render inside a
-//      sandboxed iframe and NEVER in the app's own DOM. Test 2 proves the app document contains no
-//      <ins>/<del> of its own while the frame does.
+//   1. The redline is drawn as real pages (format=pdf: the WmlComparer redline through Gotenberg) in the
+//      browser's PDF viewer, and never as markup in the app's own DOM. Test 2 asserts the frame loads that
+//      pair as a PDF and the app document holds no <ins>/<del> of its own.
 //   2. `moves` and `formatChanges` are permanently 0 (WmlComparer only classifies Inserted/Deleted), so
 //      the screen must not present them as counters. Test 3 asserts they are absent.
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 const summary = (page: Page) => page.getByTestId('compare-summary')
-const frame = (page: Page) => page.getByTestId('redline-frame')
+const frame = (page: Page) => page.getByTestId('version-pdf')
 
 async function seed(page: Page, name: string, fixtures: string[]) {
   const documentId = await createDocument(page, name)
@@ -64,29 +64,31 @@ test('1. the compare screen offers a from and a to picker listing this document�
   }
 })
 
-test('2. the redline renders inside an iframe and never in the app’s own DOM', async ({
+test('2. the redline renders as pages in a PDF frame and never in the app’s own DOM', async ({
   signedIn: page,
 }) => {
   const { documentId, ids } = await seed(page, 'Redline', ['base.docx', 'edited.docx'])
   await compare(page, documentId, ids[0], ids[1])
 
-  await expect(frame(page)).toBeVisible()
-  // edited.docx adds " EDITED" and a "Delta" paragraph to base.docx, so the redline has real insertions.
-  const inside = page.frameLocator('[data-testid="redline-frame"]').locator('ins')
-  await expect(inside.first()).toContainText('EDITED')
-  // And it reads as a REDline: the frame carries its own stylesheet (the cached HTML has none).
-  await expect(inside.first()).toHaveCSS('color', 'rgb(179, 38, 30)')
+  await expect(frame(page)).toHaveAttribute(
+    'src',
+    new RegExp(`compare\\?from=${ids[0]}&to=${ids[1]}&format=pdf#`),
+  )
+  const res = await page.request.get(`/api/v1/documents/${documentId}/compare?from=${ids[0]}&to=${ids[1]}&format=pdf`)
+  expect(res.headers()['content-type']).toContain('application/pdf')
+  expect((await res.body()).subarray(0, 5).toString()).toBe('%PDF-')
 
-  // The proof it is not inlined: the app document itself has no redline markup. A locator does not
-  // pierce a frame boundary, so this counts only the page's own elements.
+  // Untrusted document content never becomes markup in the app's DOM (the old HTML redline's XSS rule).
   await expect(page.locator('ins')).toHaveCount(0)
   await expect(page.locator('del')).toHaveCount(0)
-  await expect(page.locator('.redline')).toHaveCount(0)
+})
 
-  // Sandboxed, and without allow-scripts — untrusted document markup must not be able to run anything.
-  const sandbox = await frame(page).getAttribute('sandbox')
-  expect(sandbox).not.toBeNull()
-  expect(sandbox).not.toContain('allow-scripts')
+test('2b. ?from=&to= in the link opens that pair', async ({ signedIn: page }) => {
+  const { documentId, ids } = await seed(page, 'Linked pair', ['base.docx', 'edited.docx', 'edited-plus-echo.docx'])
+  await page.goto(`/documents/${documentId}/compare?from=${ids[0]}&to=${ids[2]}`)
+  await expect(page.getByLabel('From version')).toHaveValue(ids[0])
+  await expect(page.getByLabel('To version')).toHaveValue(ids[2])
+  await expect(frame(page)).toHaveAttribute('src', new RegExp(`from=${ids[0]}&to=${ids[2]}&format=pdf#`))
 })
 
 test('3. the numeric summary matches ?format=summary, and moves/formatChanges are not shown', async ({

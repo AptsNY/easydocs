@@ -718,7 +718,9 @@ public static class DocumentEndpoints
                     .Select(x => x.RedlineBlobSha256).FirstOrDefaultAsync();
                 if (redline is null)
                     return Problem.Of(422, "Comparison unavailable", "A redline document could not be produced.");
-                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), BlobMime.Docx);
+                // Named, so a plain link saves "redline.docx" rather than the route's name ("compare").
+                return Results.Stream(await blobs.OpenReadAsync(redline, ctx.RequestAborted), BlobMime.Docx,
+                    fileDownloadName: "redline.docx");
             }
             case "pdf":
             {
