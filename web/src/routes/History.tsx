@@ -78,27 +78,27 @@ export default function History() {
 
       {/* One toolbar line: the view toggle and the way to compare any two versions. */}
       <div className="history-toolbar">
-      <div className="view-toggle" role="group" aria-label="History view">
-        <button
-          type="button"
-          aria-pressed={view === 'list'}
-          onClick={() => setView('list')}
-        >
-          List
-        </button>
-        <button
-          type="button"
-          data-testid="graph-toggle"
-          aria-pressed={view === 'graph'}
-          onClick={() => setView('graph')}
-        >
-          Graph
-        </button>
-      </div>
+        <div className="view-toggle" role="group" aria-label="History view">
+          <button
+            type="button"
+            aria-pressed={view === 'list'}
+            onClick={() => setView('list')}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            data-testid="graph-toggle"
+            aria-pressed={view === 'graph'}
+            onClick={() => setView('graph')}
+          >
+            Graph
+          </button>
+        </div>
 
-      {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
-          not a console tab), so without this link nothing in the app reaches it. */}
-      <Link to={`/documents/${id}/compare`}>Compare versions</Link>
+        {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
+            not a console tab), so without this link nothing in the app reaches it. */}
+        <Link to={`/documents/${id}/compare`}>Compare versions</Link>
       </div>
 
       {error && (
