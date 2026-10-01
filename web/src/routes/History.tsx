@@ -73,31 +73,33 @@ export default function History() {
 
   return (
     <div data-testid="history">
-      <h3>History</h3>
+      {/* The tab already says History; the heading stays for screen readers only. */}
+      <h3 className="visually-hidden">History</h3>
 
-      <div className="view-toggle" role="group" aria-label="History view">
-        <button
-          type="button"
-          aria-pressed={view === 'list'}
-          onClick={() => setView('list')}
-        >
-          List
-        </button>
-        <button
-          type="button"
-          data-testid="graph-toggle"
-          aria-pressed={view === 'graph'}
-          onClick={() => setView('graph')}
-        >
-          Graph
-        </button>
-      </div>
+      {/* One toolbar line: the view toggle and the way to compare any two versions. */}
+      <div className="history-toolbar">
+        <div className="view-toggle" role="group" aria-label="History view">
+          <button
+            type="button"
+            aria-pressed={view === 'list'}
+            onClick={() => setView('list')}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            data-testid="graph-toggle"
+            aria-pressed={view === 'graph'}
+            onClick={() => setView('graph')}
+          >
+            Graph
+          </button>
+        </div>
 
-      {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
-          not a console tab), so without this link nothing in the app reaches it. */}
-      <p>
+        {/* The comparison view's only entry point: it is a route of its own (spec §9 lists it as a screen,
+            not a console tab), so without this link nothing in the app reaches it. */}
         <Link to={`/documents/${id}/compare`}>Compare versions</Link>
-      </p>
+      </div>
 
       {error && (
         <p role="alert" className="error">
@@ -162,12 +164,10 @@ function VersionPreview({ documentId, version }: { documentId: string; version: 
   const heading = version.parentVersionId ? `Changes in ${version.number}` : version.number
   return (
     <section className="version-preview" data-testid="version-preview" aria-label={heading}>
-      <h4>{heading}</h4>
-      {version.publishedKind && (
-        <p>
-          <Link to={`/documents/${documentId}/approvals`}>Request approvals</Link>
-        </p>
-      )}
+      <div className="version-preview-head">
+        <h4>{heading}</h4>
+        {version.publishedKind && <Link to={`/documents/${documentId}/approvals`}>Request approvals</Link>}
+      </div>
       <RedlinePages documentId={documentId} from={version.parentVersionId ?? version.id} to={version.id} title={heading} />
     </section>
   )
