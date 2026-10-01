@@ -1804,7 +1804,7 @@ button.danger:focus-visible {
 /* History as Simul's version page: the list is the timeline, the selected version's pages sit beside it. */
 .history-split {
   display: grid;
-  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 28rem) minmax(0, 1fr);
   gap: var(--s5);
   align-items: start;
 }
@@ -1818,8 +1818,38 @@ button.version-number {
   text-decoration: none;
 }
 
-.version-preview h4 {
-  margin-block: 0 var(--s2);
+/* The pages stay in view while the list scrolls, and fill the window's height. */
+.version-preview {
+  position: sticky;
+  top: var(--s4);
+}
+
+.version-preview-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin-block-end: var(--s2);
+}
+
+.version-preview-head h4 {
+  margin: 0;
+}
+
+.version-preview .version-pdf {
+  height: max(32rem, calc(100svh - 7rem));
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin-block-end: var(--s3);
+}
+
+.history-toolbar .view-toggle {
+  margin: 0;
 }
 
 /* Paper, like the editor and the redline: white, a hairline, never tinted by the theme. */
@@ -1834,14 +1864,12 @@ button.version-number {
   border-radius: 4px;
 }
 
-/* Beside the preview the list is a narrow column, so its rows take the phone shape: Actions drops under the
-   body, and the meta line separates by space (a '·' that wraps to a line start reads as a bullet). */
+/* Beside the preview the list is a column: rows keep number | body | Actions on one band (badges wrap inside
+   the body, so nothing runs into Actions), sit a little tighter, and the meta line separates by space (a '·'
+   that wraps to a line start reads as a bullet). */
 .history-split .version-row {
-  grid-template-columns: var(--gutter) minmax(0, 1fr);
-  grid-template-areas:
-    'number body'
-    '.      actions';
-  justify-items: start;
+  align-items: start;
+  padding-block: var(--s2);
 }
 
 .history-split .version-row {
@@ -1865,6 +1893,11 @@ button.version-number {
 }
 
 @media (max-width: 1099px) {
+  /* Stacked: no sticky preview, it would sit on top of the list. */
+  .version-preview {
+    position: static;
+  }
+
   .history-split {
     grid-template-columns: minmax(0, 1fr);
   }
