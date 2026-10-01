@@ -1840,3 +1840,10 @@ button.version-number {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* On the full-width Compare screen, fit-to-width would blow a page up to ~170%: keep it paper-sized. */
+.compare .version-pdf {
+  display: block;
+  max-width: 60rem;
+  margin-block-start: var(--s4);
+}

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
+import RedlinePages from '../components/RedlinePages'
 import {
   api,
   ApiError,
@@ -14,22 +15,8 @@ import {
 // The comparison / redline view (spec §7, §9) — a redline between any two versions of a document, even
 // though nobody ever turned Track Changes on. This is the product's headline feature.
 //
-// The API answers the same pair in three formats; this screen reads two of them (summary for the counts,
-// html for the rendering) and offers the third (docx) as a download.
-
-// The API returns 200 text/html with EXACTLY this body when WmlComparer cannot produce a comparison —
-// graceful degradation is deliberate (spec §12.2), so the failure has no status code to detect.
-//
-// ponytail: matching the sentinel string is the whole detection. Ceiling: a redline whose real content
-// happened to be this one paragraph would be misread as unavailable — harmless, because a document that
-// is one "Comparison unavailable." paragraph has no redline worth showing either. Upgrade path if it ever
-// matters: an `X-EasyDocs-Diff: unavailable` response header on the html branch.
-const UNAVAILABLE = '<p>Comparison unavailable.</p>'
-
-// Word's redline colours: insertions red-underlined, deletions red-struck. One string, prepended
-// to the frame's srcDoc.
-const REDLINE_STYLE =
-  '<style>ins{color:#b3261e;text-decoration:underline}del{color:#b3261e;text-decoration:line-through}</style>'
+// Counts come from ?format=summary; the redline itself is drawn as real pages (RedlinePages, format=pdf),
+// and the .docx redline is offered as a download.
 
 export default function Compare() {
   const { id } = useParams()
@@ -37,58 +24,54 @@ export default function Compare() {
   const [versions, setVersions] = useState<Version[]>([])
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [params] = useSearchParams()
   const [counts, setCounts] = useState<ChangeSummary | null>(null)
-  const [html, setHtml] = useState<string | null>(null)
+  // null = not known yet; false = this pair cannot be compared (summary 422).
+  const [comparable, setComparable] = useState<boolean | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   // Newest first, like the console: the pair a reader wants is usually "the last two".
   //
+  // ?from=&to= picks the pair when both are on the loaded page; otherwise the last two.
+  //
   // ponytail: page one only (25 versions). Ceiling: an older version is not in the pickers. Upgrade path
-  // when a document that long needs comparing: paginate the pickers, or accept ?from=&to= in the URL and
-  // let history rows link a specific pair.
+  // when a document that long needs comparing: paginate the pickers.
   useEffect(() => {
     if (!id) return
     api.get<Paged<Version>>(`/api/v1/documents/${id}/versions?order=desc`).then(
       (page) => {
         setVersions(page.items)
-        setTo(page.items[0]?.id ?? '')
-        setFrom((page.items[1] ?? page.items[0])?.id ?? '')
+        const has = (v: string | null) => (v && page.items.some((x) => x.id === v) ? v : null)
+        setTo(has(params.get('to')) ?? page.items[0]?.id ?? '')
+        setFrom(has(params.get('from')) ?? (page.items[1] ?? page.items[0])?.id ?? '')
       },
       (e: unknown) => setError(problemText(e, 'Could not load this document’s versions.')),
     )
+    // Read once on arrival: after that the pickers own the pair.
   }, [id])
 
-  // Counts and rendering are one screen state, so they are fetched together — "2 insertions" above a
-  // stale redline (or the reverse) would be worse than showing neither.
+  // 422 = this pair cannot be compared (the same answer ?format=docx and pdf give), shown as such rather
+  // than as a fabricated 0/0.
   useEffect(() => {
     if (!id || !from || !to) return
     let live = true
-    const pair = `/api/v1/documents/${id}/compare?from=${from}&to=${to}`
     setBusy(true)
-    Promise.all([
-      // 422 = this pair cannot be compared, the same answer ?format=docx gives. Not an error to shout
-      // about: the html leg below carries the explanation this screen shows, so the counts are simply
-      // absent rather than a fabricated 0/0.
-      api
-        .get<ChangeSummary>(pair)
-        .catch((e: unknown) =>
-          e instanceof ApiError && e.status === 422 ? null : Promise.reject(e),
-        ),
-      getRaw(`${pair}&format=html`).then((r) => r.text()),
-    ])
+    setComparable(null)
+    api
+      .get<ChangeSummary>(`/api/v1/documents/${id}/compare?from=${from}&to=${to}`)
       .then(
-        ([summary, rendered]) => {
+        (summary) => {
           if (!live) return
           setError('')
           setCounts(summary)
-          setHtml(rendered)
+          setComparable(true)
         },
         (e: unknown) => {
           if (!live) return
-          setError(problemText(e, 'Could not compare these versions.'))
           setCounts(null)
-          setHtml(null)
+          if (e instanceof ApiError && e.status === 422) setComparable(false)
+          else setError(problemText(e, 'Could not compare these versions.'))
         },
       )
       .finally(() => {
@@ -122,7 +105,7 @@ export default function Compare() {
     }
   }
 
-  const available = html !== null && html.trim() !== UNAVAILABLE
+  const available = comparable === true
   // Only meaningful when a comparison was actually produced: an unavailable comparison also reports 0/0,
   // and calling that "no changes" would be a lie.
   const unchanged = available && counts?.insertions === 0 && counts.deletions === 0
@@ -173,9 +156,9 @@ export default function Compare() {
         </p>
       )}
 
-      {busy && html === null && <p>Comparing…</p>}
+      {busy && comparable === null && <p>Comparing…</p>}
 
-      {html !== null && !available && (
+      {comparable === false && (
         <p data-testid="compare-unavailable" className="muted">
           A redline is unavailable for this pair — one of these versions could not be compared. Both are
           still downloadable from the history.
@@ -197,25 +180,11 @@ export default function Compare() {
             Download redline
           </button>
 
-          {/* SANDBOXED ON PURPOSE — do not "simplify" this into dangerouslySetInnerHTML.
-              This markup is generated by WmlComparer from a .docx a user uploaded, so it is untrusted
-              content. Inlining it would put attacker-controlled markup in the app's own DOM, on the
-              origin that holds the session — an XSS path straight through the headline feature.
-
-              sandbox="" is the narrowest possible value: every restriction stays on. The redline is
-              static HTML with no scripts, forms, links or plugins, so it needs none of the allow-*
-              tokens — in particular not allow-scripts, and not allow-same-origin (which together would
-              let the frame drop its own sandbox). srcDoc keeps it off the network entirely. */}
-          <iframe
-            data-testid="redline-frame"
-            className="editor-frame"
-            title="Redline comparison"
-            sandbox=""
-            /* The generated HTML is cached UN-styled in the blob store, so the frame document
-               carries its own stylesheet — prepending it here styles cached redlines too. Red is
-               the convention the feature is named after; the frame is always white, so one colour
-               serves both themes. */
-            srcDoc={REDLINE_STYLE + html}
+          <RedlinePages
+            documentId={id!}
+            from={from}
+            to={to}
+            title={`Changes from ${number(from)} to ${number(to)}`}
           />
         </>
       )}
