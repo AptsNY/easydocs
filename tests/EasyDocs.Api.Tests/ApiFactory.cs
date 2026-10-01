@@ -26,7 +26,14 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(r => r.ForPort(3000).ForPath("/health")))
             .Build();
         await c.StartAsync();
-        return $"http://{c.Hostname}:{c.GetMappedPublicPort(3000)}";
+        var url = $"http://{c.Hostname}:{c.GetMappedPublicPort(3000)}";
+        // /health answers before LibreOffice has ever started inside Gotenberg, and that first start is
+        // slow on a CI runner — slow enough that a test's first publish could burn both render attempts.
+        // One throwaway conversion here pays it once, before any test runs.
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        using var form = new MultipartFormDataContent { { new ByteArrayContent(Fixtures.DocxFixtures.Base()), "files", "warm.docx" } };
+        (await http.PostAsync($"{url}/forms/libreoffice/convert", form)).EnsureSuccessStatusCode();
+        return url;
     });
 
     private string _gotenbergUrl = "";

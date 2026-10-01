@@ -90,7 +90,7 @@ public class E06_Publish
 
         // The render is queued out-of-process; poll for the linked blob.
         string? pdfSha = null;
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // > the renderer's own worst case (2 × 30s)
         while (DateTime.UtcNow < deadline)
         {
             using var scope = _f.Services.CreateScope();

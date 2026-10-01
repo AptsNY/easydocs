@@ -101,7 +101,7 @@ public class PdfRenderTests : IClassFixture<ApiFactory>
         (await c.PostAsJsonAsync($"/api/v1/versions/{vid}/publish", new { kind = "minor" })).EnsureSuccessStatusCode();
 
         string? pdfSha = null;
-        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // > the renderer's own worst case (2 × 30s)
         while (DateTime.UtcNow < deadline)
         {
             using var scope = _f.Services.CreateScope();
