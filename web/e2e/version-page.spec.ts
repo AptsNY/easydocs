@@ -71,6 +71,8 @@ test('a long publish name stays inside its row and clear of Actions', async ({ s
   await page.goto(`/documents/${documentId}`)
   const row = page.locator('[data-testid="version-row"][data-number="1.0.0"]')
   await expect(row.getByTestId('version-badge')).toBeVisible()
+  // Actions renders once the caller's role arrives, which can land after the version list.
+  await expect(row.locator('.actions')).toBeVisible()
 
   const fit = await row.evaluate((el) => {
     const r = el.getBoundingClientRect()
