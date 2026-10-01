@@ -246,6 +246,7 @@ nav,
   height: 1px;
   margin: -1px;
   padding: 0;
+  border: 0; /* a hidden <input> keeps its border otherwise, and is a few px wide */
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
