@@ -10,6 +10,7 @@ import Copies from './routes/Copies'
 import Dashboard from './routes/Dashboard'
 import DocumentConsole from './routes/DocumentConsole'
 import Editor from './routes/Editor'
+import Members from './routes/Members'
 import History from './routes/History'
 import Login from './routes/Login'
 import MajorVersions from './routes/MajorVersions'
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="major-versions" element={<MajorVersions />} />
             <Route path="copies" element={<Copies />} />
             <Route path="approvals" element={<Approvals />} />
+            <Route path="members" element={<Members />} />
             <Route path="audit" element={<Audit />} />
           </Route>
           <Route path="/documents/:id/compare" element={<Compare />} />

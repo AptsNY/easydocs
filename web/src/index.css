@@ -1111,20 +1111,15 @@ a.button:hover {
 
 /* ----------------------------------------------------- the document console */
 
-/* History and the roster, on a grid for the same reason the dashboard is: two flex children with
-   min-widths guessed at where they would wrap. */
+/* One column: the roster has its own Members tab, so every tab (History's version page above all) gets
+   the full width. */
 .console {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 19rem;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s5) var(--s7);
   align-items: start;
 }
 
-@media (max-width: 980px) {
-  .console {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 .console-main {
   min-width: 0;
@@ -1828,7 +1823,10 @@ button.version-number {
 }
 
 /* Paper, like the editor and the redline: white, a hairline, never tinted by the theme. */
+/* Paper-sized at any screen width: fit-to-width on a wide frame blows a page up to ~170%. */
 .version-pdf {
+  display: block;
+  max-width: 60rem;
   width: 100%;
   height: 80svh;
   background: #fff;
@@ -1846,6 +1844,18 @@ button.version-number {
   justify-items: start;
 }
 
+.history-split .version-row {
+  cursor: pointer;
+}
+
+.history-split .version-row .actions {
+  cursor: auto;
+}
+
+.history-split .version-row:not(.version-row--selected):hover {
+  background: var(--paper-tint);
+}
+
 .history-split .version-meta {
   row-gap: var(--s1);
 }
@@ -1860,9 +1870,6 @@ button.version-number {
   }
 }
 
-/* On the full-width Compare screen, fit-to-width would blow a page up to ~170%: keep it paper-sized. */
 .compare .version-pdf {
-  display: block;
-  max-width: 60rem;
   margin-block-start: var(--s4);
 }

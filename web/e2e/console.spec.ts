@@ -150,7 +150,7 @@ test('merging a concurrent branch adds a version and loses nothing (E4)', async 
 
 test('the members panel lists members with their roles', async ({ signedIn: page, account }) => {
   const documentId = await createDocument(page, 'Members')
-  await page.goto(`/documents/${documentId}`)
+  await page.goto(`/documents/${documentId}/members`)
 
   await expect(panel(page).getByTestId('member-row')).toHaveCount(1)
   await expect(roleOf(memberRow(page, account.email))).toHaveValue('Owner')
@@ -160,7 +160,7 @@ test('adding an email from outside the org shows the invitation token exactly on
   signedIn: page,
 }) => {
   const documentId = await createDocument(page, 'Invite')
-  await page.goto(`/documents/${documentId}`)
+  await page.goto(`/documents/${documentId}/members`)
 
   await disclose(panel(page).getByTestId('add-member'))
   await panel(page).getByLabel('Email').fill(`outsider-${Date.now()}@example.com`)
@@ -182,7 +182,7 @@ test('the last owner cannot be removed or demoted, and the API detail is surface
   account,
 }) => {
   const documentId = await createDocument(page, 'Sole Owner')
-  await page.goto(`/documents/${documentId}`)
+  await page.goto(`/documents/${documentId}/members`)
   const me = memberRow(page, account.email)
 
   await me.getByRole('button', { name: /Remove/ }).click()
@@ -202,7 +202,7 @@ test('the last owner cannot be removed or demoted, and the API detail is surface
 
 test('an owner changes a second member’s role', async ({ signedIn: page, request, browser }) => {
   const documentId = await createDocument(page, 'Role Change')
-  await page.goto(`/documents/${documentId}`)
+  await page.goto(`/documents/${documentId}/members`)
   const { other, theirContext } = await addSecondMember(browser, page, request, 'Viewer')
   await theirContext.close()
 
@@ -223,10 +223,10 @@ test('a Viewer sees the roster but no mutating member controls (E12)', async ({
   browser,
 }) => {
   const documentId = await createDocument(page, 'Viewer View')
-  await page.goto(`/documents/${documentId}`)
+  await page.goto(`/documents/${documentId}/members`)
   const { other, theirContext, theirPage } = await addSecondMember(browser, page, request, 'Viewer')
 
-  await theirPage.goto(`/documents/${documentId}`)
+  await theirPage.goto(`/documents/${documentId}/members`)
   await expect(panel(theirPage).getByTestId('member-row')).toHaveCount(2)
   await expect(memberRow(theirPage, other.email).getByTestId('member-role')).toHaveText('Viewer')
 
