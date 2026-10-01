@@ -1,0 +1,68 @@
+# Hourly production heartbeat (.github/scripts/heartbeat.mjs): sign in, find the heartbeat document,
+# render its redline as pages through Gotenberg, open an editor session and reach Collabora — as one
+# dedicated account (secrets HEARTBEAT_EMAIL / HEARTBEAT_PASSWORD), API calls only.
+#
+# A failure opens one `heartbeat` issue (later failures comment on it); the next passing run closes it.
+name: heartbeat
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github/scripts
+            web/e2e/fixtures
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # A step timeout marks the step failed (a job timeout would end it "cancelled" and skip the issue).
+      - name: Heartbeat against production
+        id: beat
+        timeout-minutes: 6
+        env:
+          HEARTBEAT_BASE_URL: https://easydocs.aptsny.net
+          HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL }}
+          HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD }}
+        run: |
+          set -o pipefail
+          node .github/scripts/heartbeat.mjs 2>&1 | tee heartbeat.txt
+
+      - name: Open or update the heartbeat issue
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create heartbeat --color B60205 --description "Production heartbeat failing" 2>/dev/null || true
+          body=$(printf 'Production heartbeat failed at %s.\n\n```\n%s\n```\n\nRun: %s' \
+            "$(date -u +%FT%TZ)" "$(cat heartbeat.txt 2>/dev/null || echo 'no output')" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          n=$(gh issue list --label heartbeat --state open --json number -q '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"
+          else gh issue create --title "Production heartbeat failing" --label heartbeat --body "$body"; fi
+
+      - name: Close the heartbeat issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label heartbeat --state open --json number -q '.[].number'); do
+            gh issue close "$n" --comment "Recovered at $(date -u +%FT%TZ): $(tr '\n' ' ' < heartbeat.txt)"
+          done

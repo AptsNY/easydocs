@@ -128,7 +128,8 @@ test('5. Download redline yields a .docx', async ({ signedIn: page }) => {
   const { documentId, ids } = await seed(page, 'Redline Download', ['base.docx', 'edited.docx'])
   await compare(page, documentId, ids[0], ids[1])
 
-  const downloading = page.waitForEvent('download')
+  // Not the PDF frame, which headless Chromium delivers as a download of its own.
+  const downloading = page.waitForEvent('download', (d) => d.suggestedFilename().endsWith('.docx'))
   await page.getByRole('button', { name: 'Download redline' }).click()
   const download = await downloading
   expect(download.suggestedFilename()).toMatch(/\.docx$/)
