@@ -55,3 +55,31 @@ test('a version that cannot be shown as pages says so, with the redline as a dow
   await expect(page.getByTestId('version-pdf-unavailable')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByTestId('version-pdf')).toHaveCount(0)
 })
+
+// Production: a long publish name ("MAJOR · BRACKET ACCESS EQUIPMENT LOOP") in the narrow list beside the
+// preview ran over the Actions button and into the pages. Everything in a row stays inside the row, and the
+// badge never overlaps Actions.
+test('a long publish name stays inside its row and clear of Actions', async ({ signedIn: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const documentId = await createDocument(page, 'Long Publish Name')
+  const v1 = await uploadVersion(page, documentId, 'base.docx')
+  const res = await page.request.post(`/api/v1/versions/${v1}/publish`, {
+    data: { kind: 'major', name: 'Bracket access equipment loop and the docxtpl row tags fix' },
+  })
+  expect(res.ok()).toBeTruthy()
+
+  await page.goto(`/documents/${documentId}`)
+  const row = page.locator('[data-testid="version-row"][data-number="1.0.0"]')
+  await expect(row.getByTestId('version-badge')).toBeVisible()
+
+  const fit = await row.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const badge = el.querySelector('[data-testid="version-badge"]')!.getBoundingClientRect()
+    const actions = el.querySelector('.actions')!.getBoundingClientRect()
+    const overlap = !(badge.right <= actions.left || actions.right <= badge.left || badge.bottom <= actions.top || actions.bottom <= badge.top)
+    return { overflow: el.scrollWidth - el.clientWidth, badgeRight: badge.right - r.right, overlap }
+  })
+  expect(fit.overflow, 'row content is wider than the row').toBeLessThanOrEqual(0)
+  expect(fit.badgeRight, 'the badge runs past the row').toBeLessThanOrEqual(0)
+  expect(fit.overlap, 'the badge overlaps Actions').toBe(false)
+})
