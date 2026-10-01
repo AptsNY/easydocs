@@ -762,7 +762,8 @@ a.button:hover {
   font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  white-space: nowrap;
+  /* Publish names are free text ("MAJOR · BRACKET ACCESS EQUIPMENT LOOP"): wrap, never run out of the row. */
+  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------- sign-in */
@@ -1808,7 +1809,7 @@ button.danger:focus-visible {
 /* History as Simul's version page: the list is the timeline, the selected version's pages sit beside it. */
 .history-split {
   display: grid;
-  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
   gap: var(--s5);
   align-items: start;
 }
@@ -1833,6 +1834,24 @@ button.version-number {
   background: #fff;
   border: 1px solid var(--rule-strong);
   border-radius: 4px;
+}
+
+/* Beside the preview the list is a narrow column, so its rows take the phone shape: Actions drops under the
+   body, and the meta line separates by space (a '·' that wraps to a line start reads as a bullet). */
+.history-split .version-row {
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  grid-template-areas:
+    'number body'
+    '.      actions';
+  justify-items: start;
+}
+
+.history-split .version-meta {
+  row-gap: var(--s1);
+}
+
+.history-split .version-meta > * + *::before {
+  content: none;
 }
 
 @media (max-width: 1099px) {
