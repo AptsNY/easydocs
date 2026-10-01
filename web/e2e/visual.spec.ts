@@ -39,9 +39,15 @@ const masks = (page: Page) => [
   page.getByTestId('editor-frame'),
 ]
 
+// Masking hides a time but not its length, and toLocaleString() is longer at 10:00 than at 9:00 or on
+// 10/1 than 9/30 — enough to wrap the editor rail. Every <time> gets the same text before a shot.
+const fixTimes = (page: Page) =>
+  page.locator('time').evaluateAll((els) => els.forEach((e) => (e.textContent = '1/1/2026, 12:00:00 PM')))
+
 // Soft: every screen in a test is still compared (and its actual image saved) after one differs, so a single
 // run shows every layout change, and a reference refresh gets every image at once.
 async function shot(page: Page, name: string) {
+  await fixTimes(page)
   await expect.soft(page).toHaveScreenshot(name, {
     fullPage: true,
     animations: 'disabled',
@@ -113,6 +119,7 @@ test('editor page', async ({ signedIn: page }) => {
   await page.goto(`/versions/${v1}/edit`)
   await expect(page.getByTestId('editor-bar')).toBeVisible()
   await expect(page.getByTestId('editor-rail')).toContainText('0.0.1')
+  await fixTimes(page)
   // The save status depends on whether Collabora answered in time; it is not layout.
   await expect.soft(page).toHaveScreenshot('editor-1280.png', {
     animations: 'disabled',
