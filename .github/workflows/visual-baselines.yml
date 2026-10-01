@@ -1,0 +1,65 @@
+# Regenerate the visual-regression reference images (web/e2e/visual.spec.ts). Run it by hand on a branch
+# whose layout change is intended, download the artifact, commit the images, and CI compares against them.
+#
+# The images are made here, on the same runner image and the same steps as ci.yml's web-e2e, because font
+# rasterisation differs per OS: a reference made on a laptop would fail on every CI run.
+name: visual-baselines
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm --prefix web ci
+
+      - name: Boot the compose stack
+        working-directory: deploy/compose
+        run: |
+          cp .env.example .env
+          python3 - <<'PY'
+          import re, secrets, pathlib
+          p = pathlib.Path('.env')
+          p.write_text(re.sub(r'^Jwt__Secret=.*$', f'Jwt__Secret={secrets.token_urlsafe(48)}',
+                              p.read_text(), flags=re.M))
+          PY
+          docker compose up -d --build
+
+      - name: Wait for the stack to come up
+        run: |
+          for i in $(seq 1 90); do
+            curl -fsS http://localhost:8080/health >/dev/null 2>&1 && { echo "up after ${i}s"; exit 0; }
+            sleep 1
+          done
+          echo "::error::easydocs did not become healthy within 90s"; exit 1
+
+      - uses: ./.github/actions/apt-mirror
+      - name: Install Chromium
+        timeout-minutes: 8
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Render the reference images
+        working-directory: web
+        env:
+          E2E_BASE_URL: http://localhost:8080
+        run: npx playwright test e2e/visual.spec.ts --update-snapshots=all --workers=1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: web/e2e/visual.spec.ts-snapshots
+          retention-days: 7
